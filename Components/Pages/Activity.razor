@@ -1,0 +1,110 @@
+@page "/activity"
+@page "/activity/{TableName}/{RecordId:long}"
+@attribute [Authorize(Policy = Permissions.ReportsAuditView)]
+@inject AuditTrail Trail
+<PageTitle>Nhật ký hoạt động · TNM.Management</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="eyebrow">QUẢN TRỊ / TRUY VẾT</div>
+        <h1>Nhật ký hoạt động</h1>
+        <p>Ai tạo, sửa, xóa dữ liệu; giá trị trước và sau thay đổi. Lịch sử chỉ thêm, không cho chỉnh sửa hoặc xóa.</p>
+    </div>
+</div>
+@if(!string.IsNullOrWhiteSpace(error)) { <p class="feedback" role="alert">@error</p> }
+@if(recordSummary is not null)
+{
+    <section class="panel">
+        <div class="panel-head"><div>
+            <h2>Lịch sử bản ghi — @recordSummary.Table #@RecordId</h2>
+            <p>Tạo: @recordSummary.Creates · Chỉnh sửa: @recordSummary.Updates lần · Xóa: @recordSummary.Deletes lần · Lần gần nhất: @recordSummary.LastAt</p>
+        </div></div>
+    </section>
+}
+<section class="panel">
+    <div class="panel-head">
+        <div><h2>Tra cứu thay đổi</h2><p>@total sự kiện · Hiển thị tối đa 50 dòng/trang</p></div>
+        <div class="button-group">
+            <select class="search-input" @bind="table"><option value="">Tất cả bảng</option>@foreach(var item in tables){<option value="@item">@item</option>}</select>
+            <input class="search-input" @bind="key" placeholder="ID bản ghi, mã khóa" />
+            <input class="search-input" @bind="actorFilter" placeholder="Tài khoản / ID người sửa" />
+            <label class="catalog-page-size">Từ ngày <input type="date" @bind="fromDate" @bind:format="yyyy-MM-dd" /></label>
+            <label class="catalog-page-size">Đến ngày <input type="date" @bind="toDate" @bind:format="yyyy-MM-dd" /></label>
+            <select class="search-input" @bind="action"><option value="">Mọi thao tác</option><option value="CREATE">Tạo mới</option><option value="UPDATE">Cập nhật</option><option value="DELETE">Xóa mềm</option><option value="RESTORE">Khôi phục</option></select>
+            <button type="button" class="btn secondary" @onclick="Search">Tìm kiếm</button>
+            <button type="button" class="btn secondary" @onclick="Reset">Xóa lọc</button>
+        </div>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>THỜI GIAN UTC</th><th>TÀI KHOẢN</th><th>THAO TÁC</th><th>BẢNG</th><th>KHÓA BẢN GHI</th><th>CHI TIẾT</th></tr></thead>
+        <tbody>
+            @foreach(var row in results)
+            {
+                <tr @key="row.Id">
+                    <td>@row.At</td><td>@row.Actor</td><td><span class="chip">@ActionName(row.Action)</span></td>
+                    <td>@row.Table</td><td><code>@row.RecordKey</code></td>
+                    <td><button class="btn secondary btn-sm" @onclick="()=>selected = selected == row.Id ? null : row.Id">@(selected == row.Id ? "Đóng" : "Trước / Sau")</button></td>
+                </tr>
+                @if(selected == row.Id)
+                {
+                    <tr><td colspan="6">
+                        <div class="form-grid">
+                            <section><strong>Trước thao tác</strong><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto">@Pretty(row.Before)</pre></section>
+                            <section><strong>Sau thao tác</strong><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto">@Pretty(row.After)</pre></section>
+                        </div>
+                    </td></tr>
+                }
+            }
+        </tbody>
+    </table></div>
+    @if(results.Count == 0){<p class="panel-note">Không có sự kiện phù hợp bộ lọc.</p>}
+    <div class="catalog-pagination">
+        <span>Trang @(page) / @PageCount · @total sự kiện</span>
+        <div class="button-group">
+            <button class="btn secondary btn-sm" disabled="@(page<=1)" @onclick="()=>GoPage(page-1)">Trước</button>
+            <button class="btn secondary btn-sm" disabled="@(page>=PageCount)" @onclick="()=>GoPage(page+1)">Sau</button>
+        </div>
+    </div>
+</section>
+<section class="panel">
+    <div class="panel-head"><div><h2>Hoạt động ngoài dữ liệu</h2><p>Đăng nhập, đăng xuất và các thao tác xuất báo cáo được ghi riêng.</p></div></div>
+    <div class="table-wrap"><table><thead><tr><th>THỜI GIAN UTC</th><th>TÀI KHOẢN</th><th>HÀNH ĐỘNG</th><th>TÀI NGUYÊN</th></tr></thead><tbody>
+        @foreach(var x in recentActions){<tr><td>@x.At</td><td>@x.Actor</td><td>@x.Action</td><td>@x.Resource</td></tr>}
+    </tbody></table></div>
+</section>
+@code {
+    [Parameter] public string? TableName { get; set; }
+    [Parameter] public long RecordId { get; set; }
+    private string table="",key="",action="",actorFilter="",error="";
+    private DateTime? fromDate, toDate;
+    private int page=1;
+    private long total;
+    private long? selected;
+    private List<string> tables=[];
+    private List<ActivityRow> results=[];
+    private ActivitySummary? recordSummary;
+    private List<(long Id,string Actor,string Action,string Resource,string At)> recentActions=[];
+    private int PageCount => Math.Max(1,(int)Math.Ceiling(total/50d));
+    protected override void OnParametersSet()
+    {
+        if(!string.IsNullOrWhiteSpace(TableName)&&RecordId>0)
+        {
+            table=TableName;
+            key="{\"id\":"+RecordId+"}"; // match primary key in compact JSON
+            recordSummary=Trail.Summary(TableName,RecordId);
+        }
+        Reload();
+    }
+    private void Reload(){ try { tables=Trail.Tables().ToList();total=Trail.Count(table,key,action,actorFilter,DateFilter(fromDate),DateFilter(toDate));page=Math.Clamp(page,1,PageCount);results=Trail.Search(table,key,action,page,50,actorFilter,DateFilter(fromDate),DateFilter(toDate));recentActions=Trail.RecentActions();error=""; }catch(Exception ex){error=ex.Message;} }
+    private static string DateFilter(DateTime? value) => value?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+    private void Search(){page=1;selected=null;Reload();}
+    private void Reset(){table="";key="";action="";actorFilter="";fromDate=null;toDate=null;page=1;selected=null;recordSummary=null;Reload();}
+    private void GoPage(int target){page=Math.Clamp(target,1,PageCount);selected=null;Reload();}
+    private static string ActionName(string action)=>action switch {"CREATE"=>"Tạo","UPDATE"=>"Sửa","DELETE"=>"Xóa mềm","RESTORE"=>"Khôi phục",_=>action};
+    private static string Pretty(string json)
+    {
+        if(string.IsNullOrWhiteSpace(json))return "—";
+        try {using var doc=System.Text.Json.JsonDocument.Parse(json);return System.Text.Json.JsonSerializer.Serialize(doc.RootElement,new System.Text.Json.JsonSerializerOptions{WriteIndented=true});}
+        catch{return json;}
+    }
+}

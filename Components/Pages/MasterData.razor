@@ -1,0 +1,27 @@
+@page "/admin/master-data"
+@attribute [Authorize(Policy=Permissions.MasterDataManage)]
+@inject V6Ops Ops
+@inject PermissionGate Gate
+<PageTitle>Danh mục hệ thống · TNM.Management</PageTitle>
+<div class="page-head"><div><div class="eyebrow">CẤU HÌNH / DANH MỤC</div><h1>Danh mục nền tảng</h1><p>Quản lý nhân viên và mở danh mục dùng chung để khai báo nhà cung cấp, kho và sản phẩm.</p></div></div>
+<div class="stats-grid">
+<a class="panel catalog-shortcut" href="/catalog/suppliers"><h2>Nhà cung cấp →</h2><p>Tạo, sửa, tra cứu NCC phục vụ PO và bảo hành.</p></a>
+<a class="panel catalog-shortcut" href="/catalog/warehouses"><h2>Khu vực &amp; kho →</h2><p>Quản lý kho, khu vực và địa chỉ kho.</p></a>
+<a class="panel catalog-shortcut" href="/products"><h2>Danh mục sản phẩm →</h2><p>Thông tin sản phẩm chuẩn; tồn kho được quản lý theo kho tại phân hệ tồn kho.</p></a>
+<a class="panel catalog-shortcut" href="/catalog/installers"><h2>Nhân sự &amp; đơn giá lắp đặt →</h2><p>Khai báo họ tên kỹ thuật viên và đơn giá đi lắp theo từng sản phẩm.</p></a>
+</div>
+<section class="panel"><div class="panel-head"><div><h2>Nhân viên &amp; kỹ thuật viên</h2><p>Quản lý nhân sự phục vụ phân công lắp đặt.</p></div><button type="button" class="btn" @onclick="()=>showEmployee=!showEmployee">@(showEmployee?"Đóng":"+ Thêm nhân viên")</button></div>
+@if(showEmployee){<div class="form-grid"><label>Mã nhân viên<input @bind="employeeCode" placeholder="NV001" /></label>
+<label>Họ tên<input @bind="employeeName" /></label><label>Phòng ban<input @bind="department" /></label>
+<label>Điện thoại<input @bind="employeePhone" /></label></div>
+<div class="form-actions"><button type="button" class="btn" @onclick="AddEmployee">Lưu nhân viên</button><button type="button" class="btn secondary" @onclick="()=>showEmployee=false">Hủy</button></div>}
+@if(!string.IsNullOrWhiteSpace(employeeMessage)){<p class="feedback" role="status">@employeeMessage</p>}
+</section>
+@code {
+ private bool showEmployee;
+ private string employeeCode="",employeeName="",department="Kỹ thuật",employeePhone="",employeeMessage="";
+ private async Task AddEmployee(){try{var user=await Gate.RequireAsync(Permissions.MasterDataManage);
+ Ops.CreateEmployee(user,employeeCode,employeeName,department,employeePhone);
+ employeeCode=employeeName=employeePhone="";showEmployee=false;employeeMessage="Đã tạo nhân viên.";
+ }catch(Exception ex){employeeMessage="Lỗi: "+ex.Message;}}
+}

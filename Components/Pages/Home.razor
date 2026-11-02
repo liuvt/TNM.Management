@@ -1,0 +1,67 @@
+@attribute [Authorize(Policy = Permissions.DashboardView)]
+@page "/"
+@inject DemoDb Db
+@inject PermissionGate Gate
+<PageTitle>Dashboard · TNM</PageTitle>
+<div class="page-head"><div><div class="eyebrow">BẢNG ĐIỀU HÀNH</div><h1>Tổng quan hoạt động</h1><p>Dữ liệu xuyên suốt từ kho, đơn hàng, kích hoạt, gia hạn đến công nợ.</p></div>@if(canReports){<a class="btn secondary" href="/reports">Xem báo cáo →</a>}</div>
+@if(canRevenue||canProfit||canDebt){
+<div class="stats-grid">
+    @if(canRevenue){<div class="stat"><small>Doanh thu đã ghi nhận</small><strong>@Money(data.Revenue)</strong><span>Hóa đơn bán và gia hạn</span></div>}
+    @if(canDebt){<div class="stat"><small>Đã thu</small><strong>@Money(data.Received)</strong><span>Phân bổ thanh toán</span></div>}
+    @if(canDebt){<div class="stat"><small>Công nợ phải thu</small><strong class="orange">@Money(data.Unpaid)</strong><span>Phần hóa đơn chưa trả</span></div>}
+    @if(canProfit){<div class="stat"><small>Lợi nhuận gộp ước tính</small><strong>@Money(profit)</strong><span>Chưa phải báo cáo kế toán</span></div>}
+</div>
+}
+<div class="two-column">
+ @if(canStock || canActiveMetric || canRenewMetric){<section class="panel"><div class="panel-head"><div><h2>Vòng đời thiết bị</h2><p>Tổng hợp trạng thái IMEI</p></div>@if(canInventory){<a href="/inventory">Chi tiết ↗</a>}</div>
+  @if(canStock){<div class="metric-line"><span>Tồn kho</span><strong>@data.Stock</strong></div>
+  <div class="bar-track"><div style="width:@Percent(data.Stock)%" class="bar-fill"></div></div>
+  <div class="metric-line"><span>Đang ký gửi</span><strong>@data.Consigned</strong></div>
+  <div class="bar-track"><div style="width:@Percent(data.Consigned)%" class="bar-fill lavender"></div></div>}
+  @if(canActiveMetric){<div class="metric-line"><span>Đã kích hoạt</span><strong>@data.Active</strong></div>
+  <div class="bar-track"><div style="width:@Percent(data.Active)%" class="bar-fill green"></div></div>}
+  @if(canRenewMetric){<div class="panel-note">@data.Due30 thiết bị sẽ hết hạn trong 30 ngày tới.</div>}
+ </section>}
+ <section class="panel"><div class="panel-head"><div><h2>Điểm cần chú ý</h2><p>Những hạng mục cần hành động</p></div></div>
+  @if(canRenewMetric){<div class="attention"><span class="notice-icon orange-bg">!</span><div><strong>@data.Due30 thiết bị sắp gia hạn</strong><p>Danh sách còn tối đa 30 ngày tới hạn.</p></div>@if(canDevices){<a href="/devices">Xử lý</a>}</div>}
+  @if(canOrderMetric){<div class="attention"><span class="notice-icon blue-bg">↗</span><div><strong>@data.OpenOrders đơn hàng chưa kích hoạt</strong><p>Chờ điều phối kỹ thuật và lắp đặt.</p></div>@if(canOrders){<a href="/sales-orders">Xử lý</a>}</div>}
+  @if(canProducts){<div class="attention"><span class="notice-icon green-bg">▣</span><div><strong>@data.Customers khách hàng / @data.Products sản phẩm</strong><p>Danh mục quản lý và bảng giá riêng.</p></div>@if(canCustomers){<a href="/catalog/customers">Xem</a>}</div>}
+ </section>
+</div>
+<section class="panel"><div class="panel-head"><div><h2>Đi nhanh đến nghiệp vụ</h2><p>Quản lý dữ liệu và nghiệp vụ</p></div></div>
+<div class="quick-grid">
+ @if(canInput){<a href="/catalog/product-groups"><AppIcon Name="settings" Size="23" /><strong>Danh mục đầu vào</strong><span>NCC, SP, kho, KH, giá và chương trình</span></a>}
+ @if(canProducts){<a href="/products"><AppIcon Name="box" Size="23" /><strong>Sản phẩm</strong><span>Danh mục SKU và giá vốn</span></a><a href="/catalog/product-groups"><AppIcon Name="box" Size="23" /><strong>Nhóm sản phẩm</strong><span>Mỗi sản phẩm thuộc một nhóm</span></a>}
+ @if(canInventory){<a href="/catalog/warehouses"><AppIcon Name="warehouse" Size="23" /><strong>Danh sách kho</strong><span>Quản lý kho và địa chỉ</span></a>}
+ @if(canOrders){<a href="/sales-orders"><AppIcon Name="file" Size="23" /><strong>Đơn hàng</strong><span>Duyệt, điều phối và hoàn tất</span></a>}
+ @if(canCustomers){<a href="/catalog/customers"><AppIcon Name="box" Size="23" /><strong>Khách hàng & nhóm giá</strong><span>Nhóm khách và bảng giá</span></a>}
+ @if(canProducts){<a href="/catalog/suppliers"><AppIcon Name="box" Size="23" /><strong>Nhà cung cấp</strong><span>Danh sách đối tác nhập hàng</span></a>}
+ @if(canDevices){<a href="/devices"><AppIcon Name="device" Size="23" /><strong>Gia hạn thiết bị</strong><span>Ngày hết hạn và nguồn gia hạn</span></a>}
+</div></section>
+@code {
+ private DashboardVm data = new(0,0,0,0,0,0,0,0,0,0,0);
+ private long profit;
+ private bool canFinance,canReports,canProducts,canInventory,canOrders,canDevices,canCustomers,canInput;
+ private bool canRevenue,canProfit,canDebt,canStock,canOrderMetric,canActiveMetric,canRenewMetric;
+ protected override async Task OnInitializedAsync()
+ {
+   canFinance=await Gate.CanAsync(Permissions.FinanceView);
+   canReports=await Gate.CanAsync(Permissions.ReportsView);
+   canProducts=await Gate.CanAsync(Permissions.ProductsView);
+   canInput=await Gate.CanAsync(Permissions.MasterDataManage);
+   canInventory=await Gate.CanAsync(Permissions.InventoryView);
+   canOrders=await Gate.CanAsync(Permissions.OrdersView);
+   canDevices=await Gate.CanAsync(Permissions.DevicesView);
+   canCustomers=await Gate.CanAsync(Permissions.CustomersView);
+   canRevenue=await Gate.CanAsync(Permissions.DashboardRevenue);
+   canProfit=await Gate.CanAsync(Permissions.DashboardProfit);
+   canDebt=await Gate.CanAsync(Permissions.DashboardDebt);
+   canStock=await Gate.CanAsync(Permissions.DashboardStock);
+   canOrderMetric=await Gate.CanAsync(Permissions.DashboardOrders);
+   canActiveMetric=await Gate.CanAsync(Permissions.DashboardDevices);
+   canRenewMetric=await Gate.CanAsync(Permissions.DashboardRenewals);
+   data=Db.Dashboard();if(canProfit)profit=Db.ApproxGrossProfit();
+ }
+ private string Money(long v)=>v.ToString("N0")+" ₫";
+ private double Percent(long v)=>Math.Round(100.0*v/Math.Max(1,data.Stock+data.Consigned+data.Active),0);
+}

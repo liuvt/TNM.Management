@@ -1,0 +1,291 @@
+@page "/purchases"
+@attribute [Authorize(Policy = Permissions.PurchaseView)]
+@inject V6Ops Ops
+@inject PermissionGate Gate
+
+<PageTitle>Mua hàng NCC · TNM.Management</PageTitle>
+<div class="page-head">
+    <div>
+        <div class="eyebrow">PURCHASE / RECEIVING</div>
+        <h1>Mua hàng nhà cung cấp</h1>
+        <p>Chọn NCC, hàng hóa, kho và vị trí nhận để lập PO. Phiếu nhận hàng sẽ ghi tăng tồn theo số lượng.</p>
+    </div>
+    <div class="button-group">
+        <button type="button" class="btn secondary" @onclick="RefreshCatalogs">Làm mới danh mục</button>
+        @if (canManageSuppliers)
+        {
+            <a class="btn secondary" href="/catalog/suppliers">Quản lý NCC →</a>
+        }
+    </div>
+</div>
+<div class="crud-actionbar">@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Lập đơn mua":"+ Lập đơn mua")</button>}</div>
+
+
+
+
+@if (canCreate)
+{
+    <section class="panel edit-panel" hidden="@(!showCreate)">
+        <div class="panel-head">
+            <div>
+                <h2>Đặt hàng mới</h2>
+                <p>Hàng IMEI được nhập tại phân hệ Kho &amp; IMEI; trang này chỉ nhận hàng theo số lượng.</p>
+            </div>
+        </div>
+
+        @if (suppliers.Count == 0)
+        {
+            <div class="purchase-alert" role="status">
+                <strong>Chưa có nhà cung cấp.</strong>
+                <span>Database khởi tạo mới không tạo NCC giả. Vui lòng thêm NCC trước khi lập đơn mua.</span>
+                @if (canManageSuppliers)
+                {
+                    <button type="button" class="btn secondary btn-sm" @onclick="() => showSupplierForm = !showSupplierForm">
+                        @(showSupplierForm ? "Đóng nhập NCC" : "+ Thêm NCC tại đây")
+                    </button>
+                }
+                else
+                {
+                    <span>Liên hệ quản trị viên có quyền Danh mục nền để tạo NCC.</span>
+                }
+            </div>
+        }
+        else if (canManageSuppliers)
+        {
+            <div class="purchase-inline-action">
+                <span>@suppliers.Count nhà cung cấp đang hoạt động trong danh mục.</span>
+                <button type="button" class="btn secondary btn-sm" @onclick="() => showSupplierForm = !showSupplierForm">
+                    @(showSupplierForm ? "Đóng nhập NCC" : "+ Thêm NCC")
+                </button>
+            </div>
+        }
+
+        @if (canManageSuppliers && showSupplierForm)
+        {
+            <div class="purchase-add-supplier">
+                <h3>Thêm nhà cung cấp</h3>
+                <div class="form-grid">
+                    <label>Mã NCC <input @bind="newSupplierCode" placeholder="VD: NCC001" /></label>
+                    <label>Tên NCC <input @bind="newSupplierName" placeholder="Tên nhà cung cấp" /></label>
+                    <label>Điện thoại <input @bind="newSupplierPhone" placeholder="Không bắt buộc" /></label>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn" @onclick="AddSupplier">Lưu và chọn NCC</button>
+                    <span class="feedback" role="status">@supplierMessage</span>
+                </div>
+            </div>
+        }
+
+        @if (products.Count == 0)
+        {
+            <div class="purchase-alert" role="status">
+                <strong>Không có hàng hóa phù hợp.</strong>
+                <span>Đơn mua số lượng chỉ chọn SKU đang hoạt động, loại Hàng hóa và không quản lý IMEI. Kiểm tra ở <a href="/products">Danh mục sản phẩm</a>.</span>
+            </div>
+        }
+        @if (warehouses.Count == 0)
+        {
+            <div class="purchase-alert" role="status">
+                <strong>Không có kho được phép sử dụng.</strong>
+                <span>Kiểm tra phạm vi kho được cấp cho tài khoản tại phần Phân quyền kho.</span>
+            </div>
+        }
+        @if (warehouse > 0 && AvailableLocations.Count == 0)
+        {
+            <div class="purchase-alert" role="status">
+                <strong>Kho được chọn chưa có vị trí nhận hàng.</strong>
+                <span>Hãy tạo vị trí tại Kho số lượng trước khi lập PO.</span>
+            </div>
+        }
+
+        <div class="form-grid">
+            <label>Nhà cung cấp
+                <select @bind="supplier" disabled="@(suppliers.Count == 0)">
+                    <option value="0">— Chọn nhà cung cấp —</option>
+                    @foreach (var x in suppliers)
+                    {
+                        <option value="@x.Id">@x.Name</option>
+                    }
+                </select>
+            </label>
+            <label>Hàng hóa không IMEI
+                <select @bind="product" disabled="@(products.Count == 0)">
+                    <option value="0">— Chọn mã hàng —</option>
+                    @foreach (var x in products)
+                    {
+                        <option value="@x.Id">@x.Name</option>
+                    }
+                </select>
+            </label>
+            <label>Kho nhận
+                <select @bind="warehouse" @bind:after="OnWarehouseChanged" disabled="@(warehouses.Count == 0)">
+                    <option value="0">— Chọn kho —</option>
+                    @foreach (var x in warehouses)
+                    {
+                        <option value="@x.Id">@x.Code — @x.Name</option>
+                    }
+                </select>
+            </label>
+            <label>Vị trí nhận hàng
+                <select @key="warehouse" @bind="location" disabled="@(warehouse == 0 || AvailableLocations.Count == 0)">
+                    <option value="0">— Chọn vị trí —</option>
+                    @foreach (var x in AvailableLocations)
+                    {
+                        <option value="@x.Id">@x.Code — @x.Name</option>
+                    }
+                </select>
+            </label>
+            <label>Số lượng <input type="number" min="1" @bind="quantity" /></label>
+            <label>Giá nhập/đơn vị (VND) <input type="number" min="0" @bind="cost" /></label>
+            <label>Ghi chú <input @bind="note" placeholder="Thông tin chứng từ, đợt nhập..." /></label>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn" disabled="@(!CanSubmit)" @onclick="Create">+ Lập đơn mua</button>
+            <span class="feedback" role="status">@message</span>
+        </div>
+        @if (!CanSubmit)
+        {
+            <p class="purchase-help">Chọn đủ NCC, sản phẩm, kho và vị trí hợp lệ, đồng thời nhập số lượng lớn hơn 0 để lập PO.</p>
+        }
+    </section>
+}
+
+<section class="panel">
+    <div class="panel-head">
+        <div><h2>Danh sách đơn mua (PO)</h2><p>Phiếu chỉ được ghi tăng tồn khi bấm xác nhận nhận hàng.</p></div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Số PO</th><th>NCC</th><th>Kho</th><th>SKU</th><th>SL</th><th>Giá nhập</th><th>Trạng thái</th><th>Nhận hàng</th></tr></thead>
+            <tbody>
+                @foreach (var x in orders)
+                {
+                    <tr>
+                        <td><strong>@x.Code</strong></td><td>@x.Supplier</td><td>@x.Warehouse</td><td>@x.Sku</td><td>@x.Qty</td>
+                        <td>@x.Cost.ToString("N0")</td><td>@x.Status</td>
+                        <td>@if (canReceive && x.Status == "DRAFT")
+                            {
+                                <button type="button" class="btn btn-sm" @onclick="() => Receive(x.Id)">Xác nhận nhận đủ</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (orders.Count == 0)
+    {
+        <p class="purchase-help">Chưa có PO tại các kho bạn được phép xem.</p>
+    }
+    <p class="feedback" role="status">@receivedMessage</p>
+</section>
+
+@code {
+ private bool showCreate;
+ private void ToggleForm(string form){
+  showCreate = form=="showCreate" && !showCreate;
+ }
+
+    private long actor, supplier, product, warehouse, location, quantity = 1, cost;
+    private bool canCreate, canReceive, canManageSuppliers, showSupplierForm;
+    private string message = "", receivedMessage = "", note = "", supplierMessage = "";
+    private string newSupplierCode = "", newSupplierName = "", newSupplierPhone = "";
+    private List<Pick> suppliers = [], products = [];
+    private List<WarehousePick> warehouses = [];
+    private List<LocationPick> locations = [];
+    private List<PurchaseOrderRow> orders = [];
+
+    private List<LocationPick> AvailableLocations => locations.Where(x => x.WarehouseId == warehouse).ToList();
+    private bool CanSubmit => canCreate && supplier > 0 && suppliers.Any(x => x.Id == supplier)
+        && product > 0 && products.Any(x => x.Id == product)
+        && warehouse > 0 && warehouses.Any(x => x.Id == warehouse)
+        && location > 0 && AvailableLocations.Any(x => x.Id == location) && quantity > 0 && cost >= 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        actor = await Gate.RequireAsync(Permissions.PurchaseView);
+        canCreate = await Gate.CanAsync(Permissions.PurchaseCreate);
+        canReceive = await Gate.CanAsync(Permissions.PurchaseReceive);
+        canManageSuppliers = await Gate.CanAsync(Permissions.MasterDataManage);
+        RefreshCatalogs();
+        ReloadOrders();
+    }
+
+    private void RefreshCatalogs()
+    {
+        suppliers = Ops.Suppliers();
+        products = Ops.QuantityProducts();
+        warehouses = Ops.Warehouses(actor);
+        locations = Ops.Locations(actor);
+        if (!suppliers.Any(x => x.Id == supplier)) supplier = 0;
+        if (!products.Any(x => x.Id == product)) product = 0;
+        if (!warehouses.Any(x => x.Id == warehouse)) warehouse = 0;
+        if (!AvailableLocations.Any(x => x.Id == location))
+            location = AvailableLocations.FirstOrDefault()?.Id ?? 0;
+    }
+
+    private void OnWarehouseChanged()
+    {
+        // Khi đổi kho, không sử dụng ID vị trí còn sót của kho cũ.
+        location = AvailableLocations.FirstOrDefault()?.Id ?? 0;
+        message = "";
+    }
+
+    private void ReloadOrders() => orders = Ops.Purchases(actor);
+
+    private async Task AddSupplier()
+    {
+        try
+        {
+            var user = await Gate.RequireAsync(Permissions.MasterDataManage);
+            var oldIds = suppliers.Select(x => x.Id).ToHashSet();
+            Ops.CreateSupplier(user, newSupplierCode, newSupplierName, newSupplierPhone);
+            suppliers = Ops.Suppliers();
+            supplier = suppliers.FirstOrDefault(x => !oldIds.Contains(x.Id))?.Id ?? 0;
+            newSupplierCode = newSupplierName = newSupplierPhone = "";
+            supplierMessage = "Đã tạo và chọn nhà cung cấp.";
+            message = "Đã tạo NCC, vui lòng chọn thêm hàng hóa và kho nhận.";
+            showSupplierForm = false;
+        }
+        catch (Exception ex)
+        {
+            supplierMessage = ex.Message;
+        }
+    }
+
+    private async Task Create()
+    {
+        try
+        {
+            actor = await Gate.RequireAsync(Permissions.PurchaseCreate);
+            RefreshCatalogs();
+            if (!CanSubmit)
+                throw new InvalidOperationException("Vui lòng chọn đủ NCC, sản phẩm, kho và vị trí nhận hợp lệ.");
+            var id = Ops.CreatePurchase(actor, supplier, product, warehouse, location, quantity, cost, note);
+            ReloadOrders();
+            message = $"Đã tạo PO #{id}. Chưa nhập kho cho đến khi xác nhận nhận hàng.";
+            receivedMessage = "";
+            quantity = 1;
+            note = "";
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+        }
+    }
+
+    private async Task Receive(long id)
+    {
+        try
+        {
+            actor = await Gate.RequireAsync(Permissions.PurchaseReceive);
+            Ops.ReceivePurchase(actor, id);
+            ReloadOrders();
+            receivedMessage = "Đã nhận đủ và ghi tăng tồn kho.";
+        }
+        catch (Exception ex)
+        {
+            receivedMessage = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,137 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AuthRepository Accounts
+@inject NavigationManager Navigation
+
+<div class="shell">
+    @if (mobileMenuOpen)
+    {
+        <button type="button" class="mobile-scrim" aria-label="Đóng menu" @onclick="CloseMenu"></button>
+    }
+    <aside class="sidebar @(mobileMenuOpen ? "sidebar-open" : "")" aria-label="Điều hướng TNM">
+        <a class="brand" href="/" aria-label="TNM Management - Trang chủ">
+            <div class="brand-symbol" aria-hidden="true">
+                <svg width="35" height="35" viewBox="0 0 36 36" fill="none">
+                    <path d="M9 18h9l7-9M18 18l8 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="7" cy="18" r="4" fill="#fff" stroke="currentColor" stroke-width="3"/>
+                    <circle cx="27" cy="8" r="4" fill="#fff" stroke="currentColor" stroke-width="3"/>
+                    <circle cx="27" cy="28" r="4" fill="#fff" stroke="currentColor" stroke-width="3"/>
+                </svg>
+            </div>
+            <div class="brand-text"><strong>TNM<span>.</span>Management</strong><small>Workspace</small></div>
+        </a>
+        <div class="workspace-chip"><span class="workspace-dot"></span><span>Không gian quản lý TNM</span><AppIcon Name="chevron" Size="14" /></div>
+        <nav class="sidebar-nav" aria-label="Menu nghiệp vụ">
+            <AuthorizeView Context="nav">
+                <Authorized>
+                    @if (Accounts.HasPermission(nav.User, Permissions.DashboardView))
+                    {
+                        <div class="nav-heading">Tổng quan</div>
+                        <NavLink href="/" Match="NavLinkMatch.All"><AppIcon Name="dashboard" /> <span>Dashboard</span></NavLink>
+                    }
+                    <div class="nav-heading">Kinh doanh</div>
+                    @if (Accounts.HasPermission(nav.User, Permissions.ProductsView))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="box" /> <span>Sản phẩm</span></div>
+                        <NavLink class="nav-child" href="/catalog/product-groups"><span>Nhóm sản phẩm</span></NavLink>
+                        <NavLink class="nav-child" href="/products"><span>Sản phẩm</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="users" /> <span>Nhà cung cấp</span></div>
+                        <NavLink class="nav-child" href="/catalog/supplier-groups"><span>Nhóm NCC</span></NavLink>
+                        <NavLink class="nav-child" href="/catalog/suppliers"><span>Đơn vị NCC</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.CustomersView))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="users" /> <span>Khách hàng</span></div>
+                        <NavLink class="nav-child" href="/catalog/customer-groups"><span>Nhóm khách hàng</span></NavLink>
+                        <NavLink class="nav-child" href="/catalog/customers"><span>Thông tin khách hàng</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.PricesView))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="wrench" /> <span>Nhân sự lắp đặt</span></div>
+                        @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
+                        {
+                            <NavLink class="nav-child" href="/catalog/installers"><span>Khai báo nhân sự lắp</span></NavLink>
+                        }
+                        @if (Accounts.HasPermission(nav.User, Permissions.PricesView))
+                        {
+                            <NavLink class="nav-child" href="/catalog/installer-rates"><span>Đơn giá đi lắp theo SP</span></NavLink>
+                        }
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.PricesView))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="wallet" /> <span>Giá & chương trình</span></div>
+                        <NavLink class="nav-child" href="/catalog/buy-prices"><span>Bảng giá nhập NCC</span></NavLink>
+                        <NavLink class="nav-child" href="/catalog/sale-prices"><span>Bảng giá khách hàng</span></NavLink>
+                        <NavLink class="nav-child" href="/catalog/campaigns"><span>Chương trình ưu đãi</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.OrdersView)) { <NavLink href="/sales-orders"><AppIcon Name="file" /> <span>Đơn hàng & lắp đặt</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.PurchaseView)) { <NavLink href="/purchases"><AppIcon Name="cart" /> <span>Mua hàng NCC</span></NavLink> }
+                    <div class="nav-heading">Kho & thiết bị</div>
+                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="warehouse" /> <span>Khu vực & kho</span></div>
+                        <NavLink class="nav-child" href="/catalog/areas"><span>Khu vực</span></NavLink>
+                        <NavLink class="nav-child" href="/catalog/warehouses"><span>Danh sách kho</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.QuantityStockView)) { <NavLink href="/quantity-stock"><AppIcon Name="warehouse" /> <span>Kho số lượng</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.InventoryView)) { <NavLink href="/inventory"><AppIcon Name="layers" /> <span>Kho & IMEI</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.QuantityCountView)) { <NavLink href="/quantity-counts"><AppIcon Name="clipboard" /> <span>Kiểm kê tồn kho</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.DevicesView)) { <NavLink href="/devices"><AppIcon Name="device" /> <span>Thiết bị & gia hạn</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.InventoryWarranty)) { <NavLink href="/warranties"><AppIcon Name="wrench" /> <span>Bảo hành</span></NavLink> }
+                    <div class="nav-heading">Tài chính & báo cáo</div>
+                    @if (Accounts.HasPermission(nav.User, Permissions.FinanceView)) { <NavLink href="/finance"><AppIcon Name="wallet" /> <span>Công nợ & thanh toán</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsView)) { <NavLink href="/reports"><AppIcon Name="chart" /> <span>Báo cáo & nhật ký</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsAuditView)) { <NavLink href="/activity"><AppIcon Name="shield" /> <span>Nhật ký hoạt động</span></NavLink> }
+                    <div class="nav-heading">Thiết lập</div>
+                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage)) { <NavLink href="/admin/master-data"><AppIcon Name="settings" /> <span>Danh mục nền</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.WarehouseScopeManage)) { <NavLink href="/admin/warehouses"><AppIcon Name="warehouse" /> <span>Phạm vi kho</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.UsersView)) { <NavLink href="/admin/users"><AppIcon Name="shield" /> <span>Tài khoản & quyền</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.ArchitectureView))
+                    {
+                        <NavLink href="/architecture"><AppIcon Name="diagram" /> <span>Mô hình hệ thống</span></NavLink>
+                        <NavLink href="/admin/flow-tester"><AppIcon Name="clipboard" /> <span>Kiểm thử luồng</span></NavLink>
+                    }
+                </Authorized>
+            </AuthorizeView>
+        </nav>
+        <div class="sidebar-footer"><span class="sidebar-footer-dot"></span><div><strong>TNM Management</strong><small><a href="/about" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Thông tin phiên bản</a></small></div></div>
+    </aside>
+    <div class="main-panel">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button type="button" class="mobile-toggle" aria-label="Mở menu" @onclick="ToggleMenu"><AppIcon Name="menu" Size="21" /></button>
+                <div class="breadcrumbs"><span>Workspace</span><AppIcon Name="chevron" Size="14" /><strong>Quản lý vận hành</strong></div>
+            </div>
+            <AuthorizeView Context="header">
+                <Authorized>
+                    <div class="right-header">
+                        <span class="environment-label"><span></span> Đang hoạt động</span>
+                        <div class="header-divider"></div>
+                        <div class="user-identity"><span class="avatar">@Initials(header.User.Identity?.Name)</span><div class="user-identity-text"><strong>@header.User.Identity?.Name</strong><small>@PrimaryRole(header.User)</small></div></div>
+                        <a class="header-icon-link" title="Đổi mật khẩu" aria-label="Đổi mật khẩu" href="/account/change-password"><AppIcon Name="key" Size="18" /></a>
+                        <a class="header-icon-link" title="Đăng xuất" aria-label="Đăng xuất" href="/account/logout"><AppIcon Name="logout" Size="18" /></a>
+                    </div>
+                </Authorized>
+                <NotAuthorized><a class="btn" href="/account/login">Đăng nhập</a></NotAuthorized>
+            </AuthorizeView>
+        </header>
+        <main class="content">
+            <div class="system-notice"><AppIcon Name="sparkles" Size="16" /><span><strong>TNM Workspace</strong> · Dữ liệu và chức năng hiển thị theo quyền tài khoản.</span></div>
+            @Body
+        </main>
+    </div>
+</div>
+
+@code {
+    private bool mobileMenuOpen;
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(() => { mobileMenuOpen = false; StateHasChanged(); });
+    private void ToggleMenu() => mobileMenuOpen = !mobileMenuOpen;
+    private void CloseMenu() => mobileMenuOpen = false;
+    private static string Initials(string? display) => string.Join("", (display ?? "U").Split(' ', StringSplitOptions.RemoveEmptyEntries).TakeLast(2).Select(x => x[..1].ToUpperInvariant()));
+    private string PrimaryRole(ClaimsPrincipal principal) => Accounts.Roles(AuthRepository.PrincipalId(principal)).FirstOrDefault() ?? "Thành viên";
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

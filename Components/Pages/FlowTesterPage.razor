@@ -1,0 +1,104 @@
+@page "/admin/flow-tester"
+@attribute [Authorize(Policy = Permissions.ArchitectureView)]
+@inject IWebHostEnvironment Env
+@inject PermissionGate Gate
+<PageTitle>Kiểm thử luồng · TNM.Management</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="eyebrow">HỆ THỐNG / KIỂM THỬ TỰ ĐỘNG E2E</div>
+        <h1>Kiểm thử toàn bộ luồng (Flow Tester)</h1>
+        <p>Tự động tạo Database SQLite sandbox độc lập trong bộ nhớ tạm và chạy 14 kịch bản xuyên suốt tất cả phân hệ V7. Không làm thay đổi dữ liệu thật.</p>
+    </div>
+    <div class="button-group">
+        <button type="button" class="btn" disabled="@running" @onclick="RunTests">
+            @(running ? "Đang chạy kiểm thử..." : "▶ Chạy kiểm thử toàn bộ luồng")
+        </button>
+    </div>
+</div>
+
+@if (report is not null)
+{
+    <div class="stats-grid">
+        <div class="stat">
+            <small>Kết quả tổng thể</small>
+            <strong class="@(report.AllPassed ? "" : "orange")">@(report.AllPassed ? "PASS 100%" : "CÓ LỖI")</strong>
+            <span>Thực thi trên Sandbox DB</span>
+        </div>
+        <div class="stat">
+            <small>Tổng số kịch bản</small>
+            <strong>@report.Total</strong>
+            <span>8 phân hệ nghiệp vụ</span>
+        </div>
+        <div class="stat">
+            <small>Đạt / Thất bại</small>
+            <strong>@report.Passed / @report.Failed</strong>
+            <span>Kiểm tra cả ràng buộc chặn lỗi</span>
+        </div>
+        <div class="stat">
+            <small>Thời gian thực thi</small>
+            <strong>@report.TotalDurationMs ms</strong>
+            <span>Tự động dọn dẹp sau khi chạy</span>
+        </div>
+    </div>
+
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>Chi tiết các bước kiểm thử</h2>
+                <p>Từng bước kiểm tra cả luồng thuận (Happy Path) và các Trigger bảo vệ (Negative Test).</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>PHÂN HỆ</th>
+                        <th>KỊCH BẢN KIỂM THỬ</th>
+                        <th>TRẠNG THÁI</th>
+                        <th>KẾT QUẢ CHI TIẾT</th>
+                        <th>THỜI GIAN</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var step in report.Steps)
+                    {
+                        <tr>
+                            <td><strong>@step.Number</strong></td>
+                            <td>@step.Category</td>
+                            <td><strong>@step.Name</strong></td>
+                            <td>
+                                <span class="chip @(step.Passed ? "green-chip" : "orange-chip")">
+                                    @(step.Passed ? "PASS" : "FAIL")
+                                </span>
+                            </td>
+                            <td>@step.Detail</td>
+                            <td>@step.DurationMs ms</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    private FlowTestReport? report;
+    private bool running;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Gate.RequireAsync(Permissions.ArchitectureView);
+        await RunTests();
+    }
+
+    private async Task RunTests()
+    {
+        running = true;
+        StateHasChanged();
+        await Task.Yield();
+        report = FlowTester.RunAll(Env.ContentRootPath);
+        running = false;
+    }
+}

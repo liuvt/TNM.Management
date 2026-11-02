@@ -1,0 +1,17 @@
+@attribute [Authorize(Policy = Permissions.ArchitectureView)]
+@page "/architecture"
+<PageTitle>Kiến trúc · TNM</PageTitle>
+<div class="page-head"><div><div class="eyebrow">SYSTEM DESIGN / MVP</div><h1>Kiến trúc TNM.Management</h1><p>Thiết kế mô-đun theo workbook; database chuẩn hóa và giao diện theo vai trò.</p></div></div>
+<div class="two-column">
+<section class="panel"><div class="panel-head"><h2>Các phân hệ</h2></div>
+<div class="step-list"><div><b>01</b><span><strong>Danh mục</strong><small>Sản phẩm, khách hàng, nhóm, bảng giá</small></span></div><div><b>02</b><span><strong>Kho / IMEI</strong><small>Nhập, xuất, ký gửi, kỹ thuật, kiểm kê</small></span></div><div><b>03</b><span><strong>Đơn hàng</strong><small>Điều phối, lắp đặt, kích hoạt</small></span></div><div><b>04</b><span><strong>Thiết bị</strong><small>Vòng đời thuê bao, bảo hành, gia hạn</small></span></div><div><b>05</b><span><strong>Tài chính</strong><small>Hóa đơn, phân bổ thanh toán, công nợ</small></span></div><div><b>06</b><span><strong>Điều hành</strong><small>Dashboard, báo cáo, KPI</small></span></div></div>
+</section>
+<section class="panel"><div class="panel-head"><h2>Quy tắc dữ liệu chính</h2></div>
+ <p><strong>IMEI duy nhất:</strong> lưu tại <code>stock_units</code>; cấm hai vị trí quản lý cùng lúc.</p>
+ <p><strong>Đơn đã hủy:</strong> sử dụng trạng thái <code>CANCELLED</code>, không xóa.</p>
+ <p><strong>Gia hạn:</strong> lịch sử <code>renewals</code> tồn tại độc lập với ngày hết hạn hiện tại.</p>
+ <p><strong>Công nợ:</strong> số tiền còn lại = hóa đơn − tổng phân bổ thanh toán.</p>
+ <p><strong>Audit:</strong> lưu hành động và thời điểm xử lý. Dự án demo hiện không có cơ chế xác thực thật.</p>
+ <div class="panel-note">Sơ đồ ERD hoàn chỉnh, từ điển 33 bảng và kiến trúc triển khai nằm trong thư mục <code>docs/</code> của source.</div>
+</section>
+</div>

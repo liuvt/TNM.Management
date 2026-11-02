@@ -1,0 +1,37 @@
+@page "/warranties"
+@attribute [Authorize(Policy=Permissions.InventoryWarranty)]
+@inject V6Ops Ops
+@inject PermissionGate Gate
+<PageTitle>Bảo hành · TNM v6</PageTitle>
+<div class="page-head"><div><div class="eyebrow">WARRANTY / RMA</div><h1>Bảo hành thiết bị</h1><p>Tiếp nhận → gửi NCC → hoàn tất; ghi lịch sử và trả thiết bị vào kho được chọn.</p></div></div>
+<div class="crud-actionbar">@if(true){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Tiếp nhận":"+ Tiếp nhận")</button>}@if(true){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showStatus))">@(showStatus?"Đóng · + Cập nhật trạng thái":"+ Cập nhật trạng thái")</button>}</div>
+
+
+<div class="two-column"><section class="panel edit-panel" hidden="@(!showCreate)"><div class="panel-head"><h2>Tiếp nhận bảo hành</h2></div>
+<div class="form-grid one"><label>IMEI<select @bind="unit">@foreach(var x in candidates){<option value="@x.Id">@x.Name</option>}</select></label>
+<label>Lỗi / sự cố<input @bind="problem" /></label><label>Ghi chú<input @bind="note" /></label></div>
+<div class="form-actions"><button class="btn" @onclick="Open">+ Tạo phiếu</button><span class="feedback">@message</span></div></section>
+<section class="panel edit-panel" hidden="@(!showStatus)"><div class="panel-head"><h2>Cập nhật quy trình</h2></div>
+<div class="form-grid one"><label>Phiếu xử lý<select @bind="warrantyId">@foreach(var x in warranties.Where(x=>x.Status is "RECEIVED" or "SENT_SUPPLIER")){<option value="@x.Id">#@x.Id — @x.Imei (@x.Status)</option>}</select></label>
+<label>Trạng thái<select @bind="next"><option value="SENT_SUPPLIER">Gửi NCC</option><option value="COMPLETED">Hoàn tất trả kho</option><option value="CANCELLED">Hủy và trả kho</option></select></label>
+<label>Nhà cung cấp<select @bind="supplier">@foreach(var x in suppliers){<option value="@x.Id">@x.Name</option>}</select></label>
+<label>Kho nhận lại<select @bind="warehouse">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
+<label>Ghi chú<input @bind="statusNote" /></label></div>
+<div class="form-actions"><button class="btn" @onclick="UpdateStatus">Cập nhật trạng thái</button><span class="feedback">@statusMessage</span></div></section></div>
+<section class="panel"><div class="panel-head"><h2>Danh sách bảo hành</h2></div><div class="table-wrap"><table><thead><tr><th>Phiếu</th><th>IMEI</th><th>Sản phẩm</th><th>Sự cố</th><th>Tiếp nhận</th><th>Trạng thái</th></tr></thead><tbody>
+@foreach(var x in warranties){<tr><td>#@x.Id</td><td>@x.Imei</td><td>@x.Product</td><td>@x.Problem</td><td>@x.Received</td><td>@x.Status</td></tr>}
+</tbody></table></div></section>
+@code {
+ private bool showCreate, showStatus;
+ private void ToggleForm(string form){
+  showCreate = form=="showCreate" && !showCreate;
+  showStatus = form=="showStatus" && !showStatus;
+ }
+
+ private long actor,unit,warrantyId,supplier,warehouse;private string problem="",note="",message="",next="SENT_SUPPLIER",statusNote="",statusMessage="";
+ private List<Pick> candidates=[],suppliers=[];private List<WarehousePick> warehouses=[];private List<WarrantyRow> warranties=[];
+ protected override async Task OnInitializedAsync(){actor=await Gate.RequireAsync(Permissions.InventoryWarranty);warehouses=Ops.Warehouses(actor);suppliers=Ops.Suppliers();supplier=suppliers.FirstOrDefault()?.Id??0;warehouse=warehouses.FirstOrDefault()?.Id??0;Reload();}
+ private void Reload(){candidates=Ops.WarrantyCandidates();warranties=Ops.Warranties();unit=candidates.FirstOrDefault()?.Id??0;warrantyId=warranties.FirstOrDefault(x=>x.Status is "RECEIVED" or "SENT_SUPPLIER")?.Id??0;}
+ private async Task Open(){try{actor=await Gate.RequireAsync(Permissions.InventoryWarranty);Ops.OpenWarranty(actor,unit,problem,note);Reload();message="Đã tiếp nhận bảo hành.";}catch(Exception e){message=e.Message;}}
+ private async Task UpdateStatus(){try{actor=await Gate.RequireAsync(Permissions.InventoryWarranty);Ops.SetWarrantyStatus(actor,warrantyId,next,warehouse,next=="SENT_SUPPLIER"?supplier:null,statusNote);Reload();statusMessage="Cập nhật thành công.";}catch(Exception e){statusMessage=e.Message;}}
+}

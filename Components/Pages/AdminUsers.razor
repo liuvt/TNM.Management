@@ -1,0 +1,168 @@
+@page "/admin/users"
+@attribute [Authorize(Policy = Permissions.UsersView)]
+@inject AuthRepository Accounts
+@inject PermissionGate Gate
+<PageTitle>Người dùng và phân quyền · TNM v6</PageTitle>
+<div class="page-head"><div><div class="eyebrow">HỆ THỐNG / USER → PERMISSION → CHỨC NĂNG</div><h1>Người dùng &amp; phân quyền chức năng</h1>
+<p>Owner là tài khoản chủ hệ thống, được gán toàn bộ Role và toàn quyền chức năng đã triển khai. Các User khác dùng Role mẫu hoặc quyền riêng.</p></div></div>
+<div class="stats-grid three">
+    <div class="stat"><small>Tài khoản</small><strong>@users.Count</strong><span>@users.Count(x=>x.IsActive) đang hoạt động</span></div>
+    <div class="stat"><small>Role mẫu</small><strong>@roles.Count</strong><span>Có thể tạo User chỉ với quyền trực tiếp</span></div>
+    <div class="stat"><small>Quyền chức năng</small><strong>@Permissions.Definitions.Count(p=>p.Implemented) / @Permissions.Definitions.Length</strong><span>Đang triển khai / tổng quyền theo Excel</span></div>
+</div>
+@if(!string.IsNullOrWhiteSpace(userMessage)){<p class="feedback" role="status">@userMessage</p>}
+<section class="panel"><div class="panel-head"><div><h2>Danh sách tài khoản</h2><p>Chọn “Phân quyền” để cấp quyền riêng cho từng người dùng. Những người không có quyền sẽ không thấy menu tương ứng.</p></div>
+@if(canManageUsers){<button class="btn" @onclick="ResetForm">+ Tạo User</button>}</div>
+<div class="table-wrap"><table><thead><tr><th>TÀI KHOẢN</th><th>NHÂN VIÊN</th><th>ROLE MẪU</th><th>QUYỀN HIỆU LỰC</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
+@foreach(var u in users){<tr><td><strong>@u.Username</strong> @if(u.IsOwner){<span class="chip green-chip">OWNER · Toàn quyền</span>}<small class="permission-key">ID #@u.Id</small></td>
+<td>@u.DisplayName</td><td>@(u.RoleIds.Count==0 ? "Cấp quyền trực tiếp" : string.Join(", ",roles.Where(r=>u.RoleIds.Contains(r.Id)).Select(x=>x.Name)))</td>
+<td><span class="chip blue-chip">@(u.IsActive?Accounts.AllowedPermissions(u.Id).Count:0) / @Permissions.Definitions.Count(p=>p.Implemented)</span></td>
+<td><span class="chip @(u.IsActive?"green-chip":"orange-chip")">@(u.IsActive?"Hoạt động":"Đã khóa")</span></td>
+<td>@if(!u.IsOwner && u.Id!=myId && (canManageUsers || canUserPermissions)){<button class="btn secondary" @onclick="()=>EditUser(u)">Phân quyền / Sửa</button>}</td></tr>}
+</tbody></table></div></section>
+@if(canManageUsers || canUserPermissions){
+<section class="panel edit-panel" id="user-editor" hidden="@(!showUserEditor)"><div class="form-actions"><button type="button" class="btn secondary" @onclick="()=>showUserEditor=false">Đóng biểu mẫu</button></div>
+<div class="panel-head"><div><div class="eyebrow">BƯỚC 1 / TẠO USER</div><h2>@(editUserId.HasValue ? $"Thiết lập tài khoản: {username}" : "Tạo tài khoản mới")</h2>
+<p>Tài khoản mới có thể không thuộc Role nào nếu được cấp quyền trực tiếp.</p></div>
+@if(canManageUsers){<button class="btn secondary" @onclick="ResetForm">Làm mới</button>}</div>
+@if(canManageUsers){
+<div class="form-grid">
+ @if(!editUserId.HasValue){<label>Username<input @bind="username" autocomplete="off" placeholder="VD: nv_kho_sg" /></label>}
+ <label>Họ tên người dùng<input @bind="displayName" placeholder="Tên nhân viên" /></label>
+ <label>@(editUserId.HasValue?"Đổi mật khẩu (để trống nếu không đổi)":"Mật khẩu đăng nhập")<input @bind="password" type="password" autocomplete="new-password" placeholder="Từ 12 ký tự, gồm chữ và số" /></label>
+ @if(editUserId.HasValue){<label>Trạng thái tài khoản<select @bind="activeMode"><option value="ACTIVE">Hoạt động</option><option value="LOCKED">Khóa tài khoản</option></select></label>}
+</div>
+<div class="role-picker"><strong>BƯỚC 2 / ROLE MẪU (TÙY CHỌN)</strong>
+@foreach(var r in roles){<label class="inline-check"><input type="checkbox" checked="@assignedRoles.Contains(r.Id)" @onchange="e => ToggleAssignedRole(r.Id,e.Value is bool b && b)" /> @r.Name <small>(@r.Code)</small></label>}
+</div>
+} else if(editUserId.HasValue){<p>Chỉ được thay đổi quyền riêng; không được chỉnh thông tin hoặc Role.</p>}
+@if(canUserPermissions && (canManageUsers || editUserId.HasValue)){
+<div class="permission-heading"><div><div class="eyebrow">BƯỚC 3 / QUYỀN TRỰC TIẾP CHO USER</div><h2>Ma trận truy cập chức năng</h2>
+<p>Quyền theo từng dòng nghiệp vụ trong “Phân hệ hệ thống - TNM.xlsx”. Cho phép riêng/Từ chối riêng ưu tiên so với Role. Những dòng chưa có màn hình được đánh dấu Chưa triển khai và không thể cấp.</p></div>
+<div class="permission-summary"><span class="chip blue-chip">Cho phép: @EffectiveCount / @Permissions.Definitions.Count(p=>p.Implemented)</span>
+<span class="chip orange-chip">Từ chối riêng: @DirectDenyCount</span></div></div>
+<div class="form-grid"><label>Tìm chức năng hoặc mã quyền<input @bind="permissionSearch" @bind:event="oninput" placeholder="VD: thu hồi ký gửi, D+30, công nợ..." /></label>
+<label>Phân hệ<select @bind="areaFilter"><option value="ALL">Tất cả phân hệ</option>@foreach(var areaName in Permissions.Definitions.Select(p=>p.Area).Distinct()){<option value="@areaName">@areaName</option>}</select></label></div>
+@if(IsEditingAdmin){<div class="panel-note">Tài khoản ADMIN có toàn quyền cố định; không chỉnh quyền riêng để bảo vệ quyền quản trị.</div>}
+<div class="table-wrap"><table class="permissions-table"><thead><tr><th>PHÂN HỆ</th><th>NHÁNH / CHỨC NĂNG</th><th>QUYỀN ROLE</th><th>QUYỀN CỦA USER</th><th>HIỆU LỰC</th></tr></thead><tbody>
+@foreach(var area in FilteredPermissions.GroupBy(p=>p.Area)){
+ @foreach(var feature in area.GroupBy(p=>p.Feature)){
+ @foreach(var perm in feature){<tr><td><strong>@area.Key</strong></td><td><strong>@feature.Key</strong> / @perm.Label <small class="permission-key">@perm.Key · Excel dòng @perm.ExcelRow</small>
+ @if(!perm.Implemented){<span class="chip orange-chip">Chưa triển khai</span>}</td>
+ <td>@(inheritedPermissions.Contains(perm.Key) ? "Có" : "Không")</td>
+ <td><select class="search-input" value="@OverrideMode(perm.Key)" disabled="@(IsEditingAdmin || !perm.Implemented)" @onchange="e => ChangeOverride(perm.Key,e)">
+   <option value="INHERIT">Theo Role</option><option value="ALLOW">Cho phép riêng</option><option value="DENY">Từ chối riêng</option>
+ </select></td>
+ <td><span class="chip @(HasEffective(perm.Key)?"green-chip":"orange-chip")">@(HasEffective(perm.Key)?"Được truy cập":perm.Implemented?"Không truy cập":"Chưa có chức năng")</span></td></tr>}
+}
+}
+</tbody></table></div>
+} else if(!canUserPermissions){<div class="panel-note">Tài khoản này không có quyền chỉnh quyền trực tiếp cho người dùng.</div>}
+<div class="form-actions">
+@if(canManageUsers){<button class="btn" @onclick="SaveUser">@(editUserId.HasValue ? "Lưu User và phân quyền" : "Tạo User và cấp quyền")</button>}
+@if(editUserId.HasValue && canUserPermissions && !canManageUsers){<button class="btn" @onclick="SaveDirectPermissions">Lưu quyền riêng</button>}
+<span class="feedback">@userMessage</span></div>
+<div class="panel-note">Sau khi lưu: phiên đăng nhập cũ của người bị đổi quyền hết hiệu lực; đăng nhập lại để cập nhật giao diện và quyền truy cập. Mọi thao tác ghi dữ liệu tiếp tục xác minh quyền trực tiếp với SQLite phía server.</div>
+</section>}
+@if(canManageRoles){<button type="button" class="btn secondary" @onclick="()=>showRoleEditor=!showRoleEditor">@(showRoleEditor?"Đóng quyền Role":"Chỉnh sửa quyền Role")</button><section class="panel edit-panel" hidden="@(!showRoleEditor)">
+<div class="panel-head"><div><h2>Ma trận quyền Role (mẫu chung)</h2><p>Chỉnh Role sẽ ảnh hưởng toàn bộ User kế thừa Role này, trừ những quyền đã cho phép/từ chối riêng.</p></div>
+<select class="search-input" @bind="selectedRoleId" @bind:after="RefreshRoleMatrix">@foreach(var r in roles){<option value="@r.Id">@r.Name (@r.Code)</option>}</select></div>
+<div class="table-wrap"><table><thead><tr><th>PHÂN HỆ</th><th>QUYỀN</th><th>CHO PHÉP</th></tr></thead><tbody>
+@foreach(var perm in Permissions.Definitions){<tr><td>@perm.Area / @perm.Feature</td><td>@perm.Label <small class="permission-key">@perm.Key · Excel dòng @perm.ExcelRow</small>@if(!perm.Implemented){<span class="chip orange-chip">Chưa triển khai</span>}</td><td><input type="checkbox" checked="@rolePermissionKeys.Contains(perm.Key)" disabled="@(IsAdminRole || !perm.Implemented)" @onchange="e => ToggleRolePermission(perm.Key,e.Value is bool b && b)" /></td></tr>}
+</tbody></table></div>
+<div class="form-actions"><button class="btn" disabled="@IsAdminRole" @onclick="SaveRoleMatrix">Lưu quyền Role</button><span class="feedback">@roleMessage</span></div>
+</section>}
+@code {
+    private bool showUserEditor,showRoleEditor;
+    private List<ManagedUser> users=[];
+    private List<RoleInfo> roles=[];
+    private HashSet<long> assignedRoles=[];
+    private HashSet<string> rolePermissionKeys=new(StringComparer.Ordinal);
+    private HashSet<string> inheritedPermissions=new(StringComparer.Ordinal);
+    private Dictionary<string,string> directOverrides=new(StringComparer.Ordinal);
+    private long? editUserId;
+    private long selectedRoleId,myId;
+    private string username="",displayName="",password="",userMessage="",roleMessage="",permissionSearch="",areaFilter="ALL";
+    private IEnumerable<PermissionDefinition> FilteredPermissions => Permissions.Definitions.Where(p=>
+        (areaFilter=="ALL"||p.Area==areaFilter) &&
+        (string.IsNullOrWhiteSpace(permissionSearch) || (p.Area+" "+p.Feature+" "+p.Label+" "+p.Key).Contains(permissionSearch,StringComparison.OrdinalIgnoreCase)));
+    private bool canManageUsers,canManageRoles,canUserPermissions;
+    private string activeMode="ACTIVE";
+    private bool active { get => activeMode=="ACTIVE"; set => activeMode = value ? "ACTIVE" : "LOCKED"; }
+    private bool IsAdminRole => roles.Any(x=>x.Id==selectedRoleId && x.Code=="ADMIN");
+    private bool IsEditingAdmin => roles.Any(x=>x.Code=="ADMIN" && assignedRoles.Contains(x.Id));
+    private int EffectiveCount => Permissions.Definitions.Count(p=>p.Implemented && HasEffective(p.Key));
+    private int DirectDenyCount => directOverrides.Count(x=>x.Value=="DENY");
+    private string OverrideMode(string key) => directOverrides.TryGetValue(key,out var effect)?effect:"INHERIT";
+    private bool HasEffective(string key)
+    {
+        if(!Permissions.IsImplemented(key))return false;
+        if(IsEditingAdmin)return true;
+        var grant=directOverrides.TryGetValue(key,out var effect) ? effect=="ALLOW" : inheritedPermissions.Contains(key);
+        return grant && (!Permissions.RequiredView.TryGetValue(key,out var parent) || HasEffective(parent));
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        myId=await Gate.RequireAsync(Permissions.UsersView);
+        canManageUsers=await Gate.CanAsync(Permissions.UsersManage);
+        canManageRoles=await Gate.CanAsync(Permissions.RolesManage);
+        canUserPermissions=await Gate.CanAsync(Permissions.UsersPermissions);
+        Reload();
+        selectedRoleId=roles.FirstOrDefault(x=>x.Code=="WAREHOUSE")?.Id ?? roles.FirstOrDefault()?.Id ?? 0;
+        RefreshRoleMatrix();ResetForm();showUserEditor=false;
+    }
+    private void Reload(){users=Accounts.AllUsers().ToList();roles=Accounts.AllRoles().ToList();}
+    private void RecalculateInherited() => inheritedPermissions=Accounts.InheritedPermissions(assignedRoles).ToHashSet(StringComparer.Ordinal);
+    private void ToggleAssignedRole(long id,bool value){if(value)assignedRoles.Add(id);else assignedRoles.Remove(id);if(IsEditingAdmin)directOverrides.Clear();RecalculateInherited();}
+    private void ChangeOverride(string key,ChangeEventArgs e)
+    {
+        if(IsEditingAdmin || !Permissions.IsImplemented(key)) return;
+        var effect=e.Value?.ToString() ?? "INHERIT";
+        if(effect=="INHERIT")directOverrides.Remove(key);
+        else if(effect=="ALLOW"||effect=="DENY") directOverrides[key]=effect;
+    }
+    private void ToggleRolePermission(string key,bool value){if(IsAdminRole)return;if(value)rolePermissionKeys.Add(key);else rolePermissionKeys.Remove(key);}
+    private void RefreshRoleMatrix(){rolePermissionKeys=Accounts.RolePermissions(selectedRoleId).Where(Permissions.IsImplemented).ToHashSet(StringComparer.Ordinal);roleMessage="";}
+    private void EditUser(ManagedUser u)
+    {showUserEditor=true;
+        if(u.Id==myId || u.IsOwner)return;
+        editUserId=u.Id;username=u.Username;displayName=u.DisplayName;active=u.IsActive;password="";
+        assignedRoles=u.RoleIds.ToHashSet();
+        directOverrides=Accounts.UserOverrides(u.Id).ToDictionary(x=>x.Key,x=>x.Value,StringComparer.Ordinal);
+        RecalculateInherited();userMessage="Đang phân quyền tài khoản "+u.Username;
+    }
+    private void ResetForm(){showUserEditor=true;editUserId=null;username="";displayName="";password="";active=true;assignedRoles=[];directOverrides=new(StringComparer.Ordinal);RecalculateInherited();userMessage="";}
+    private async Task SaveUser()
+    {
+        try
+        {
+            var actor=await Gate.RequireAsync(Permissions.UsersManage);
+            IReadOnlyDictionary<string,string>? rights=canUserPermissions?directOverrides:null;
+            if(editUserId.HasValue) Accounts.UpdateUser(actor,editUserId.Value,displayName,active,password,assignedRoles,rights);
+            else Accounts.CreateUser(actor,username,displayName,password,assignedRoles,rights);
+            ResetForm();Reload();showUserEditor=false;userMessage="Đã lưu tài khoản và phân quyền. Người dùng cần đăng nhập lại.";
+        }
+        catch(Exception ex){userMessage="Lỗi: "+ex.Message;}
+    }
+    private async Task SaveDirectPermissions()
+    {
+        try
+        {
+            if(!editUserId.HasValue)return;
+            var actor=await Gate.RequireAsync(Permissions.UsersPermissions);
+            Accounts.SaveUserPermissions(actor,editUserId.Value,directOverrides);
+            Reload();showUserEditor=false;userMessage="Đã cập nhật quyền riêng; phiên đăng nhập trước đã bị thu hồi.";
+        }
+        catch(Exception ex){userMessage="Lỗi: "+ex.Message;}
+    }
+    private async Task SaveRoleMatrix()
+    {
+        try
+        {
+            var actor=await Gate.RequireAsync(Permissions.RolesManage);
+            Accounts.SaveRolePermissions(actor,selectedRoleId,rolePermissionKeys);
+            RecalculateInherited();roleMessage="Đã lưu Role; các phiên liên quan đã bị thu hồi.";
+        }
+        catch(Exception ex){roleMessage="Lỗi: "+ex.Message;}
+    }
+}

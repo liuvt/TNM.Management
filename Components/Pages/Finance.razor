@@ -1,0 +1,53 @@
+@attribute [Authorize(Policy = Permissions.FinanceView)]
+@page "/finance"
+@inject DemoDb Db
+@inject PermissionGate Gate
+<PageTitle>Công nợ · TNM</PageTitle>
+<div class="page-head"><div><div class="eyebrow">FINANCE / RECEIVABLES</div><h1>Công nợ & thanh toán</h1><p>Hóa đơn độc lập đơn hàng; ghi nhận từng phiếu thu và phân bổ vào chứng từ.</p></div>@if(canExport){<a href="/export/invoices.csv" class="btn secondary">↓ Xuất CSV</a>}</div>
+<div class="crud-actionbar">@if(canPay){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showPay))">@(showPay?"Đóng · + Thanh toán":"+ Thanh toán")</button>}</div>
+
+
+<div class="stats-grid three">
+ <div class="stat"><small>Tổng giá trị hóa đơn</small><strong>@Money(invoices.Sum(x=>x.Total))</strong><span>Gồm tất cả nhóm nghiệp vụ</span></div>
+ <div class="stat"><small>Đã thanh toán</small><strong>@Money(invoices.Sum(x=>x.Paid))</strong><span>Từ sổ phân bổ</span></div>
+ <div class="stat"><small>Còn công nợ</small><strong class="orange">@Money(invoices.Sum(x=>x.Balance))</strong><span>Chưa thu / chưa chi</span></div>
+</div>
+@if(canPay){<section class="panel edit-panel" hidden="@(!showPay)"><div class="panel-head"><h2>Hạch toán thanh toán cho hóa đơn</h2></div>
+<div class="form-grid">
+<label>Hóa đơn còn công nợ<select @bind="invoiceId">@foreach(var x in invoices.Where(x=>x.Balance>0 && x.Status!="VOID")){<option value="@x.Id">@x.Code — còn @Money(x.Balance)</option>}</select></label>
+<label>Số tiền thanh toán (VND)<input type="number" min="1" @bind="amount" /></label>
+<label>Phương thức<select @bind="method"><option value="BANK">Chuyển khoản</option><option value="CASH">Tiền mặt</option></select></label>
+</div><div class="form-actions"><button class="btn" @onclick="Pay">+ Ghi phiếu thanh toán</button><span class="feedback">@message</span></div></section>}
+<section class="panel"><div class="panel-head"><div><h2>Sổ công nợ</h2><p>Đã thanh toán và số dư được tính từ bảng phân bổ thanh toán.</p></div></div>
+<div class="table-wrap"><table><thead><tr><th>SỐ HÓA ĐƠN</th><th>LOẠI</th><th>ĐỐI TÁC</th><th>PHÁT SINH</th><th>ĐÃ THANH TOÁN</th><th>CÒN NỢ</th><th>ĐẾN HẠN</th><th>TRẠNG THÁI</th></tr></thead><tbody>
+@foreach(var x in invoices){<tr><td><strong>@x.Code</strong></td><td>@x.Type</td><td>@x.Customer</td><td>@Money(x.Total)</td><td>@Money(x.Paid)</td><td><strong>@Money(x.Balance)</strong></td><td>@x.DueAt</td><td><span class="chip @(x.Status=="PAID"?"green-chip":x.Status=="PARTIAL"?"purple-chip":"orange-chip")">@x.Status</span></td></tr>}
+</tbody></table></div></section>
+@code {
+ private bool showPay;
+ private void ToggleForm(string form){
+  showPay = form=="showPay" && !showPay;
+ }
+
+ private List<InvoiceVm> invoices=[];private long invoiceId=1,amount=100000;
+ private string method="BANK",message="";
+ private bool canPay,canExport,canCustomer,canRenewal,canSupplier,canOther;
+ protected override async Task OnInitializedAsync(){
+ canCustomer=await Gate.CanAsync(Permissions.FinanceCustomerView);
+ canRenewal=await Gate.CanAsync(Permissions.FinanceRenewView);
+ canSupplier=await Gate.CanAsync(Permissions.FinanceSupplierView);
+ canOther=await Gate.CanAsync(Permissions.FinanceOtherView);
+ canPay=await Gate.CanAsync(Permissions.FinancePay);
+ canExport=await Gate.CanAsync(Permissions.FinanceExport);
+ Reload();}
+ private void Reload(){invoices=Db.Invoices().Where(x=>CanSeeType(x.Type)).ToList();var first=invoices.FirstOrDefault(x=>x.Balance>0);if(first!=null&&!invoices.Any(x=>x.Id==invoiceId && x.Balance>0))invoiceId=first.Id;}
+ private bool CanSeeType(string type)=>type switch{
+ "SALE"=>canCustomer,"RENEWAL"=>canRenewal,"PURCHASE" or "SUPPLIER"=>canSupplier,_=>canOther};
+ private static string PermissionForType(string type)=>type switch{
+ "SALE"=>Permissions.FinanceCustomerView,"RENEWAL"=>Permissions.FinanceRenewView,
+ "PURCHASE" or "SUPPLIER"=>Permissions.FinanceSupplierView,_=>Permissions.FinanceOtherView};
+ private async Task Pay(){try{Db.ActorId=await Gate.RequireAsync(Permissions.FinancePay);
+ var item=Db.Invoices().FirstOrDefault(x=>x.Id==invoiceId) ?? throw new InvalidOperationException("Hóa đơn không tồn tại.");
+ await Gate.RequireAsync(PermissionForType(item.Type));
+ Db.PayInvoice(invoiceId,amount,method);Reload();message="Thanh toán đã được ghi nhận.";}catch(Exception ex){message="Lỗi: "+ex.Message;}}
+ private string Money(long v)=>v.ToString("N0")+" ₫";
+}

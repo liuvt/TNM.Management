@@ -1,0 +1,26 @@
+[Unit]
+Description=TNM Management v6 Blazor Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tnm/app
+ExecStart=/usr/bin/dotnet /opt/tnm/app/TNM.Management.dll
+User=tnm
+Group=tnm
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5236
+Environment=TNM_SEED_DEMO=0
+Environment=TNM_REQUIRE_SECURE_COOKIE=1
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/tnm/app/App_Data
+
+[Install]
+WantedBy=multi-user.target

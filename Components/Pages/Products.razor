@@ -1,0 +1,207 @@
+@page "/products"
+@attribute [Authorize(Policy = Permissions.ProductsView)]
+@inject ProductMaster Master
+@inject PermissionGate Gate
+@inject IJSRuntime JS
+@inject AuditTrail Trail
+<PageTitle>Sản phẩm · TNM.Management</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="eyebrow">DANH MỤC / SẢN PHẨM</div>
+        <h1>Quản lý sản phẩm</h1>
+        <p>Danh mục sử dụng chung cho PO, SO, kho, IMEI, bảng giá và gia hạn. Không sử dụng Excel kiểm kê làm sản phẩm mẫu.</p>
+    </div>
+    <div class="button-group">
+        @if(canCreate){<button type="button" class="btn" @onclick="Create">+ Tạo sản phẩm</button>}
+        <a class="btn secondary" href="/catalog/product-groups">Nhóm sản phẩm</a>
+    </div>
+</div>
+
+@if(!string.IsNullOrWhiteSpace(message)) { <p class="feedback" role="status">@message</p> }
+@if(showEditor && (canCreate||canUpdate))
+{
+    <section class="panel edit-panel catalog-editor" id="catalog-editor">
+        <div class="panel-head">
+            <div><h2>@(editingId.HasValue?"Cập nhật sản phẩm":"Tạo sản phẩm mới")</h2><p>Mã SKU được hệ thống cấp tự động, không cho nhập hoặc đổi mã.</p></div>
+            <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Đóng</button>
+        </div>
+        <div class="form-grid">
+            <label>Mã sản phẩm
+                <input value="@(editingId.HasValue?editingSku:"DX tự động khi lưu (bắt đầu DX00001)")" disabled />
+            </label>
+            <label>Nhóm sản phẩm *
+                <select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var x in groups){<option value="@x.Id">@x.Name</option>}</select>
+            </label>
+            <label>Tên sản phẩm * <input @bind="name" placeholder="Ví dụ: Camera AI 4G" maxlength="180" /></label>
+            <label>Phân loại *
+                <select @bind="kind"><option value="GOODS">Hàng hóa</option><option value="SERVICE">Dịch vụ</option><option value="BUNDLE">Combo</option></select>
+            </label>
+            <label>Đơn vị tính * <input @bind="unit" placeholder="Cái / Bộ / Lần" maxlength="30" /></label>
+            <label>Thời hạn bảo hành (tháng) <input type="number" min="0" max="240" @bind="warrantyMonths" /></label>
+            <label class="checkbox-row"><input type="checkbox" @bind="imei" disabled="@(kind!="GOODS")" /> Quản lý theo IMEI / số serial</label>
+        </div>
+        <p class="panel-note">Giá nhập quản lý theo nhóm NCC, giá bán theo nhóm khách hàng. Tồn kho được sinh từ chứng từ PO/SO hoặc điều chỉnh kho; không nhập tồn trong danh mục sản phẩm.</p>
+        <div class="form-actions">
+            <button type="button" class="btn" @onclick="Save">@(editingId.HasValue?"Lưu thay đổi":"Tạo sản phẩm")</button>
+            <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Hủy</button>
+        </div>
+    </section>
+}
+
+<section class="panel">
+    <div class="panel-head">
+        <div><h2>Danh sách sản phẩm</h2><p>@Filtered.Count() sản phẩm phù hợp · Trang @CurrentPage / @PageCount. Tối đa 50 dòng/trang.</p></div>
+        <div class="button-group">
+            <input class="search-input" @bind="query" @bind:event="oninput" @onkeydown="OnSearchKeyDown" placeholder="Tìm mã hoặc tên sản phẩm" />
+            <button type="button" class="btn secondary" @onclick="ApplySearch">Tìm kiếm</button>
+            <button type="button" class="btn secondary" @onclick="ClearSearch">Xóa lọc</button>
+            <select class="search-input" @bind="groupFilter" @bind:after="ResetPage"><option value="0">Tất cả nhóm</option>@foreach(var g in groups){<option value="@g.Id">@g.Name</option>}</select>
+            <select class="search-input" @bind="statusFilter" @bind:after="ResetPage"><option value="ACTIVE">Đang kinh doanh</option><option value="INACTIVE">Ngừng kinh doanh</option><option value="ALL">Tất cả</option></select>
+            @if(canExport){<button type="button" class="btn secondary" @onclick="ExportCsv">@(selected.Count>0?$"Xuất đã chọn ({selected.Count})":"Xuất dữ liệu")</button>}
+            <label class="catalog-page-size">Số dòng<select @bind="pageSize" @bind:after="ResetPage"><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>
+        </div>
+    </div>
+    <p class="catalog-table-summary">@(selected.Count>0?$"Đã chọn {selected.Count} sản phẩm để xuất":"Chưa chọn dòng: xuất toàn bộ sản phẩm theo bộ lọc")</p>
+    <div class="table-wrap"><table>
+        <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>IMEI</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
+        <tbody>
+            @foreach(var p in PageRows)
+            {
+                <tr @key="p.Id">
+                    <td><input type="checkbox" aria-label="@($"Chọn {p.Sku}")" checked="@selected.Contains(p.Id)" @onchange="e => ToggleRow(p.Id,e.Value is bool b && b)" /></td>
+                    <td><strong>@p.Sku</strong></td><td class="name-cell">@p.Name</td><td>@p.GroupName</td>
+                    <td>@KindName(p.Kind)</td><td>@p.Unit</td><td>@(p.UsesImei?"Có":"Không")</td>
+                    <td>@p.WarrantyMonths tháng</td><td>@(p.IsActive?"Đang bán":"Ngừng bán")</td>
+                    <td>
+                        @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/products/{p.Id}")">Lịch sử</a>}
+                        @if(canUpdate&&p.IsActive){<button type="button" class="btn secondary btn-sm" @onclick="()=>Edit(p)">Sửa</button>}
+                        @if(canUpdate&&p.IsActive)
+                        {
+                            @if(pendingDisableId==p.Id)
+                            {
+                                <button type="button" class="btn btn-sm" @onclick="()=>Disable(p)">Xác nhận ngừng bán</button>
+                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDisableId=null">Hủy</button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDisableId=p.Id">Ngừng bán</button>
+                            }
+                        }
+                        @if(canUpdate)
+                        {
+                            @if(pendingDeleteId==p.Id)
+                            {
+                                <button type="button" class="btn btn-sm" @onclick="()=>DeleteProduct(p)">Xác nhận xóa mềm</button>
+                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDeleteId=null">Hủy</button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDeleteId=p.Id">Xóa</button>
+                            }
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table></div>
+    @if(!Filtered.Any()) { <p class="panel-note">Chưa có sản phẩm phù hợp. Hãy tạo sản phẩm mới và chọn nhóm tương ứng.</p> }
+    <div class="catalog-pagination"><span>Hiển thị @(Filtered.Count()==0?0:(CurrentPage-1)*pageSize+1)–@Math.Min(Filtered.Count(),CurrentPage*pageSize) / @Filtered.Count()</span>
+        <div class="button-group">
+            <button class="btn secondary btn-sm" disabled="@(CurrentPage==1)" @onclick="() => GoPage(1)">Đầu</button>
+            <button class="btn secondary btn-sm" disabled="@(CurrentPage==1)" @onclick="() => GoPage(CurrentPage-1)">Trước</button>
+            <span class="catalog-page-label">@CurrentPage / @PageCount</span>
+            <button class="btn secondary btn-sm" disabled="@(CurrentPage==PageCount)" @onclick="() => GoPage(CurrentPage+1)">Sau</button>
+            <button class="btn secondary btn-sm" disabled="@(CurrentPage==PageCount)" @onclick="() => GoPage(PageCount)">Cuối</button>
+        </div>
+    </div>
+</section>
+
+@code {
+    private List<ProductMaster.ProductRow> products=[];
+    private List<ProductMaster.GroupRow> groups=[];
+    private bool canCreate,canUpdate,canExport,canAudit,showEditor,scrollEditorPending;
+    private readonly HashSet<long> selected=[];
+    private int page=1,pageSize=50;
+    private string query="",search="",statusFilter="ACTIVE",message="",name="",kind="GOODS",unit="Cái",editingSku="";
+    private long groupFilter,groupId;
+    private int warrantyMonths=12;
+    private bool imei;
+    private long? editingId,pendingDisableId,pendingDeleteId;
+    private IEnumerable<ProductMaster.ProductRow> Filtered=>products.Where(p=>
+        (statusFilter=="ALL"||(statusFilter=="ACTIVE"?p.IsActive:!p.IsActive)) &&
+        (groupFilter==0||p.GroupId==groupFilter) &&
+        (string.IsNullOrWhiteSpace(search)||(p.Sku+" "+p.Name).Contains(search,StringComparison.OrdinalIgnoreCase)));
+    private void ApplySearch(){search=query.Trim();page=1;}
+    private void ClearSearch(){query=search="";page=1;}
+    private void OnSearchKeyDown(KeyboardEventArgs e){if(e.Key=="Enter")ApplySearch();}
+    private int PageCount=>Math.Max(1,(Filtered.Count()+pageSize-1)/pageSize);
+    private int CurrentPage=>Math.Clamp(page,1,PageCount);
+    private List<ProductMaster.ProductRow> PageRows=>Filtered.Skip((CurrentPage-1)*pageSize).Take(Math.Min(50,pageSize)).ToList();
+    private bool PageAllSelected=>PageRows.Count>0&&PageRows.All(p=>selected.Contains(p.Id));
+    private void ResetPage()=>page=1;
+    private void GoPage(int target)=>page=Math.Clamp(target,1,PageCount);
+    private void ToggleRow(long id,bool check){if(check)selected.Add(id);else selected.Remove(id);}
+    private void TogglePage(ChangeEventArgs e){var check=e.Value is bool b&&b;foreach(var p in PageRows){if(check)selected.Add(p.Id);else selected.Remove(p.Id);}}
+    private async Task ExportCsv()
+    {
+        if(!canExport)return;
+        var rows=(selected.Count>0?products.Where(p=>selected.Contains(p.Id)):Filtered).ToList();
+        static string Cell(string value){if(value.Length>0&&"=+-@\t\r".Contains(value[0]))value="'"+value;return "\""+value.Replace("\"","\"\"")+"\"";}
+        var csv=new System.Text.StringBuilder("Mã sản phẩm,Tên sản phẩm,Nhóm,Loại,ĐVT,IMEI,Bảo hành tháng,Trạng thái\r\n");
+        foreach(var p in rows)csv.AppendLine(string.Join(",",new[]{Cell(p.Sku),Cell(p.Name),Cell(p.GroupName),Cell(KindName(p.Kind)),Cell(p.Unit),Cell(p.UsesImei?"Có":"Không"),p.WarrantyMonths.ToString(),Cell(p.IsActive?"Đang bán":"Ngừng bán")}));
+        Trail.RecordAction(await Gate.RequireAsync(Permissions.ProductsExport),"EXPORT","products",$"{rows.Count} bản ghi");
+        await JS.InvokeVoidAsync("tnmDownloadCsv",$"san-pham-{DateTime.Now:yyyyMMdd-HHmmss}.csv",csv.ToString());
+        message=$"Đã tạo CSV cho {rows.Count} sản phẩm.";
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if(scrollEditorPending && showEditor){scrollEditorPending=false;await JS.InvokeVoidAsync("tnmScrollCatalogEditor");}
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        await Gate.RequireAsync(Permissions.ProductsView);
+        canCreate=await Gate.CanAsync(Permissions.ProductsCreate);
+        canUpdate=await Gate.CanAsync(Permissions.ProductsUpdate);
+        canAudit=await Gate.CanAsync(Permissions.ReportsAuditView);
+        canExport=await Gate.CanAsync(Permissions.ProductsExport);
+        Reload();
+    }
+    private void Reload(){groups=Master.Groups();products=Master.Products(includeInactive:true);}
+    private void Create(){editingId=null;editingSku="";groupId=0;name="";kind="GOODS";unit="Cái";warrantyMonths=12;imei=false;message="";showEditor=true;scrollEditorPending=true;}
+    private void Edit(ProductMaster.ProductRow p)
+    {editingId=p.Id;editingSku=p.Sku;groupId=p.GroupId;name=p.Name;kind=p.Kind;unit=p.Unit;warrantyMonths=p.WarrantyMonths;imei=p.UsesImei;message="";showEditor=true;scrollEditorPending=true;}
+    private async Task DeleteProduct(ProductMaster.ProductRow p)
+    {
+        try
+        {
+            var actor=await Gate.RequireAsync(Permissions.ProductsUpdate);
+            Master.SoftDelete(actor,p.Id);
+            pendingDeleteId=null;
+            selected.Remove(p.Id);
+            Reload();
+            message=$"Đã xóa mềm {p.Sku}. Hồ sơ và lịch sử vẫn được giữ.";
+        }
+        catch(Exception ex){pendingDeleteId=null;message="Không thể xóa mềm: "+ex.Message;}
+    }
+    private async Task Save()
+    {
+        try
+        {
+            var actor=await Gate.RequireAsync(editingId.HasValue?Permissions.ProductsUpdate:Permissions.ProductsCreate);
+            var sku=Master.Save(actor,new ProductMaster.ProductDraft(editingId,groupId,name,kind,unit,imei&&kind=="GOODS",warrantyMonths));
+            showEditor=false;Reload();selected.Clear();message="Đã lưu sản phẩm "+sku+". Những nghiệp vụ phía sau dùng chung ID sản phẩm.";
+        }
+        catch(Exception ex){message="Lỗi: "+ex.Message;}
+    }
+    private async Task Disable(ProductMaster.ProductRow p)
+    {
+        try
+        {
+            var actor=await Gate.RequireAsync(Permissions.ProductsUpdate);
+            Master.Disable(actor,p.Id);pendingDisableId=null;Reload();selected.Remove(p.Id);message="Đã ngừng kinh doanh "+p.Sku+"; lịch sử giao dịch được giữ nguyên.";
+        }
+        catch(Exception ex){message="Lỗi: "+ex.Message;}
+    }
+    private static string KindName(string kind)=>kind switch{"GOODS"=>"Hàng hóa","SERVICE"=>"Dịch vụ","BUNDLE"=>"Combo",_=>kind};
+}

@@ -1,0 +1,67 @@
+@attribute [Authorize(Policy = Permissions.InventoryView)]
+@page "/inventory"
+@inject DemoDb Db
+@inject PermissionGate Gate
+<PageTitle>Kho & IMEI · TNM</PageTitle>
+<div class="page-head"><div><div class="eyebrow">INVENTORY / SERIAL TRACKING</div><h1>Quản lý kho & IMEI</h1><p>Quản lý nhập hàng loạt, xuất ký gửi, giao kỹ thuật và hoàn trả bằng giao dịch lưu lịch sử.</p></div>@if(canLedger){<a href="/reports" class="btn secondary">Xem sổ kho →</a>}</div>
+<div class="crud-actionbar">@if(canReceive){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showReceive))">@(showReceive?"Đóng · + Nhập IMEI":"+ Nhập IMEI")</button>}@if(canMove){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showMove))">@(showMove?"Đóng · Điều chuyển":"Điều chuyển")</button>}</div>
+
+
+<div class="two-column">
+@if(canReceive){<section class="panel edit-panel" hidden="@(!showReceive)"><div class="panel-head"><h2>Nhập kho hàng mới</h2></div>
+ <div class="form-grid one">
+ <label>Sản phẩm có IMEI<select @bind="productId">@foreach(var p in products.Where(x=>x.IsSerialized)){<option value="@p.Id">@p.Sku — @p.Name</option>}</select></label>
+ <label>Kho nhận<select @bind="warehouseId">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
+ <label>Danh sách IMEI (mỗi dòng một mã)<textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009"></textarea></label>
+ </div><div class="form-actions"><button class="btn" @onclick="Receive">+ Nhập IMEI</button><span class="feedback">@receiveMessage</span></div>
+</section>}
+@if(canMove){<section class="panel edit-panel" hidden="@(!showMove)"><div class="panel-head"><h2>Điều chuyển / thu hồi</h2></div>
+ <div class="form-grid one">
+ <label>IMEI cần thao tác<select @bind="stockId">@foreach(var x in stock.Where(x=>x.Status is "IN_STOCK" or "CONSIGNED" or "TECHNICIAN")){<option value="@x.Id">@x.Imei — @x.Status</option>}</select></label>
+ <label>Loại điều chuyển<select @bind="moveType">
+ @if(canConsignOut){<option value="CONSIGN_OUT">Xuất ký gửi khách hàng</option>}
+ @if(canConsignReturn){<option value="CONSIGN_RETURN">Thu hồi ký gửi về kho</option>}
+ @if(canTechOut){<option value="TECH_OUT">Xuất cho kỹ thuật</option>}
+ @if(canTechReturn){<option value="TECH_RETURN">Nhận lại từ kỹ thuật</option>}
+ </select></label>
+ <label>@(moveType=="CONSIGN_OUT"?"Khách hàng nhận":moveType=="TECH_OUT"?"Kỹ thuật nhận":"Kho nhận")
+  <select @bind="targetId">
+   @if(moveType=="CONSIGN_OUT"){@foreach(var c in customers){<option value="@c.Id">@c.Name</option>}}
+   else if(moveType=="TECH_OUT"){@foreach(var e in techs){<option value="@e.Id">@e.Name</option>}}
+   else {@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}}
+  </select></label>
+ </div><div class="form-actions"><button class="btn" @onclick="Move">Xác nhận điều chuyển</button><span class="feedback">@moveMessage</span></div>
+ <div class="panel-note">Kiểm tra trạng thái và lưu cả phiếu xuất/nhập trước khi cập nhật vị trí IMEI.</div>
+</section>}
+</div>
+<section class="panel"><div class="panel-head"><div><h2>Danh sách thiết bị</h2><p>@stock.Count IMEI được ghi nhận</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div>
+<div class="table-wrap"><table><thead><tr><th>IMEI / SERIAL</th><th>SKU</th><th>TÊN THIẾT BỊ</th><th>TRẠNG THÁI</th><th>VỊ TRÍ / ĐƠN VỊ GIỮ</th><th>CẬP NHẬT</th></tr></thead><tbody>
+@foreach(var x in stock.Where(x=> (x.Imei+x.Sku+x.Holder).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td>@x.Holder</td><td>@x.UpdatedAt</td></tr>}
+</tbody></table></div></section>
+@code {
+ private bool showReceive, showMove;
+ private void ToggleForm(string form){
+  showReceive = form=="showReceive" && !showReceive;
+  showMove = form=="showMove" && !showMove;
+ }
+
+ private List<ProductVm> products=[];private List<StockVm> stock=[];private List<CustomerVm> customers=[];
+ private List<(long Id,string Name)> warehouses=[],techs=[];
+ private long productId=1,warehouseId=1,stockId=3,targetId=1;
+ private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="";
+ private bool canReceive,canMove,canLedger,canConsignOut,canConsignReturn,canTechOut,canTechReturn;
+ protected override async Task OnInitializedAsync(){Reload();warehouses=Db.Warehouses();techs=Db.Technicians();customers=Db.Customers();products=Db.Products();canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
+ canConsignOut=await Gate.CanAsync(Permissions.InventoryConsignOut);canConsignReturn=await Gate.CanAsync(Permissions.InventoryConsignReturn);
+ canTechOut=await Gate.CanAsync(Permissions.InventoryTechOut);canTechReturn=await Gate.CanAsync(Permissions.InventoryTechReturn);
+ canMove=canConsignOut||canConsignReturn||canTechOut||canTechReturn;
+ moveType=canConsignOut?"CONSIGN_OUT":canConsignReturn?"CONSIGN_RETURN":canTechOut?"TECH_OUT":"TECH_RETURN";}
+ private void Reload(){stock=Db.Stock();}
+ private async Task Receive(){try{Db.ActorId=await Gate.RequireAsync(Permissions.InventoryReceive);var n=Db.Receive(productId,warehouseId,imeis);Reload();imeis="";receiveMessage=$"Đã nhập {n} IMEI.";}catch(Exception ex){receiveMessage="Lỗi: "+ex.Message;}}
+ private async Task Move(){try{var required=moveType switch
+ {"CONSIGN_OUT"=>Permissions.InventoryConsignOut,"CONSIGN_RETURN"=>Permissions.InventoryConsignReturn,
+  "TECH_OUT"=>Permissions.InventoryTechOut,"TECH_RETURN"=>Permissions.InventoryTechReturn,
+  _=>throw new InvalidOperationException("Nghiệp vụ kho không hợp lệ.")};
+ Db.ActorId=await Gate.RequireAsync(required);Db.MoveStock(stockId,moveType,targetId);Reload();moveMessage="Điều chuyển thành công.";}catch(Exception ex){moveMessage="Lỗi: "+ex.Message;}}
+ private string StatusText(string s)=>s switch{"IN_STOCK"=>"Trong kho","CONSIGNED"=>"Ký gửi","TECHNICIAN"=>"Kỹ thuật","INSTALLED"=>"Đã kích hoạt","WARRANTY"=>"Bảo hành","SUPPLIER"=>"Nhà cung cấp",_=>s};
+ private string CssStatus(string s)=>s switch{"IN_STOCK"=>"green-chip","CONSIGNED"=>"purple-chip","INSTALLED"=>"blue-chip","WARRANTY"=>"orange-chip",_=>""};
+}

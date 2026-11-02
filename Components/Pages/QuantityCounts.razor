@@ -1,0 +1,53 @@
+@page "/quantity-counts"
+@attribute [Authorize(Policy=Permissions.QuantityCountView)]
+@inject V6Ops Ops
+@inject PermissionGate Gate
+<PageTitle>Kiểm kê · TNM v6</PageTitle>
+<div class="page-head"><div><div class="eyebrow">STOCK TAKE / APPROVAL</div><h1>Kiểm kê, duyệt chênh lệch</h1><p>Chốt tồn tại thời điểm đếm, sau đó quản lý duyệt một lần để tạo giao dịch điều chỉnh.</p></div></div>
+<div class="crud-actionbar">@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Mở kiểm kê":"+ Mở kiểm kê")</button>}@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showLine))">@(showLine?"Đóng · + Ghi thực kiểm":"+ Ghi thực kiểm")</button>}</div>
+
+
+<div class="two-column">
+@if(canCreate){<section class="panel edit-panel" hidden="@(!showCreate)"><div class="panel-head"><h2>Mở kỳ kiểm kê</h2></div>
+<div class="form-grid one"><label>Kho<select @bind="warehouseId" @bind:after="()=>locationId=locations.FirstOrDefault(l=>l.WarehouseId==warehouseId)?.Id??0">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
+<label>Vị trí<select @key="warehouseId" @bind="locationId">@foreach(var l in locations.Where(l=>l.WarehouseId==warehouseId)){<option value="@l.Id">@l.Name</option>}</select></label>
+<label>Ghi chú<input @bind="note" /></label></div>
+<div class="form-actions"><button class="btn" @onclick="Create">+ Mở phiên kiểm</button><span class="feedback">@createMessage</span></div></section>}
+@if(canCreate){<section class="panel edit-panel" hidden="@(!showLine)"><div class="panel-head"><h2>Ghi thực tế kiểm đếm</h2></div>
+<div class="form-grid one"><label>Phiên DRAFT<select @bind="countId">@foreach(var x in counts.Where(x=>x.Status=="DRAFT")){<option value="@x.Id">@x.Code — @x.Warehouse / @x.Location</option>}</select></label>
+<label>Sản phẩm<select @bind="productId">@foreach(var p in products){<option value="@p.Id">@p.Name</option>}</select></label>
+<label>Số lượng kiểm thực tế<input type="number" min="0" @bind="counted" /></label></div>
+<div class="form-actions"><button class="btn" @onclick="SetLine">Lưu số kiểm</button><span class="feedback">@lineMessage</span></div></section>}
+</div>
+<section class="panel"><div class="panel-head"><h2>Phiên kiểm kê</h2></div>
+<div class="table-wrap"><table><thead><tr><th>Mã</th><th>Kho</th><th>Vị trí</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
+@foreach(var x in counts){<tr><td>@x.Code</td><td>@x.Warehouse</td><td>@x.Location</td><td>@x.Created</td><td>@x.Status</td><td><button class="btn btn-sm" @onclick="()=>SelectCount(x.Id)">Chi tiết</button>
+@if(x.Status=="DRAFT"&&canApprove){<button class="btn btn-sm" @onclick="()=>Approve(x.Id)">Duyệt điều chỉnh</button>}</td></tr>}
+</tbody></table></div><p class="feedback">@approveMessage</p></section>
+@if(selectedCount>0){<section class="panel"><div class="panel-head"><h2>Chi tiết phiên #@selectedCount</h2></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
+@foreach(var line in countLines){<tr><td>@line.Sku</td><td>@line.Product</td><td>@line.Book</td><td>@line.Counted</td><td>@(line.Counted-line.Book)</td></tr>}
+</tbody></table></div></section>}
+@code {
+ private bool showCreate, showLine;
+ private void ToggleForm(string form){
+  showCreate = form=="showCreate" && !showCreate;
+  showLine = form=="showLine" && !showLine;
+ }
+
+ private long actor,warehouseId,locationId,countId,selectedCount,productId,counted;
+ private bool canCreate,canApprove;private string note="",createMessage="",lineMessage="",approveMessage="";
+ private List<WarehousePick> warehouses=[];private List<LocationPick> locations=[];private List<Pick> products=[];
+ private List<QuantityCount> counts=[];private List<QuantityCountLine> countLines=[];
+ protected override async Task OnInitializedAsync(){actor=await Gate.RequireAsync(Permissions.QuantityCountView);
+    canCreate=await Gate.CanAsync(Permissions.QuantityCountCreate);canApprove=await Gate.CanAsync(Permissions.QuantityCountApprove);
+    warehouses=Ops.Warehouses(actor);locations=Ops.Locations(actor);products=Ops.QuantityProducts();warehouseId=warehouses.FirstOrDefault()?.Id??0;
+    locationId=locations.FirstOrDefault(x=>x.WarehouseId==warehouseId)?.Id??0;productId=products.FirstOrDefault()?.Id??0;Reload();}
+ private void Reload(){counts=Ops.Counts(actor);countId=counts.FirstOrDefault(x=>x.Status=="DRAFT")?.Id??0;
+    if(selectedCount>0)countLines=Ops.CountLines(actor,selectedCount);}
+ private async Task Create(){try{actor=await Gate.RequireAsync(Permissions.QuantityCountCreate);
+    var loc=locations.FirstOrDefault(x=>x.WarehouseId==warehouseId&&x.Id==locationId)?.Id??locations.FirstOrDefault(x=>x.WarehouseId==warehouseId)?.Id??0;
+    selectedCount=Ops.StartCount(actor,warehouseId,loc,note);Reload();countId=selectedCount;createMessage="Đã mở phiên kiểm.";}catch(Exception ex){createMessage=ex.Message;}}
+ private async Task SetLine(){try{actor=await Gate.RequireAsync(Permissions.QuantityCountCreate);Ops.SetCountLine(actor,countId,productId,counted);selectedCount=countId;Reload();lineMessage="Đã lưu số kiểm thực tế.";}catch(Exception ex){lineMessage=ex.Message;}}
+ private void SelectCount(long id){selectedCount=id;countLines=Ops.CountLines(actor,id);}
+ private async Task Approve(long id){try{actor=await Gate.RequireAsync(Permissions.QuantityCountApprove);Ops.ApproveCount(actor,id);selectedCount=id;Reload();approveMessage="Đã duyệt và tạo giao dịch điều chỉnh.";}catch(Exception ex){approveMessage=ex.Message;}}
+}

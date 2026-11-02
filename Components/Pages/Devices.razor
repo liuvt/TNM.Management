@@ -1,0 +1,66 @@
+@attribute [Authorize(Policy = Permissions.DevicesView)]
+@page "/devices"
+@inject DemoDb Db
+@inject PermissionGate Gate
+<PageTitle>Thiết bị · TNM</PageTitle>
+<div class="page-head"><div><div class="eyebrow">SUBSCRIPTIONS / RENEWAL</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt, hạn gia hạn và toàn bộ các lần gia hạn.</p></div></div>
+<div class="crud-actionbar">@if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}</div>
+
+
+@if(canRenew){<div class="panel edit-panel" hidden="@(!showRenew)"><div class="panel-head"><div><h2>Gia hạn thiết bị</h2><p>Ghi nhận giao dịch, cập nhật thời hạn và tạo công nợ.</p></div></div>
+<div class="form-grid">
+<label>Thiết bị / biển số<select @bind="activationId">@foreach(var x in devices){<option value="@x.ActivationId">@x.Imei — @x.Plate (@x.ExpiresAt)</option>}</select></label>
+<label>Nguồn gia hạn<select @bind="source"><option value="TNM">TNM</option><option value="NCC">Nhà cung cấp</option><option value="HTX">Hợp tác xã</option><option value="B2C">Khách lẻ B2C</option></select></label>
+<label>Thanh toán<select @bind="method"><option value="DEBT">Ghi công nợ</option><option value="CASH">Thanh toán ngay</option></select></label>
+</div><div class="form-actions"><button class="btn" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
+</div>}
+<section class="panel"><div class="panel-head"><div><h2>Danh sách kích hoạt</h2><p>Đặt hạn thực tế sau cùng, không ghi đè lịch sử gia hạn.</p></div>
+<div class="tabs">
+@if(canActive){<button class="@(filter=="ACTIVE"?"selected":"")" @onclick='() => filter = "ACTIVE"'>Còn hạn</button>}
+@if(canDue10){<button class="@(filter=="DUE10"?"selected":"")" @onclick='() => filter = "DUE10"'>D+10</button>}
+@if(canDue30){<button class="@(filter=="DUE30"?"selected":"")" @onclick='() => filter = "DUE30"'>D+30</button>}
+@if(canDue60){<button class="@(filter=="DUE60"?"selected":"")" @onclick='() => filter = "DUE60"'>D+60</button>}
+@if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => filter = "OVERDUE"'>Quá hạn</button>}
+</div></div>
+<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>SKU</th><th>KHÁCH HÀNG</th><th>BIỂN SỐ</th><th>KÍCH HOẠT</th><th>HẾT HẠN</th><th>GIA HẠN</th></tr></thead><tbody>
+@foreach(var x in devices.Where(Match)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Customer</td><td>@x.Plate</td><td>@x.ActivatedAt</td><td>@x.ExpiresAt</td><td><span class="chip @(DaysToExpiry(x)<0?"orange-chip":DaysToExpiry(x)<=30?"purple-chip":"green-chip")">@(DaysToExpiry(x)<0?"Quá hạn":DaysToExpiry(x)<=30?$"Còn {DaysToExpiry(x)} ngày":"Còn hạn")</span></td></tr>}
+</tbody></table></div></section>
+@if(canHistory){<section class="panel"><div class="panel-head"><h2>Lịch sử các lần gia hạn</h2></div>
+<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN MỚI</th><th>SỐ TIỀN</th><th>THANH TOÁN</th></tr></thead><tbody>
+@foreach(var x in renewals){<tr><td><strong>@x.Imei</strong></td><td>@x.Source</td><td>@x.StartDate</td><td>@x.EndDate</td><td>@x.Price.ToString("N0") ₫</td><td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td></tr>}
+</tbody></table></div></section>}
+@code {
+ private bool showRenew;
+ private void ToggleForm(string form){
+  showRenew = form=="showRenew" && !showRenew;
+ }
+
+ private List<DeviceVm> devices=[];private List<RenewalVm> renewals=[];
+ private long activationId=1;private string source="TNM",method="DEBT",message="",filter="ACTIVE";
+ private bool canRenew,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60;
+ protected override async Task OnInitializedAsync(){
+  canRenew=await Gate.CanAsync(Permissions.DevicesRenew);
+  canHistory=await Gate.CanAsync(Permissions.DevicesRenewalsView);
+  canActive=await Gate.CanAsync(Permissions.DevicesActiveView);
+  canOverdue=await Gate.CanAsync(Permissions.DevicesOverdueView);
+  canDue10=await Gate.CanAsync(Permissions.DevicesDue10View);
+  canDue30=await Gate.CanAsync(Permissions.DevicesDue30View);
+  canDue60=await Gate.CanAsync(Permissions.DevicesDue60View);
+  Reload();filter=canActive?"ACTIVE":canDue10?"DUE10":canDue30?"DUE30":canDue60?"DUE60":"OVERDUE";
+ }
+ private void Reload(){devices=Db.Devices();if(canHistory)renewals=Db.Renewals();}
+ private int DaysToExpiry(DeviceVm x)=> (DateTime.Parse(x.ExpiresAt).Date-DateTime.Today).Days;
+ private bool Match(DeviceVm x)
+ {
+  var days=DaysToExpiry(x);
+  // Permission is checked again even if a client changes filter through a crafted event.
+  return filter switch {
+  "ACTIVE"=>canActive && days>=0,
+  "DUE10"=>canDue10 && days>=0 && days<=10,
+  "DUE30"=>canDue30 && days>=0 && days<=30,
+  "DUE60"=>canDue60 && days>=0 && days<=60,
+  "OVERDUE"=>canOverdue && days<0,
+  _=>false};
+ }
+ private async Task Renew(){try{Db.ActorId=await Gate.RequireAsync(Permissions.DevicesRenew);Db.Renew(activationId,source,method);Reload();message="Đã gia hạn và ghi nhận hóa đơn.";}catch(Exception ex){message="Lỗi: "+ex.Message;}}
+}
