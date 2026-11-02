@@ -65,6 +65,18 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 .Select(x => long.TryParse(x[2..], out var n) ? n : 0).DefaultIfEmpty(0).Max();
             Do(c, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('DX',0)");
             Do(c, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='DX'", ("$max", max));
+
+            var custCodes = Read(c, "SELECT code FROM customers", r => Txt(r, 0));
+            var maxCustFromCode = custCodes
+                .Select(x => Regex.Match(x ?? "", @"^KH[-_]?(\d+)$", RegexOptions.IgnoreCase))
+                .Where(m => m.Success && long.TryParse(m.Groups[1].Value, out _))
+                .Select(m => long.Parse(m.Groups[1].Value))
+                .DefaultIfEmpty(0L)
+                .Max();
+            var maxCustId = Num(c, "SELECT COALESCE(MAX(id),0) FROM customers");
+            var maxCust = Math.Max(maxCustFromCode, maxCustId);
+            Do(c, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('KH',0)");
+            Do(c, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='KH'", ("$max", maxCust));
             return 0;
         });
     }
@@ -95,6 +107,57 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         }
     }
 
+    /// <summary>Phải gọi trong transaction ghi SQLite; tự động sinh Mã khách hàng theo thứ tự KH00001, KH00002...</summary>
+    public static string NextCustomerCode(SqliteConnection c, SqliteTransaction? tx = null)
+    {
+        static void Run(SqliteConnection connection, SqliteTransaction? transaction, string sql, params (string, object?)[] p)
+        {
+            using var command = connection.CreateCommand(); command.Transaction = transaction;
+            command.CommandText = sql;
+            foreach (var (k, v) in p) command.Parameters.AddWithValue(k, v ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+        static long ReadLong(SqliteConnection connection, SqliteTransaction? transaction, string sql)
+        {
+            using var command = connection.CreateCommand(); command.Transaction = transaction;
+            command.CommandText = sql; return Convert.ToInt64(command.ExecuteScalar() ?? 0L);
+        }
+        var maxId = ReadLong(c, tx, "SELECT COALESCE(MAX(id),0) FROM customers");
+        Run(c, tx, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('KH',0)");
+        Run(c, tx, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='KH'", ("$max", maxId));
+        while (true)
+        {
+            Run(c, tx, "UPDATE v7_sku_sequences SET last_number=last_number+1 WHERE prefix='KH'");
+            var n = ReadLong(c, tx, "SELECT last_number FROM v7_sku_sequences WHERE prefix='KH'");
+            var code = "KH" + n.ToString("D5");
+            using var command = c.CreateCommand(); command.Transaction = tx;
+            command.CommandText = "SELECT COUNT(*) FROM customers WHERE code=$c";
+            command.Parameters.AddWithValue("$c", code);
+            if (Convert.ToInt64(command.ExecuteScalar() ?? 0L) == 0) return code;
+        }
+    }
+
+    /// <summary>Xem trước mã khách hàng tiếp theo để hiển thị trên form Thêm mới.</summary>
+    public string PeekNextCustomerCode()
+    {
+        using var c = Open();
+        var seq = Num(c, "SELECT COALESCE((SELECT last_number FROM v7_sku_sequences WHERE prefix='KH'),0)");
+        var maxId = Num(c, "SELECT COALESCE(MAX(id),0) FROM customers");
+        var custCodes = Read(c, "SELECT code FROM customers", r => Txt(r, 0));
+        var maxFromCode = custCodes
+            .Select(x => Regex.Match(x ?? "", @"^KH[-_]?(\d+)$", RegexOptions.IgnoreCase))
+            .Where(m => m.Success && long.TryParse(m.Groups[1].Value, out _))
+            .Select(m => long.Parse(m.Groups[1].Value))
+            .DefaultIfEmpty(0L)
+            .Max();
+        var n = Math.Max(seq, Math.Max(maxId, maxFromCode)) + 1;
+        while (Num(c, "SELECT COUNT(*) FROM customers WHERE code=$c", ("$c", "KH" + n.ToString("D5"))) > 0)
+        {
+            n++;
+        }
+        return "KH" + n.ToString("D5");
+    }
+
     public List<Choice> SupplierGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM supplier_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<Choice> CustomerGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM customer_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<Choice> ProductGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM product_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
@@ -104,7 +167,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public List<Area> Areas() { using var c = Open(); return Read(c, "SELECT a.id,a.code,a.name,COUNT(w.id) FROM warehouse_areas a LEFT JOIN warehouses w ON w.area_id=a.id AND w.deleted_at IS NULL WHERE a.deleted_at IS NULL GROUP BY a.id ORDER BY a.name", r => new Area(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3))); }
     public List<Warehouse> Warehouses() { using var c = Open(); return Read(c, "SELECT w.id,w.code,w.name,w.area_id,COALESCE(a.name,''),COALESCE(w.address,'') FROM warehouses w LEFT JOIN warehouse_areas a ON a.id=w.area_id WHERE w.deleted_at IS NULL ORDER BY a.name,w.name", r => new Warehouse(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5))); }
     public List<Product> Products() { using var c = Open(); return Read(c, "SELECT id,sku,name,group_id,group_name,is_active FROM v7_product_master WHERE is_active=1 ORDER BY id DESC", r => new Product(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5) == 1)); }
-    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.name", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7))); }
+    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7))); }
     public List<Installer> Installers()
     {
         using var c = Open();
@@ -177,13 +240,31 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "WAREHOUSE", wid, code); return wid;
         });
     }
-    public long SaveCustomer(long actor, long? id, string code, string name, long groupId, string phone, string address, string sourceName = "")
+    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "")
     {
-        code = Code(code); name = Required(name, "Tên khách hàng"); return Write(actor, c => {
-            Exists(c, "customer_groups", groupId); long cid;
-            if (id.HasValue) { Exists(c, "customers", id.Value); Do(c, "UPDATE customers SET code=$code,name=$name,group_id=$g,phone=$phone,address=$address,source_name=$src WHERE id=$id", ("$code", code), ("$name", name), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()), ("$id", id.Value)); cid = id.Value; }
-            else { Do(c, "INSERT INTO customers(code,name,group_id,phone,address,source_name) VALUES($code,$name,$g,$phone,$address,$src)", ("$code", code), ("$name", name), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim())); cid = Num(c, "SELECT last_insert_rowid()"); }
-            Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "CUSTOMER", cid, code); return cid;
+        name = Required(name, "Tên khách hàng");
+        return Write(actor, c => {
+            Exists(c, "customer_groups", groupId);
+            long cid;
+            string finalCode;
+            if (id.HasValue)
+            {
+                Exists(c, "customers", id.Value);
+                var existingCode = Convert.ToString(Cell(c, "SELECT code FROM customers WHERE id=$id", ("$id", id.Value))) ?? "";
+                finalCode = string.IsNullOrWhiteSpace(code) ? existingCode : Code(code);
+                Do(c, "UPDATE customers SET code=$code,name=$name,group_id=$g,phone=$phone,address=$address,source_name=$src WHERE id=$id",
+                    ("$code", finalCode), ("$name", name), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()), ("$id", id.Value));
+                cid = id.Value;
+            }
+            else
+            {
+                finalCode = NextCustomerCode(c);
+                Do(c, "INSERT INTO customers(code,name,group_id,phone,address,source_name) VALUES($code,$name,$g,$phone,$address,$src)",
+                    ("$code", finalCode), ("$name", name), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()));
+                cid = Num(c, "SELECT last_insert_rowid()");
+            }
+            Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "CUSTOMER", cid, finalCode);
+            return cid;
         });
     }
     public long SaveInstaller(long actor, long? id, string code, string name, string phone, string department = "Kỹ thuật", Dictionary<long, long>? productRates = null)

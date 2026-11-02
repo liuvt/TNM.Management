@@ -45,7 +45,16 @@ else
                 {
                     <label>@(Section=="suppliers"?"Nhóm nhà cung cấp":Section=="customers"?"Nhóm khách hàng":"Khu vực") *
                         <select @bind="groupId"><option value="0">— Chọn —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@g.Name</option>}</select></label>
-                    <label>Mã *<input @bind="code" placeholder="@CodeExample" maxlength="32" /></label>
+                    @if(Section=="customers")
+                    {
+                        <label>Mã khách hàng (tự động)
+                            <input value="@(code)" disabled />
+                        </label>
+                    }
+                    else
+                    {
+                        <label>Mã *<input @bind="code" placeholder="@CodeExample" maxlength="32" /></label>
+                    }
                     <label>Tên *<input @bind="name" placeholder="@NameExample" maxlength="160" /></label>
                     @if(Section=="suppliers")
                     {
@@ -323,7 +332,7 @@ else
     private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName="";department="Kỹ thuật";groupId=productId=buyPrice=standard=installed=renewal=0;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
     private long GetInstallerRateInput(long prodId)=>installerProductRates.TryGetValue(prodId,out var v)?v:0;
     private void SetInstallerRateInput(long prodId,object? val){if(long.TryParse(val?.ToString(),out var v)&&v>=0)installerProductRates[prodId]=v;else installerProductRates.Remove(prodId);}
-    private void Create(){ResetFields();showEditor=true;scrollEditorPending=true;message="";}
+    private void Create(){ResetFields();if(CurrentSection=="customers")code=Catalog.PeekNextCustomerCode();showEditor=true;scrollEditorPending=true;message="";}
     private void CloseEditor(){showEditor=false;scrollEditorPending=false;ResetFields();}
     private void EditRow(CatalogRow row)
     {

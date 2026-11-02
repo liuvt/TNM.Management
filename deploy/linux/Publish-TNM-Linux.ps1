@@ -1,8 +1,9 @@
 # Run in PowerShell on a Windows PC with .NET 9 SDK.
 $ErrorActionPreference = 'Stop'
-$project = (Resolve-Path "$PSScriptRoot/../../TNM.Management.csproj").Path
-$publish = Join-Path (Split-Path $project -Parent) 'publish-linux'
-$archive = Join-Path (Split-Path $project -Parent) 'tnm-linux-publish.zip'
+$projectRoot = (Resolve-Path "$PSScriptRoot/../..").Path
+$project = Join-Path $projectRoot 'TNM.Management.csproj'
+$publish = Join-Path $projectRoot 'publish-linux'
+$archive = Join-Path $projectRoot 'tnm-linux-publish.zip'
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 if (Test-Path $archive) { Remove-Item $archive -Force }
 dotnet publish $project -c Release -r linux-x64 --self-contained false -o $publish
@@ -18,7 +19,7 @@ foreach ($name in @('tnm.service', 'nginx-tnm.conf', 'backup-tnm.sh', 'README-LI
 # project content-copy implementation details.
 $sqlDest = Join-Path $publish 'Data'
 New-Item -ItemType Directory -Path $sqlDest -Force | Out-Null
-Copy-Item (Join-Path (Split-Path $project -Parent) 'Data/*.sql') $sqlDest -Force
+Copy-Item (Join-Path $projectRoot 'Data/*.sql') $sqlDest -Force
 foreach ($required in @('TNM.Management.dll', 'Data/schema.sql', 'Data/seed_empty.sql', 'Data/seed.sql', 'deploy/linux/tnm.service')) {
     if (-not (Test-Path (Join-Path $publish $required))) {
         throw "Missing published asset: $required"
@@ -28,6 +29,12 @@ foreach ($required in @('TNM.Management.dll', 'Data/schema.sql', 'Data/seed_empt
 # Never transfer any local database, SQLite WAL or cookie encryption keys.
 $localData = Join-Path $publish 'App_Data'
 if (Test-Path $localData) { Remove-Item $localData -Recurse -Force }
-tar.exe -a -c -f $archive -C $publish *
-if ($LASTEXITCODE -ne 0) { Compress-Archive -Path "$publish/*" -DestinationPath $archive -Force }
+Push-Location $projectRoot
+try {
+    tar.exe -a -c -f "tnm-linux-publish.zip" -C "publish-linux" *
+    if ($LASTEXITCODE -ne 0) { Compress-Archive -Path "$publish/*" -DestinationPath $archive -Force }
+}
+finally {
+    Pop-Location
+}
 Write-Host "Done: $archive"
