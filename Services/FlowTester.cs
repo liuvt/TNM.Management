@@ -163,14 +163,14 @@ public static class FlowTester
 
                 prodGroupId = catalog.SaveGroup(ownerId, "PRODUCT", null, "GPS_CAM", "Thiết bị Giám sát Hành trình");
                 custGroupId = catalog.SaveGroup(ownerId, "CUSTOMER", null, "HTX_VIP", "Hợp tác xã Vận tải VIP");
-                Assert(catalog.PeekNextCustomerCode() == "KH00001", "Mã KH dự kiến đầu tiên phải là KH00001.");
+                Assert(catalog.PeekNextCustomerCode() == "KH00010", "Mã KH dự kiến bắt đầu phải là KH00010.");
                 customerId = catalog.SaveCustomer(ownerId, null, "", "HTX Vận tải Sài Gòn Xanh", custGroupId, "0908888999", "Quận 7, TP.HCM", "Sale Nguyễn Minh Anh");
                 var customer2Id = catalog.SaveCustomer(ownerId, null, "", "Công ty Vận tải Miền Tây", custGroupId, "0907777888", "Cần Thơ", "Đại lý Miền Tây");
                 var custs = catalog.Customers();
                 var c1 = custs.First(c => c.Id == customerId);
                 var c2 = custs.First(c => c.Id == customer2Id);
-                Assert(c1.Code == "KH00001" && c2.Code == "KH00002", $"Mã KH tự động nhảy không đúng thứ tự: {c1.Code}, {c2.Code}");
-                Assert(catalog.PeekNextCustomerCode() == "KH00003", $"Mã KH tiếp theo phải là KH00003 (thực tế: {catalog.PeekNextCustomerCode()}).");
+                Assert(c1.Code == "KH00010" && c2.Code == "KH00011", $"Mã KH tự động nhảy không đúng thứ tự: {c1.Code}, {c2.Code}");
+                Assert(catalog.PeekNextCustomerCode() == "KH00012", $"Mã KH tiếp theo phải là KH00012 (thực tế: {catalog.PeekNextCustomerCode()}).");
 
                 areaId = catalog.SaveGroup(ownerId, "AREA", null, "KV_HCM", "Khu vực TP.HCM");
                 wh1Id = catalog.SaveWarehouse(ownerId, null, "KHO_Q7", "Kho Trung tâm Quận 7", areaId, "Nguyễn Văn Linh, Q7");

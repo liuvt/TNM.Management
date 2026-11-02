@@ -254,7 +254,7 @@ else
         "sale-prices"=>"Giá bán theo nhóm khách hàng và sản phẩm; hỗ trợ giá lắp đặt, gia hạn.",
         "campaigns"=>"Quản lý ưu đãi theo nhóm khách hàng và khoảng thời gian áp dụng.",
         _=>"Tra cứu danh sách, tìm kiếm, chọn dòng, xuất CSV và thêm/sửa khi cần."};
-    private string CodeExample => CurrentSection switch {"supplier-groups"=>"NCC-DIEN-TU","suppliers"=>"NCC001","product-groups"=>"CAMERA","customer-groups"=>"DAI-LY","customers"=>"KH00001","installers"=>"KT001","areas"=>"KV-MIEN-NAM","warehouses"=>"KHO-RG",_=>"Mã"};
+    private string CodeExample => CurrentSection switch {"supplier-groups"=>"NCC-DIEN-TU","suppliers"=>"NCC001","product-groups"=>"CAMERA","customer-groups"=>"DAI-LY","customers"=>"KH00010","installers"=>"KT001","areas"=>"KV-MIEN-NAM","warehouses"=>"KHO-RG",_=>"Mã"};
     private string NameExample => CurrentSection switch {"supplier-groups"=>"Nhà cung cấp điện tử","suppliers"=>"Công ty Thiết bị A","product-groups"=>"Camera","customer-groups"=>"Đại lý","customers"=>"Nguyễn Văn An","installers"=>"Trần Quốc Bảo","areas"=>"Miền Nam","warehouses"=>"Kho Rạch Giá",_=>"Tên"};
     private string ReadPermission => CurrentSection switch {"product-groups"=>Permissions.ProductsView,"customer-groups" or "customers"=>Permissions.CustomersView,"buy-prices" or "sale-prices" or "campaigns" or "installer-rates"=>Permissions.PricesView,_=>Permissions.MasterDataManage};
     private string CreatePermission => CurrentSection switch {"product-groups"=>Permissions.ProductsCreate,"customer-groups" or "customers"=>Permissions.CustomersCreate,"buy-prices" or "sale-prices" or "campaigns" or "installer-rates"=>Permissions.PricesUpdate,_=>Permissions.MasterDataManage};

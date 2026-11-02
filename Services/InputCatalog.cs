@@ -66,19 +66,40 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             Do(c, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('DX',0)");
             Do(c, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='DX'", ("$max", max));
 
-            var custCodes = Read(c, "SELECT code FROM customers", r => Txt(r, 0));
-            var maxCustFromCode = custCodes
-                .Select(x => Regex.Match(x ?? "", @"^KH[-_]?(\d+)$", RegexOptions.IgnoreCase))
-                .Where(m => m.Success && long.TryParse(m.Groups[1].Value, out _))
-                .Select(m => long.Parse(m.Groups[1].Value))
-                .DefaultIfEmpty(0L)
-                .Max();
-            var maxCustId = Num(c, "SELECT COALESCE(MAX(id),0) FROM customers");
-            var maxCust = Math.Max(maxCustFromCode, maxCustId);
-            Do(c, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('KH',0)");
+            var maxCust = GetMaxExistingCustomerNumber(c);
+            Do(c, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('KH',9)");
             Do(c, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='KH'", ("$max", maxCust));
             return 0;
         });
+    }
+
+    private static long GetMaxExistingCustomerNumber(SqliteConnection c, SqliteTransaction? tx = null)
+    {
+        static long ScalarLong(SqliteConnection conn, SqliteTransaction? tran, string sql)
+        {
+            using var cmd = conn.CreateCommand(); cmd.Transaction = tran;
+            cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L);
+        }
+        var maxId = ScalarLong(c, tx, "SELECT COALESCE(MAX(id),0) FROM customers");
+        var countAll = ScalarLong(c, tx, "SELECT COUNT(*) FROM customers");
+        long maxFromCode = 0;
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "SELECT code FROM customers";
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                var code = r.IsDBNull(0) ? "" : r.GetString(0);
+                var m = Regex.Match(code, @"(\d+)$");
+                if (m.Success && long.TryParse(m.Groups[1].Value, out var parsed) && parsed > maxFromCode)
+                {
+                    maxFromCode = parsed;
+                }
+            }
+        }
+        // Mặc định bắt đầu từ 10 (last_number tối thiểu = 9) theo dữ liệu hiện có
+        return Math.Max(9L, Math.Max(maxId, Math.Max(countAll, maxFromCode)));
     }
 
     /// <summary>Phải gọi trong transaction ghi SQLite; các lối tạo sản phẩm khác tái sử dụng để chống cấp trùng.</summary>
@@ -107,7 +128,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         }
     }
 
-    /// <summary>Phải gọi trong transaction ghi SQLite; tự động sinh Mã khách hàng theo thứ tự KH00001, KH00002...</summary>
+    /// <summary>Phải gọi trong transaction ghi SQLite; tự động sinh Mã khách hàng theo thứ tự bắt đầu từ KH00010, KH00011...</summary>
     public static string NextCustomerCode(SqliteConnection c, SqliteTransaction? tx = null)
     {
         static void Run(SqliteConnection connection, SqliteTransaction? transaction, string sql, params (string, object?)[] p)
@@ -122,9 +143,9 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             using var command = connection.CreateCommand(); command.Transaction = transaction;
             command.CommandText = sql; return Convert.ToInt64(command.ExecuteScalar() ?? 0L);
         }
-        var maxId = ReadLong(c, tx, "SELECT COALESCE(MAX(id),0) FROM customers");
-        Run(c, tx, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('KH',0)");
-        Run(c, tx, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='KH'", ("$max", maxId));
+        var maxExisting = GetMaxExistingCustomerNumber(c, tx);
+        Run(c, tx, "INSERT OR IGNORE INTO v7_sku_sequences(prefix,last_number) VALUES('KH',9)");
+        Run(c, tx, "UPDATE v7_sku_sequences SET last_number=MAX(last_number,$max) WHERE prefix='KH'", ("$max", maxExisting));
         while (true)
         {
             Run(c, tx, "UPDATE v7_sku_sequences SET last_number=last_number+1 WHERE prefix='KH'");
@@ -141,16 +162,9 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public string PeekNextCustomerCode()
     {
         using var c = Open();
-        var seq = Num(c, "SELECT COALESCE((SELECT last_number FROM v7_sku_sequences WHERE prefix='KH'),0)");
-        var maxId = Num(c, "SELECT COALESCE(MAX(id),0) FROM customers");
-        var custCodes = Read(c, "SELECT code FROM customers", r => Txt(r, 0));
-        var maxFromCode = custCodes
-            .Select(x => Regex.Match(x ?? "", @"^KH[-_]?(\d+)$", RegexOptions.IgnoreCase))
-            .Where(m => m.Success && long.TryParse(m.Groups[1].Value, out _))
-            .Select(m => long.Parse(m.Groups[1].Value))
-            .DefaultIfEmpty(0L)
-            .Max();
-        var n = Math.Max(seq, Math.Max(maxId, maxFromCode)) + 1;
+        var seq = Num(c, "SELECT COALESCE((SELECT last_number FROM v7_sku_sequences WHERE prefix='KH'),9)");
+        var maxExisting = GetMaxExistingCustomerNumber(c);
+        var n = Math.Max(seq, maxExisting) + 1;
         while (Num(c, "SELECT COUNT(*) FROM customers WHERE code=$c", ("$c", "KH" + n.ToString("D5"))) > 0)
         {
             n++;
