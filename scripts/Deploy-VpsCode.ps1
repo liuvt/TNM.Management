@@ -11,10 +11,8 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ArchivePath = Join-Path $ProjectRoot "tnm-linux-publish.zip"
 
-if (!(Test-Path $ArchivePath)) {
-    Write-Host "[1/4] Building Linux publish package..." -ForegroundColor Cyan
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "deploy\linux\Publish-TNM-Linux.ps1")
-}
+Write-Host "[1/4] Building Linux publish package..." -ForegroundColor Cyan
+& powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "deploy\linux\Publish-TNM-Linux.ps1")
 
 $askPassBat = $null
 if (![string]::IsNullOrWhiteSpace($VpsPass)) {
@@ -27,7 +25,7 @@ if (![string]::IsNullOrWhiteSpace($VpsPass)) {
 
 try {
     Write-Host "[2/4] Uploading tnm-linux-publish.zip to $VpsHost`:$VpsPort..." -ForegroundColor Cyan
-    & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 $ArchivePath "$VpsUser@${VpsHost}:/tmp/tnm-linux-publish.zip"
+    & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 $ArchivePath "$VpsUser@${VpsHost}:/tmp/tnm-linux-publish.zip"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to upload package to VPS (exit code $LASTEXITCODE). Check if SSH port $VpsPort is open."
     }
@@ -39,20 +37,21 @@ mkdir -p $RemoteDataDir/backups
 if [ -f $RemoteDataDir/tnm-demo.db ]; then
     sqlite3 $RemoteDataDir/tnm-demo.db ".backup $RemoteDataDir/backups/tnm-before-deploy-`$(date +%Y%m%d-%H%M%S).db"
 fi
-systemctl stop tnm.service || true
-rm -rf /tmp/tnm-extract
-mkdir -p /tmp/tnm-extract
-unzip -q -o /tmp/tnm-linux-publish.zip -d /tmp/tnm-extract
-rm -rf /tmp/tnm-extract/App_Data
-cp -rf /tmp/tnm-extract/* $RemoteAppDir/
+systemctl stop tnm
+find $RemoteAppDir -mindepth 1 -maxdepth 1 ! -name 'App_Data' -exec rm -rf {} +
+unzip -q -o /tmp/tnm-linux-publish.zip -d $RemoteAppDir || true
+rm -f /tmp/tnm-linux-publish.zip
 ln -sfn $RemoteDataDir $RemoteAppDir/App_Data
-chmod +x $RemoteAppDir/TNM.Management || true
-systemctl start tnm.service
-systemctl is-active tnm.service
-rm -rf /tmp/tnm-extract /tmp/tnm-linux-publish.zip
+chown -R root:tnm $RemoteAppDir
+find $RemoteAppDir -type d -exec chmod 750 {} +
+find $RemoteAppDir -type f -exec chmod 640 {} +
+chown -R tnm:tnm $RemoteDataDir
+systemctl start tnm
+sleep 2
+systemctl is-active tnm
 "@ -replace "`r", ""
 
-    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@$VpsHost" $remoteCmd
+    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 "$VpsUser@$VpsHost" $remoteCmd
     if ($LASTEXITCODE -ne 0) {
         throw "Remote deployment command failed (exit code $LASTEXITCODE)."
     }
