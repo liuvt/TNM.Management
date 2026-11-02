@@ -45,10 +45,10 @@ else
                 {
                     <label>@(Section=="suppliers"?"Nhóm nhà cung cấp":Section=="customers"?"Nhóm khách hàng":"Khu vực") *
                         <select @bind="groupId"><option value="0">— Chọn —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@g.Name</option>}</select></label>
-                    @if(Section=="customers")
+                    @if(CurrentSection=="customers")
                     {
                         <label>Mã khách hàng (tự động)
-                            <input value="@(code)" disabled />
+                            <input value="@(string.IsNullOrWhiteSpace(code) ? Catalog.PeekNextCustomerCode() : code)" readonly disabled style="background:#f1f5f9;color:#475569;cursor:not-allowed;font-weight:600" />
                         </label>
                     }
                     else
