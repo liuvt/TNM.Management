@@ -1,5 +1,5 @@
 param(
-    [string]$VpsHost = "103.118.29.100",
+    [string]$VpsHost = "100.72.199.68",
     [int]$VpsPort = 22,
     [string]$VpsUser = "root",
     [string]$VpsPass = $env:TNM_VPS_PASS,
@@ -31,11 +31,12 @@ try {
     }
 
     Write-Host "[3/4] Updating code on VPS (preserving database in $RemoteDataDir)..." -ForegroundColor Cyan
+    $ts = Get-Date -Format "yyyyMMdd-HHmmss"
     $remoteCmd = @"
 set -e
 mkdir -p $RemoteDataDir/backups
 if [ -f $RemoteDataDir/tnm-demo.db ]; then
-    sqlite3 $RemoteDataDir/tnm-demo.db ".backup $RemoteDataDir/backups/tnm-before-deploy-`$(date +%Y%m%d-%H%M%S).db"
+    sqlite3 $RemoteDataDir/tnm-demo.db '.backup $RemoteDataDir/backups/tnm-before-deploy-$ts.db'
 fi
 systemctl stop tnm
 find $RemoteAppDir -mindepth 1 -maxdepth 1 ! -name 'App_Data' -exec rm -rf {} +

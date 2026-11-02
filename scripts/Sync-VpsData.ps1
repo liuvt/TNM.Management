@@ -1,5 +1,5 @@
 param(
-    [string]$VpsHost = "103.118.29.100",
+    [string]$VpsHost = "100.72.199.68",
     [int]$VpsPort = 22,
     [string]$VpsUser = "root",
     [string]$VpsPass = $env:TNM_VPS_PASS,
