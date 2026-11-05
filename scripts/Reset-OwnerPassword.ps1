@@ -1,7 +1,7 @@
 # Chỉ dùng trên máy chủ TNM; KHÔNG xóa database.
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$db = Join-Path $projectRoot 'App_Data\tnm-demo.db'
+$db = Join-Path $projectRoot 'App_Data\tnm-local.db'
 if (-not (Test-Path -LiteralPath $db)) { throw "Không thấy database: $db" }
 Write-Host 'Dừng ứng dụng TNM trước khi đặt lại mật khẩu.' -ForegroundColor Yellow
 Write-Host 'Mật khẩu nhập tại đây không được hiển thị hoặc ghi vào lệnh PowerShell.'

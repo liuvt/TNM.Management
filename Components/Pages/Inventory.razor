@@ -34,9 +34,9 @@
  <div class="panel-note">Kiểm tra trạng thái và lưu cả phiếu xuất/nhập trước khi cập nhật vị trí IMEI.</div>
 </section>}
 </div>
-<section class="panel"><div class="panel-head"><div><h2>Danh sách thiết bị</h2><p>@stock.Count IMEI được ghi nhận</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div>
+<section class="panel"><div class="panel-head"><div><h2>Danh sách thiết bị</h2><p>@stock.Count IMEI được ghi nhận</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select class="search-input" style="min-width:240px" @bind="warehouseFilter"><option value="">— Tất cả Kho / Vị trí (@stock.Count) —</option>@foreach(var w in warehouses){<option value="@w.Name">@w.Name (@stock.Count(s => s.Holder == w.Name))</option>}</select><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div></div>
 <div class="table-wrap"><table><thead><tr><th>IMEI / SERIAL</th><th>SKU</th><th>TÊN THIẾT BỊ</th><th>TRẠNG THÁI</th><th>VỊ TRÍ / ĐƠN VỊ GIỮ</th><th>CẬP NHẬT</th></tr></thead><tbody>
-@foreach(var x in stock.Where(x=> (x.Imei+x.Sku+x.Holder).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td>@x.Holder</td><td>@x.UpdatedAt</td></tr>}
+@foreach(var x in stock.Where(x=> (string.IsNullOrEmpty(warehouseFilter) || x.Holder==warehouseFilter) && (x.Imei+x.Sku+x.Holder).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td>@x.Holder</td><td>@x.UpdatedAt</td></tr>}
 </tbody></table></div></section>
 @code {
  private bool showReceive, showMove;
@@ -48,7 +48,7 @@
  private List<ProductVm> products=[];private List<StockVm> stock=[];private List<CustomerVm> customers=[];
  private List<(long Id,string Name)> warehouses=[],techs=[];
  private long productId=1,warehouseId=1,stockId=3,targetId=1;
- private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="";
+ private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="",warehouseFilter="";
  private bool canReceive,canMove,canLedger,canConsignOut,canConsignReturn,canTechOut,canTechReturn;
  protected override async Task OnInitializedAsync(){Reload();warehouses=Db.Warehouses();techs=Db.Technicians();customers=Db.Customers();products=Db.Products();canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
  canConsignOut=await Gate.CanAsync(Permissions.InventoryConsignOut);canConsignReturn=await Gate.CanAsync(Permissions.InventoryConsignReturn);

@@ -91,10 +91,10 @@ if (offlineRecovery)
 {
     // The reset command is for an EXISTING SQLite database. Do not accidentally
     // create an empty DB or invoke first-run seeding as a side effect.
-    var existingDb = Path.Combine(app.Environment.ContentRootPath, "App_Data", "tnm-demo.db");
+    var existingDb = Path.Combine(app.Environment.ContentRootPath, "App_Data", "tnm-local.db");
     if (!File.Exists(existingDb))
     {
-        Console.Error.WriteLine("Không thấy App_Data/tnm-demo.db. Hãy chạy tại đúng thư mục dự án có database cũ.");
+        Console.Error.WriteLine("Không thấy App_Data/tnm-local.db. Hãy chạy tại đúng thư mục dự án có database cũ.");
         return;
     }
     if (Console.IsInputRedirected)

@@ -64,9 +64,9 @@
 {<section class="panel edit-panel" hidden="@(!showLocation)"><div class="panel-head"><h2>Tạo vị trí kho</h2></div>
 <div class="form-grid"><label>Kho<select @bind="newLocationWarehouse">@foreach(var x in warehouses){<option value="@x.Id">@x.Name</option>}</select></label><label>Mã vị trí<input @bind="newLocationCode" placeholder="VD: BH, VT, KE-A" /></label><label>Tên vị trí<input @bind="newLocationName" /></label></div>
 <div class="form-actions"><button class="btn" @onclick="AddLocation">+ Tạo vị trí</button><span class="feedback">@locationMessage</span></div></section>}
-<section class="panel"><div class="panel-head"><div><h2>Tồn kho hiện tại</h2><p>@balances.Count dòng theo SKU / kho / vị trí</p></div></div>
-<div class="table-wrap"><table><thead><tr><th>SKU</th><th>Tên hàng</th><th>Kho</th><th>Vị trí</th><th>Tồn</th></tr></thead><tbody>
-@foreach(var x in balances){<tr><td><strong>@x.Sku</strong></td><td>@x.Product</td><td>@x.Warehouse</td><td>@x.Location</td><td><strong>@x.Quantity</strong></td></tr>}
+<section class="panel"><div class="panel-head"><div><h2>Tồn kho hiện tại</h2><p>@FilteredBalances.Count dòng · Tổng số lượng: @FilteredBalances.Sum(x => x.Quantity).ToString("N0")</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select class="search-input" style="min-width:240px" @bind="warehouseFilter"><option value="">— Tất cả Kho (@balances.Sum(x => x.Quantity).ToString("N0")) —</option>@foreach(var w in warehouses){<option value="@w.Name">@w.Name (@balances.Where(b => b.Warehouse == w.Name).Sum(b => b.Quantity).ToString("N0"))</option>}</select><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc SKU, tên hàng, kho, vị trí..." /></div></div>
+<div class="table-wrap"><table><thead><tr><th>SKU</th><th>Tên hàng</th><th>Kho</th><th>Vị trí / Trạng thái</th><th>Tồn</th></tr></thead><tbody>
+@foreach(var x in FilteredBalances){<tr><td><strong>@x.Sku</strong></td><td>@x.Product</td><td>@x.Warehouse</td><td>@x.Location</td><td><strong>@x.Quantity.ToString("N0")</strong></td></tr>}
 </tbody></table></div></section>
 <section class="panel"><div class="panel-head"><h2>Sổ giao dịch số lượng</h2><a class="btn secondary" href="/export/quantity.csv">Xuất sổ CSV theo quyền kho</a></div>
 <div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Phiếu</th><th>SKU</th><th>Kho / Vị trí</th><th>Số lượng ±</th><th>Loại</th><th>Ghi chú</th></tr></thead><tbody>
@@ -84,7 +84,8 @@
  private List<Pick> products=[];private List<WarehousePick> warehouses=[];private List<LocationPick> locations=[];
  private List<QuantityBalance> balances=[];private List<QuantityEntry> movements=[];
  private long productId,warehouseId,locationId,fromWarehouse,fromLocation,toWarehouse,toLocation,newLocationWarehouse;
- private long quantity=1,transferQty=1;private string note="",message="",transferMessage="",newLocationCode="",newLocationName="",locationMessage="";
+ private long quantity=1,transferQty=1;private string note="",message="",transferMessage="",newLocationCode="",newLocationName="",locationMessage="",search="",warehouseFilter="";
+ private List<QuantityBalance> FilteredBalances => balances.Where(x => (string.IsNullOrEmpty(warehouseFilter) || x.Warehouse == warehouseFilter) && (x.Sku + " " + x.Product + " " + x.Warehouse + " " + x.Location).Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
  protected override async Task OnInitializedAsync(){actor=await Gate.RequireAsync(Permissions.QuantityStockView);canMove=await Gate.CanAsync(Permissions.QuantityMove);canLocation=await Gate.CanAsync(Permissions.WarehouseLocationManage);
     products=Ops.QuantityProducts();LoadOptions();Refresh();}
  private void LoadOptions(){warehouses=Ops.Warehouses(actor);locations=Ops.Locations(actor);productId=products.FirstOrDefault()?.Id??0;

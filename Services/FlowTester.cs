@@ -9,7 +9,7 @@ public sealed record FlowTestReport(bool AllPassed, int Total, int Passed, int F
 
 /// <summary>
 /// Bộ kiểm thử tự động toàn diện (End-to-End Flow Tester) trên môi trường sandbox tạm thời.
-/// Tuyệt đối không chạm vào database thật App_Data/tnm-demo.db.
+/// Tuyệt đối không chạm vào database thật App_Data/tnm-local.db.
 /// </summary>
 public static class FlowTester
 {
@@ -47,7 +47,7 @@ public static class FlowTester
             var ops = new V6Ops(env);
             var auth = new AuthRepository(env);
             var audit = new AuditTrail(env);
-            var dbPath = Path.Combine(tempDir, "App_Data", "tnm-demo.db");
+            var dbPath = Path.Combine(tempDir, "App_Data", "tnm-local.db");
 
             int stepNo = 0;
             void Step(string category, string name, Func<string> action)
@@ -325,7 +325,7 @@ public static class FlowTester
                 orderInternalId = v7Orders.CreateMulti(ownerId, customerId,
                     [new V7OrderLineDraft(imeiProdId, 2), new V7OrderLineDraft(qtyProdId, 1)],
                     "Bến xe Quận 8, TP.HCM", "Lắp 2 xe tải + 1 thẻ nhớ", cod: true,
-                    customerPhone: "0908888999", installAt: "2026-11-01 09:30", saleSource: "Sale Nguyễn Minh Anh");
+                    customerPhone: "0908888999", installAt: "01/11/2026 09:30:00", saleSource: "Sale Nguyễn Minh Anh");
                 v7Orders.Approve(ownerId, orderInternalId, wh1Id);
                 v7Orders.Dispatch(ownerId, orderInternalId, partner: false, "Nguyễn Kỹ Thuật", installerEmployeeId: installerId);
                 v7Orders.Report(ownerId, orderInternalId, "860000000000001, 860000000000002", "51C-888.99, 51C-999.00", "VIN88899, VIN99900");
@@ -336,7 +336,7 @@ public static class FlowTester
                 // Công lắp: 2 * 135,000 + 1 * 30,000 = 300,000
                 Assert(orderRow.Status == "COMPLETED" && orderRow.Price == 3_420_000 && orderRow.Lines.Count == 3,
                     $"Đơn nhiều SP sai trạng thái, giá hoặc số dòng: {orderRow.Status}, Price={orderRow.Price}, Lines={orderRow.Lines.Count}");
-                Assert(orderRow.CustomerPhone == "0908888999" && orderRow.SaleSource == "Sale Nguyễn Minh Anh" && orderRow.InstallAt == "2026-11-01 09:30",
+                Assert(orderRow.CustomerPhone == "0908888999" && orderRow.SaleSource == "Sale Nguyễn Minh Anh" && orderRow.InstallAt == "01/11/2026 09:30:00",
                     "Thiếu thông tin SĐT KH, Nguồn Sale hoặc Thời gian lắp trên đơn hàng.");
                 Assert(orderRow.InstallerEmployeeId == installerId && orderRow.InstallerFee == 300_000,
                     $"Tổng công lắp đặt của nhân sự trên đơn nhiều SP không đúng: {orderRow.InstallerFee}");

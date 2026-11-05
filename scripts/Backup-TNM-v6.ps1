@@ -1,7 +1,7 @@
 # Requires Python 3; uses SQLite online backup API, safe to run while the web app is serving.
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
-$source = Join-Path $project 'App_Data/tnm-demo.db'
+$source = Join-Path $project 'App_Data/tnm-local.db'
 if (!(Test-Path $source)) { throw "SQLite database not found: $source" }
 $backupDir = Join-Path $project 'Backups'
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null

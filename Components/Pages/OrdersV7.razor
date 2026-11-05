@@ -19,14 +19,55 @@
 </div>
 <section class="panel"><div class="panel-head"><h2>Tạo đơn hàng (SO)</h2></div>
 <div class="form-grid">
-<label>Khách hàng *<select @bind="customer" @bind:after="OnCustomerChanged"><option value="0">— Chọn khách hàng —</option>@foreach(var x in customers){<option value="@x.Id">@x.Name (@x.Code)</option>}</select></label>
-<label>SĐT khách hàng *<input @bind="customerPhone" placeholder="VD: 0903000001" /></label>
+<label>Khách hàng *
+    <select @bind="customer" @bind:after="OnCustomerChanged">
+        <option value="0">— Chọn khách hàng —</option>
+        @foreach(var x in customers)
+        {
+            <option value="@x.Id">@x.Code — @x.Name (Nhóm: @x.Group@(!string.IsNullOrWhiteSpace(x.Phone) ? $" · SĐT: {x.Phone}" : ""))</option>
+        }
+    </select>
+</label>
+<label>SĐT khách hàng (Chọn từ Danh sách KH) *
+    <select @bind="customer" @bind:after="OnCustomerChanged">
+        <option value="0">— Chọn SĐT từ danh sách khách hàng —</option>
+        @foreach(var x in customers)
+        {
+            <option value="@x.Id">@(string.IsNullOrWhiteSpace(x.Phone) ? "[Chưa cập nhật SĐT]" : x.Phone) — @x.Name (@x.Code) · Nhóm: @x.Group</option>
+        }
+    </select>
+</label>
+<label>Khách thuộc nhóm (Nhóm KH)
+    <input value="@(SelectedCustomer is not null ? SelectedCustomer.Group : "— Tự động hiển thị khi chọn KH / SĐT —")" readonly style="background:#f1f5f9;color:#0f172a;font-weight:600" />
+</label>
 <label>Nguồn KH / Tên Sale *<input @bind="saleSource" placeholder="VD: Sale Minh Anh / Đại lý HTX..." /></label>
-<label>Thời gian lắp đặt *<input type="datetime-local" @bind="installAt" @bind:format="yyyy-MM-ddTHH:mm" /></label>
+<label>Thời gian lắp đặt (dd/MM/yyyy HH:mm:ss) *
+    <div style="display:flex;gap:0.4rem;align-items:center">
+        <input value="@installAtText" @onchange="OnInstallAtChanged" placeholder="dd/MM/yyyy HH:mm:ss" style="flex:1;font-family:monospace;font-weight:600" />
+        <button type="button" class="btn secondary btn-sm" @onclick="SetInstallAtNow" title="Lấy thời gian hiện tại (dd/MM/yyyy HH:mm:ss)">Hiện tại</button>
+    </div>
+</label>
 <label>Địa chỉ lắp đặt *<input @bind="address" placeholder="Số nhà, đường, quận/huyện, tỉnh/thành..." /></label>
 <label>Ghi chú đơn hàng<input @bind="notes" placeholder="Yêu cầu kỹ thuật, loại xe..." /></label>
 <label class="checkbox-row"><input type="checkbox" @bind="cod" /> Thu hộ (COD)</label>
 </div>
+
+@if(SelectedCustomer is not null)
+{
+    <div style="margin-top:0.75rem;padding:0.65rem 0.9rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px;display:flex;flex-wrap:wrap;gap:1rem;align-items:center;font-size:0.9rem">
+        <div><strong>Mã KH:</strong> @SelectedCustomer.Code</div>
+        <div><strong>Khách hàng:</strong> @SelectedCustomer.Name</div>
+        <div><strong>Thuộc nhóm:</strong> <span class="chip">@SelectedCustomer.Group</span></div>
+        <div style="display:flex;align-items:center;gap:0.4rem">
+            <strong>SĐT liên hệ:</strong>
+            <input @bind="customerPhone" placeholder="Nhập/sửa SĐT liên hệ" style="max-width:160px;padding:0.2rem 0.5rem;height:auto" />
+        </div>
+        @if(!string.IsNullOrWhiteSpace(SelectedCustomer.Address))
+        {
+            <div><strong>Địa chỉ mặc định:</strong> @SelectedCustomer.Address</div>
+        }
+    </div>
+}
 
 <div style="margin-top:1rem;border-top:1px solid var(--border,#e2e8f0);padding-top:0.85rem">
     <h3 style="font-size:0.95rem;margin-bottom:0.5rem">Danh sách sản phẩm trong đơn hàng</h3>
@@ -141,18 +182,22 @@
 @if(!string.IsNullOrEmpty(message)){<p class="feedback">@message</p>}
 <section class="panel"><div class="panel-head"><h2>Danh sách đơn hàng</h2></div>
 <div class="table-wrap"><table>
-<thead><tr><th>Mã</th><th>Khách hàng &amp; SĐT</th><th>Nguồn KH / Tên Sale</th><th>Sản phẩm trong đơn</th><th>Tổng tiền</th><th>Thời gian &amp; Địa chỉ lắp</th><th>Trạng thái</th><th>Kho</th><th>Nhân sự lắp (Tổng công)</th><th>IMEI / Biển số</th></tr></thead>
+<thead><tr><th>Mã</th><th>Khách hàng &amp; SĐT</th><th>Nhóm khách hàng</th><th>Nguồn KH / Tên Sale</th><th>Sản phẩm trong đơn</th><th>Tổng tiền</th><th>Thời gian &amp; Địa chỉ lắp</th><th>Trạng thái</th><th>Kho</th><th>Nhân sự lắp (Tổng công)</th><th>IMEI / Biển số</th></tr></thead>
 <tbody>@foreach(var o in orders){
 <tr>
     <td><strong>@o.Code</strong></td>
-    <td><div><strong>@o.Customer</strong></div><small>@(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</small></td>
+    <td>
+        <div><strong>@o.Customer</strong> @(!string.IsNullOrWhiteSpace(o.CustomerCode) ? $"({o.CustomerCode})" : "")</div>
+        <small>SĐT: @(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</small>
+    </td>
+    <td><span class="chip">@(string.IsNullOrWhiteSpace(o.CustomerGroup) ? "—" : o.CustomerGroup)</span></td>
     <td>@(string.IsNullOrWhiteSpace(o.SaleSource) ? "—" : o.SaleSource)</td>
     <td>
         <div><strong>@o.Product</strong></div>
         <small>@o.Lines.Count dòng chi tiết</small>
     </td>
     <td><strong>@o.Price.ToString("N0") ₫</strong></td>
-    <td><div>@(string.IsNullOrWhiteSpace(o.InstallAt) ? "—" : o.InstallAt)</div><small>@(string.IsNullOrWhiteSpace(o.InstallAddress) ? "—" : o.InstallAddress)</small></td>
+    <td><div>@(string.IsNullOrWhiteSpace(o.InstallAt) ? "—" : V7Orders.FormatInstallDateTime(o.InstallAt))</div><small>@(string.IsNullOrWhiteSpace(o.InstallAddress) ? "—" : o.InstallAddress)</small></td>
     <td><span class="chip">@o.Status</span></td>
     <td>@(o.Warehouse ?? "—") (@o.Source)</td>
     <td>
@@ -180,11 +225,20 @@
  private readonly List<V7OrderLineDraft> draftLines=[];
  private readonly Dictionary<long, LineReportInput> lineReports=[];
  private long customer,product,draftQty=1,selected,warehouse,installerEmployeeId;private bool cod;
- private DateTime installAt = DateTime.Now.AddHours(2);
+ private string installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
  private string customerPhone="",saleSource="",address="",notes="",installer="",source="INTERNAL",message="";
+ private CustomerVm? SelectedCustomer => customers.FirstOrDefault(x => x.Id == customer);
  private V7Order? SelectedOrder => orders.FirstOrDefault(x => x.Id == selected);
 
- protected override void OnInitialized(){customers=Db.Customers();products=Db.Products();warehouses=Ops.AllWarehouses();installers=Catalog.Installers();Refresh();}
+ protected override void OnInitialized()
+ {
+  customers=Db.Customers();
+  products=Db.Products();
+  warehouses=Ops.AllWarehouses();
+  installers=Catalog.Installers();
+  installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+  Refresh();
+ }
  private void Refresh()
  {
   orders=Orders.List();
@@ -197,8 +251,24 @@
   {
    customerPhone = c.Phone;
    saleSource = c.Source;
-   if (string.IsNullOrWhiteSpace(address)) address = c.Address;
+   if (!string.IsNullOrWhiteSpace(c.Address)) address = c.Address;
   }
+  else
+  {
+   customerPhone = "";
+   saleSource = "";
+  }
+ }
+ private void SetInstallAtNow()
+ {
+  installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+ }
+ private void OnInstallAtChanged(ChangeEventArgs e)
+ {
+  var val = e.Value?.ToString()?.Trim() ?? "";
+  installAtText = string.IsNullOrWhiteSpace(val)
+   ? DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss")
+   : V7Orders.FormatInstallDateTime(val);
  }
  private void AddDraftLine()
  {
@@ -279,9 +349,21 @@
  }
  private async Task Act(Func<long,Task> fn){try{var actor=await Gate.RequireAsync(Permissions.OrdersView);await fn(actor);Refresh();message="Thao tác thành công.";}catch(Exception ex){message="Lỗi: "+ex.Message;}}
  private Task Create()=>Act(actor=>{
-  var items = draftLines.Count > 0 ? draftLines.ToList() : (product > 0 ? [new V7OrderLineDraft(product, Math.Max(1, draftQty))] : []);
-  var createdId = Orders.CreateMulti(actor,customer,items,address,notes,cod,customerPhone,installAt.ToString("yyyy-MM-dd HH:mm"),saleSource);
+  var items = draftLines.ToList();
+  if (product > 0 && draftQty > 0)
+  {
+   var existingIdx = items.FindIndex(x => x.ProductId == product);
+   if (existingIdx >= 0)
+    items[existingIdx] = new V7OrderLineDraft(product, items[existingIdx].Quantity + Math.Max(1, draftQty));
+   else
+    items.Add(new V7OrderLineDraft(product, Math.Max(1, draftQty)));
+  }
+  var formattedWhen = V7Orders.FormatInstallDateTime(installAtText);
+  if (string.IsNullOrWhiteSpace(formattedWhen)) formattedWhen = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+  var createdId = Orders.CreateMulti(actor,customer,items,address,notes,cod,customerPhone,formattedWhen,saleSource);
   draftLines.Clear();product=0;draftQty=1;selected=createdId;
+  installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+  OnOrderSelected();
   return Task.CompletedTask;
  });
  private Task Approve()=>Act(actor=>{Orders.Approve(actor,selected,warehouse);return Task.CompletedTask;});

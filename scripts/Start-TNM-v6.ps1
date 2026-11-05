@@ -1,7 +1,7 @@
 param([switch]$Demo)
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
-if (-not (Test-Path 'App_Data/tnm-demo.db')) {
+if (-not (Test-Path 'App_Data/tnm-local.db')) {
     $env:TNM_SEED_DEMO = if ($Demo) { '1' } else { '0' }
     Write-Host 'Tao SQLite moi va tai khoan owner; bat buoc doi mat khau sau dang nhap.'
 } else {

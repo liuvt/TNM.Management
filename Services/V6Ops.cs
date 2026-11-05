@@ -18,7 +18,7 @@ public record UserWarehouseRow(long Id, string Username, string Name, string Sco
 /// </summary>
 public sealed class V6Ops(IWebHostEnvironment environment)
 {
-    private readonly string _dbPath = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-demo.db");
+    private readonly string _dbPath = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-local.db");
     private SqliteConnection Open()
     {
         var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = _dbPath, ForeignKeys = true, DefaultTimeout = 15, Pooling = true }.ToString());
@@ -80,10 +80,36 @@ public sealed class V6Ops(IWebHostEnvironment environment)
     public List<QuantityBalance> Balances(long user)
     {
         using var c = Open(); var rows = Read(c, @"
-            SELECT p.id,w.id,l.id,p.sku,p.name,w.name,l.name,COALESCE(SUM(q.delta_qty),0)
-            FROM quantity_movements q JOIN products p ON p.id=q.product_id
-            JOIN warehouses w ON w.id=q.warehouse_id JOIN warehouse_locations l ON l.id=q.location_id
-            GROUP BY p.id,w.id,l.id ORDER BY w.code,l.code,p.sku
+            SELECT * FROM (
+                SELECT p.id AS pid,w.id AS wid,l.id AS lid,p.sku AS sku,p.name AS pname,w.name AS wname,l.name AS lname,COALESCE(SUM(q.delta_qty),0) AS qty
+                FROM quantity_movements q JOIN products p ON p.id=q.product_id
+                JOIN warehouses w ON w.id=q.warehouse_id JOIN warehouse_locations l ON l.id=q.location_id
+                WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+                GROUP BY p.id,w.id,l.id
+                UNION ALL
+                SELECT p.id AS pid,
+                       COALESCE(w.id,cw.id,1) AS wid,
+                       COALESCE((SELECT id FROM warehouse_locations wl WHERE wl.warehouse_id=COALESCE(w.id,cw.id,1) AND wl.deleted_at IS NULL ORDER BY CASE WHEN wl.code='MAIN' THEN 0 ELSE 1 END,wl.id LIMIT 1),0) AS lid,
+                       p.sku AS sku,
+                       p.name AS pname,
+                       COALESCE(w.name,cw.name,cu.name,'Kho mặc định') AS wname,
+                       CASE u.status
+                           WHEN 'IN_STOCK' THEN 'Trong kho (IMEI)'
+                           WHEN 'CONSIGNED' THEN 'Ký gửi (IMEI)'
+                           WHEN 'TECHNICIAN' THEN 'Kỹ thuật giữ (IMEI)'
+                           WHEN 'INSTALLED' THEN 'Đã kích hoạt (IMEI)'
+                           WHEN 'WARRANTY' THEN 'Bảo hành (IMEI)'
+                           ELSE u.status END AS lname,
+                       COUNT(*) AS qty
+                FROM stock_units u
+                JOIN products p ON p.id=u.product_id
+                LEFT JOIN warehouses w ON w.id=u.warehouse_id
+                LEFT JOIN customers cu ON cu.id=u.customer_id
+                LEFT JOIN warehouses cw ON cw.name=cu.name AND cw.deleted_at IS NULL
+                WHERE u.deleted_at IS NULL AND p.deleted_at IS NULL
+                GROUP BY p.id,wid,u.status
+            )
+            ORDER BY wid,sku,lname
             ", r => new QuantityBalance(r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6), r.GetInt64(7)));
         return rows.Where(x => CanWarehouse(c, user, x.WarehouseId)).ToList();
     }

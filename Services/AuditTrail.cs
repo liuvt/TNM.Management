@@ -13,7 +13,7 @@ public sealed record ActivitySummary(string Table,string RecordKey,long Creates,
 /// </summary>
 public sealed class AuditTrail(IWebHostEnvironment env)
 {
-    private readonly string path = Path.Combine(env.ContentRootPath,"App_Data","tnm-demo.db");
+    private readonly string path = Path.Combine(env.ContentRootPath,"App_Data","tnm-local.db");
     private static readonly string[] Meta = ["created_at","created_by","updated_at","updated_by","deleted_at","deleted_by"];
     private static readonly HashSet<string> Secrets = new(StringComparer.OrdinalIgnoreCase)
     {

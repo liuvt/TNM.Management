@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-DB=/opt/tnm/app/App_Data/tnm-demo.db
+DB=/opt/tnm/app/App_Data/tnm-local.db
 DEST=/opt/tnm/backups
 mkdir -p "$DEST"
 chmod 700 "$DEST"

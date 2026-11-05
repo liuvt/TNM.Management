@@ -35,8 +35,8 @@ try {
     $remoteCmd = @"
 set -e
 mkdir -p $RemoteDataDir/backups
-if [ -f $RemoteDataDir/tnm-demo.db ]; then
-    sqlite3 $RemoteDataDir/tnm-demo.db '.backup $RemoteDataDir/backups/tnm-before-deploy-$ts.db'
+if [ -f $RemoteDataDir/tnm-local.db ]; then
+    sqlite3 $RemoteDataDir/tnm-local.db '.backup $RemoteDataDir/backups/tnm-before-deploy-$ts.db'
 fi
 systemctl stop tnm
 find $RemoteAppDir -mindepth 1 -maxdepth 1 ! -name 'App_Data' -exec rm -rf {} +

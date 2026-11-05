@@ -3,14 +3,14 @@ param(
     [int]$VpsPort = 22,
     [string]$VpsUser = "root",
     [string]$VpsPass = $env:TNM_VPS_PASS,
-    [string]$RemoteDbPath = "/var/www/tnm-datas/tnm-demo.db"
+    [string]$RemoteDbPath = "/var/www/tnm-datas/tnm-local.db"
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $AppDataDir = Join-Path $ProjectRoot "App_Data"
 $BackupDir = Join-Path $AppDataDir "backups"
-$LocalDbPath = Join-Path $AppDataDir "tnm-demo.db"
+$LocalDbPath = Join-Path $AppDataDir "tnm-local.db"
 
 New-Item -ItemType Directory -Force -Path $AppDataDir | Out-Null
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
@@ -39,7 +39,7 @@ try {
         throw "Failed to create SQLite snapshot on VPS (exit code $LASTEXITCODE)."
     }
 
-    $downloadedTemp = Join-Path $AppDataDir "tnm-demo.vps-download.db"
+    $downloadedTemp = Join-Path $AppDataDir "tnm-local.vps-download.db"
     Write-Host "[3/4] Downloading snapshot via SCP..." -ForegroundColor Cyan
     & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@${VpsHost}:$remoteTemp" $downloadedTemp
     if ($LASTEXITCODE -ne 0 -or !(Test-Path $downloadedTemp)) {

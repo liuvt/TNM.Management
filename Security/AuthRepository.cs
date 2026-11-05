@@ -25,7 +25,7 @@ public sealed class AuthRepository
         Directory.CreateDirectory(Path.Combine(env.ContentRootPath, "App_Data"));
         _connectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = Path.Combine(env.ContentRootPath, "App_Data", "tnm-demo.db"),
+            DataSource = Path.Combine(env.ContentRootPath, "App_Data", "tnm-local.db"),
             ForeignKeys = true, DefaultTimeout = 8
         }.ToString();
     }

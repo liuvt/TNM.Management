@@ -269,7 +269,7 @@ else
         "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Group,$"{x.Phone} · {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa rõ nguồn":x.SourceName)} · {x.Address}")).ToList(),
         "installers"=>installers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Department,$"SĐT: {(string.IsNullOrWhiteSpace(x.Phone)?"—":x.Phone)} · Đơn giá lắp: {x.RateSummary}")).ToList(),
         "installer-rates"=>installerRates.Select(x=>new CatalogRow(x.Id,x.EmployeeCode,$"{x.EmployeeName} → {x.Product}",x.EmployeeName,$"Đơn giá đi lắp: {Money(x.InstallRate)} · hiệu lực {x.EffectiveFrom}")).ToList(),
-        "warehouses"=>warehouses.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Area,x.Address)).ToList(),
+        "warehouses"=>warehouses.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Area,$"{x.ImeiCount:N0} IMEI ({x.InStockCount:N0} trong kho · {x.InstalledCount:N0} đã kích hoạt){(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
         "buy-prices"=>purchasePrices.Select(x=>new CatalogRow(x.Id,x.Id.ToString(),x.Product,x.Group,$"{Money(x.UnitCost)} · hiệu lực {x.EffectiveFrom}")).ToList(),
         "sale-prices"=>salePrices.Select(x=>new CatalogRow(x.Id,x.Id.ToString(),x.Product,x.Group,$"Thường {Money(x.Standard)} / Lắp {Money(x.Installed)} / Gia hạn {Money(x.Renewal)} · {x.EffectiveFrom}")).ToList(),
         "campaigns"=>campaigns.Select(x=>new CatalogRow(x.Id,x.Id.ToString(),x.Name,x.Group,$"Giảm {x.Discount}% · {x.From} – {x.To} · {(x.Active?"Đang bật":"Đã tắt")}")).ToList(),

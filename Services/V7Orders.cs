@@ -38,11 +38,13 @@ public record V7Order(
     string InstallAt,
     string PlateNo,
     long Price,
-    List<V7OrderLine> Lines);
+    List<V7OrderLine> Lines,
+    string CustomerCode = "",
+    string CustomerGroup = "");
 
 public sealed class V7Orders(IWebHostEnvironment env)
 {
-    private readonly string path = Path.Combine(env.ContentRootPath, "App_Data", "tnm-demo.db");
+    private readonly string path = Path.Combine(env.ContentRootPath, "App_Data", "tnm-local.db");
     private SqliteConnection Open() { var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, ForeignKeys = true, DefaultTimeout = 15 }.ToString()); c.Open(); AuditRuntime.Attach(c); return c; }
     private static SqliteCommand Cmd(SqliteConnection c, string sql, params (string, object?)[] p) { var q = c.CreateCommand(); q.CommandText = sql; foreach (var (k, v) in p) q.Parameters.AddWithValue(k, v ?? DBNull.Value); return q; }
     private static long Scalar(SqliteConnection c, string sql, params (string, object?)[] p) { using var q = Cmd(c, sql, p); return Convert.ToInt64(q.ExecuteScalar() ?? 0); }
@@ -154,8 +156,10 @@ public sealed class V7Orders(IWebHostEnvironment env)
             COALESCE(NULLIF(o.sale_source,''),NULLIF(c.source_name,''),u.display_name,''),
             o.product_id,p.name,o.status,o.source,o.imei,w.name,o.installer,
             o.installer_employee_id,COALESCE(o.installer_fee_vnd,0),
-            COALESCE(o.install_address,''),COALESCE(o.install_at,''),COALESCE(o.plate_no,''),o.unit_price_vnd
+            COALESCE(o.install_address,''),COALESCE(o.install_at,''),COALESCE(o.plate_no,''),o.unit_price_vnd,
+            COALESCE(c.code,''),COALESCE(cg.name,'-')
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
+            LEFT JOIN customer_groups cg ON cg.id=c.group_id
             LEFT JOIN warehouses w ON w.id=o.warehouse_id
             LEFT JOIN app_users u ON u.id=o.seller_id
             WHERE o.deleted_at IS NULL ORDER BY o.id DESC LIMIT 250");
@@ -184,12 +188,35 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 r.IsDBNull(12) ? null : r.GetInt64(12),
                 r.GetInt64(13),
                 r.GetString(14),
-                r.GetString(15),
+                FormatInstallDateTime(r.GetString(15)),
                 r.GetString(16),
                 r.GetInt64(17),
-                lines));
+                lines,
+                r.GetString(18),
+                r.GetString(19)));
         }
         return list;
+    }
+
+    public static string FormatInstallDateTime(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var text = raw.Trim();
+        string[] formats = [
+            "dd/MM/yyyy HH:mm:ss",
+            "dd/MM/yyyy HH:mm",
+            "d/M/yyyy HH:mm:ss",
+            "d/M/yyyy HH:mm",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-ddTHH:mm:ss",
+            "yyyy-MM-ddTHH:mm"
+        ];
+        if (DateTime.TryParseExact(text, formats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dt))
+            return dt.ToString("dd/MM/yyyy HH:mm:ss");
+        if (DateTime.TryParse(text, System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), System.Globalization.DateTimeStyles.None, out var dtVi))
+            return dtVi.ToString("dd/MM/yyyy HH:mm:ss");
+        return text;
     }
 
     public long Create(long actor, long customer, long product, string address, string notes, bool cod, string? customerPhone = null, string? installAt = null, string? saleSource = null) =>
@@ -244,7 +271,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             var phone = !string.IsNullOrWhiteSpace(customerPhone) ? customerPhone.Trim() : Str(c, "SELECT COALESCE(phone,'') FROM customers WHERE id=$id", ("$id", customer));
             var src = !string.IsNullOrWhiteSpace(saleSource) ? saleSource.Trim() : Str(c, "SELECT COALESCE(NULLIF(source_name,''),(SELECT display_name FROM app_users WHERE id=$u),'') FROM customers WHERE id=$id", ("$id", customer), ("$u", actor));
             var addr = !string.IsNullOrWhiteSpace(address) ? address.Trim() : Str(c, "SELECT COALESCE(address,'') FROM customers WHERE id=$id", ("$id", customer));
-            var when = !string.IsNullOrWhiteSpace(installAt) ? installAt.Trim() : DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+            var when = !string.IsNullOrWhiteSpace(installAt) ? FormatInstallDateTime(installAt) : DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
 
             Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,customer_phone,sale_source,install_address,install_at,notes,collect_on_delivery)
                 VALUES(lower(hex(randomblob(16))),$c,$s,$p,$qty,$price,$cost,$phone,$src,$a,$at,$n,$cod)",

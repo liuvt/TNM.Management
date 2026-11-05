@@ -10,12 +10,12 @@ namespace TNM.Management.Services;
 /// </summary>
 public sealed class InputCatalog(IWebHostEnvironment env)
 {
-    private readonly string dbPath = Path.Combine(env.ContentRootPath, "App_Data", "tnm-demo.db");
+    private readonly string dbPath = Path.Combine(env.ContentRootPath, "App_Data", "tnm-local.db");
     public record Choice(long Id, string Code, string Name);
     public record SupplierGroup(long Id, string Code, string Name, long Suppliers);
     public record Supplier(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string TaxCode);
     public record Area(long Id, string Code, string Name, long Warehouses);
-    public record Warehouse(long Id, string Code, string Name, long? AreaId, string Area, string Address);
+    public record Warehouse(long Id, string Code, string Name, long? AreaId, string Area, string Address, long ImeiCount = 0, long InStockCount = 0, long InstalledCount = 0);
     public record Product(long Id, string Code, string Name, long GroupId, string Group, bool Active);
     public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "");
     public record Installer(long Id, string Code, string Name, string Department, string Phone, string RateSummary);
@@ -179,7 +179,23 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public List<SupplierGroup> SupplierGroups() { using var c = Open(); return Read(c, "SELECT g.id,g.code,g.name,COUNT(s.id) FROM supplier_groups g LEFT JOIN suppliers s ON s.group_id=g.id AND s.deleted_at IS NULL WHERE g.deleted_at IS NULL GROUP BY g.id ORDER BY g.name", r => new SupplierGroup(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3))); }
     public List<Supplier> Suppliers() { using var c = Open(); return Read(c, "SELECT s.id,s.code,s.name,s.group_id,COALESCE(g.name,'Chưa phân nhóm'),COALESCE(s.phone,''),COALESCE(s.tax_code,'') FROM suppliers s LEFT JOIN supplier_groups g ON g.id=s.group_id WHERE s.deleted_at IS NULL ORDER BY s.name", r => new Supplier(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6))); }
     public List<Area> Areas() { using var c = Open(); return Read(c, "SELECT a.id,a.code,a.name,COUNT(w.id) FROM warehouse_areas a LEFT JOIN warehouses w ON w.area_id=a.id AND w.deleted_at IS NULL WHERE a.deleted_at IS NULL GROUP BY a.id ORDER BY a.name", r => new Area(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3))); }
-    public List<Warehouse> Warehouses() { using var c = Open(); return Read(c, "SELECT w.id,w.code,w.name,w.area_id,COALESCE(a.name,''),COALESCE(w.address,'') FROM warehouses w LEFT JOIN warehouse_areas a ON a.id=w.area_id WHERE w.deleted_at IS NULL ORDER BY a.name,w.name", r => new Warehouse(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5))); }
+    public List<Warehouse> Warehouses()
+    {
+        using var c = Open();
+        return Read(c, @"
+            SELECT w.id,w.code,w.name,w.area_id,COALESCE(a.name,''),COALESCE(w.address,''),
+                   (SELECT COUNT(*) FROM stock_units u LEFT JOIN customers cu ON cu.id=u.customer_id
+                    WHERE u.deleted_at IS NULL AND (u.warehouse_id=w.id OR (u.warehouse_id IS NULL AND cu.name=w.name))),
+                   (SELECT COUNT(*) FROM stock_units u
+                    WHERE u.deleted_at IS NULL AND u.status='IN_STOCK' AND u.warehouse_id=w.id),
+                   (SELECT COUNT(*) FROM stock_units u LEFT JOIN customers cu ON cu.id=u.customer_id
+                    WHERE u.deleted_at IS NULL AND u.status!='IN_STOCK' AND (u.warehouse_id=w.id OR cu.name=w.name))
+            FROM warehouses w
+            LEFT JOIN warehouse_areas a ON a.id=w.area_id
+            WHERE w.deleted_at IS NULL
+            ORDER BY w.id ASC",
+            r => new Warehouse(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), r.GetInt64(6), r.GetInt64(7), r.GetInt64(8)));
+    }
     public List<Product> Products() { using var c = Open(); return Read(c, "SELECT id,sku,name,group_id,group_name,is_active FROM v7_product_master WHERE is_active=1 ORDER BY id DESC", r => new Product(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5) == 1)); }
     public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7))); }
     public List<Installer> Installers()

@@ -18,7 +18,7 @@ public sealed class DemoDb
         _contentRoot = env.ContentRootPath;
         var dir = Path.Combine(env.ContentRootPath, "App_Data");
         Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "tnm-demo.db");
+        _path = Path.Combine(dir, "tnm-local.db");
     }
     private SqliteConnection Open()
     {
@@ -154,11 +154,12 @@ public sealed class DemoDb
         using var c = Open();
         return Query(c, @"SELECT u.id,u.imei,p.sku,p.name,u.status,
          CASE WHEN u.status='IN_STOCK' THEN COALESCE(w.name,'-')
-              WHEN u.status IN ('CONSIGNED','INSTALLED','WARRANTY') THEN COALESCE(c.name,'-')
+              WHEN u.status IN ('CONSIGNED','INSTALLED','WARRANTY') THEN COALESCE(cw.name,c.name,'-')
               WHEN u.status='TECHNICIAN' THEN COALESCE(e.full_name,'-') ELSE 'NCC' END,
          u.updated_at,u.product_id
          FROM stock_units u JOIN products p ON p.id=u.product_id
          LEFT JOIN warehouses w ON w.id=u.warehouse_id LEFT JOIN customers c ON c.id=u.customer_id
+         LEFT JOIN warehouses cw ON cw.name=c.name AND cw.deleted_at IS NULL
          LEFT JOIN employees e ON e.id=u.employee_id ORDER BY u.id DESC",
           r => new StockVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7)));
     }

@@ -11,7 +11,7 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
         string Kind, string Unit, bool UsesImei, int WarrantyMonths, bool IsActive);
     public sealed record GroupRow(long Id, string Code, string Name);
     public sealed record ProductDraft(long? Id, long GroupId, string Name, string Kind, string Unit, bool UsesImei, int WarrantyMonths);
-    private readonly string path = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-demo.db");
+    private readonly string path = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-local.db");
 
     private SqliteConnection Open()
     {
