@@ -21,7 +21,8 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     {
         public string B2BDisplayName => string.IsNullOrWhiteSpace(RepresentativeName) ? Name : $"{Name} (ĐD: {RepresentativeName})";
     }
-    public record Installer(long Id, string Code, string Name, string Department, string Phone, string RateSummary);
+    public record InstallerRateChip(long ProductId, string Sku, string ProductName, long Rate);
+    public record Installer(long Id, string Code, string Name, string Department, string Phone, string RateSummary, List<InstallerRateChip>? RateChips = null);
     public record InstallerRate(long Id, long EmployeeId, string EmployeeCode, string EmployeeName, long ProductId, string Product, long InstallRate, string EffectiveFrom);
     public record PurchasePrice(long Id, long GroupId, string Group, long ProductId, string Product, long UnitCost, string EffectiveFrom);
     public record SalePrice(long Id, long GroupId, string Group, long ProductId, string Product, long Standard, long Installed, long Renewal, string EffectiveFrom);
@@ -205,17 +206,30 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     }
     public List<Product> Products() { using var c = Open(); return Read(c, "SELECT id,sku,name,group_id,group_name,is_active FROM v7_product_master WHERE is_active=1 ORDER BY id DESC", r => new Product(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5) == 1)); }
     public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,''),COALESCE(c.representative_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7), Txt(r, 8))); }
+    public string PeekNextInstallerCode()
+    {
+        using var c = Open();
+        var n = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM employees");
+        while (Num(c, "SELECT COUNT(*) FROM employees WHERE code=$c", ("$c", $"KT{n:D3}")) > 0)
+        {
+            n++;
+        }
+        return $"KT{n:D3}";
+    }
+
     public List<Installer> Installers()
     {
         using var c = Open();
-        var rates = Read(c, "SELECT r.employee_id,p.sku,r.install_rate_vnd FROM v7_installer_product_rates r JOIN products p ON p.id=r.product_id WHERE r.deleted_at IS NULL AND p.deleted_at IS NULL ORDER BY p.sku",
-            r => (EmpId: r.GetInt64(0), Sku: Txt(r, 1), Rate: r.GetInt64(2)));
-        var rateMap = rates.GroupBy(x => x.EmpId).ToDictionary(g => g.Key, g => string.Join(" · ", g.Select(x => $"{x.Sku}: {x.Rate:N0} đ")));
-        return Read(c, "SELECT id,code,full_name,department,COALESCE(phone,'') FROM employees WHERE deleted_at IS NULL ORDER BY full_name",
+        var rates = Read(c, "SELECT r.employee_id,r.product_id,p.sku,p.name,r.install_rate_vnd FROM v7_installer_product_rates r JOIN products p ON p.id=r.product_id WHERE r.deleted_at IS NULL AND p.deleted_at IS NULL AND r.install_rate_vnd > 0 ORDER BY p.sku",
+            r => new { EmpId = r.GetInt64(0), Chip = new InstallerRateChip(r.GetInt64(1), Txt(r, 2), Txt(r, 3), r.GetInt64(4)) });
+        var chipMap = rates.GroupBy(x => x.EmpId).ToDictionary(g => g.Key, g => g.Select(x => x.Chip).ToList());
+        var rateMap = chipMap.ToDictionary(kv => kv.Key, kv => string.Join(" · ", kv.Value.Select(x => $"{x.Sku}: {x.Rate:N0} đ")));
+        return Read(c, "SELECT id,code,full_name,department,COALESCE(phone,'') FROM employees WHERE deleted_at IS NULL ORDER BY id DESC, full_name ASC",
             r => {
                 var id = r.GetInt64(0);
+                var chips = chipMap.TryGetValue(id, out var list) ? list : [];
                 var summary = rateMap.TryGetValue(id, out var s) && !string.IsNullOrWhiteSpace(s) ? s : "Chưa khai báo đơn giá SP";
-                return new Installer(id, Txt(r, 1), Txt(r, 2), Txt(r, 3), Txt(r, 4), summary);
+                return new Installer(id, Txt(r, 1), Txt(r, 2), Txt(r, 3), Txt(r, 4), summary, chips);
             });
     }
     public Dictionary<long, long> InstallerRatesForEmployee(long employeeId)
@@ -324,11 +338,18 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 if (string.IsNullOrWhiteSpace(code))
                 {
                     var nextNo = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM employees");
+                    while (Num(c, "SELECT COUNT(*) FROM employees WHERE code=$c", ("$c", $"KT{nextNo:D3}")) > 0) nextNo++;
                     code = $"KT{nextNo:D3}";
                 }
                 else
                 {
                     code = Code(code);
+                    if (Num(c, "SELECT COUNT(*) FROM employees WHERE code=$c", ("$c", code)) > 0)
+                    {
+                        var nextNo = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM employees");
+                        while (Num(c, "SELECT COUNT(*) FROM employees WHERE code=$c", ("$c", $"KT{nextNo:D3}")) > 0) nextNo++;
+                        code = $"KT{nextNo:D3}";
+                    }
                 }
                 Do(c, "INSERT INTO employees(code,full_name,department,phone) VALUES($code,$name,$dept,$phone)",
                     ("$code", code), ("$name", name), ("$dept", department), ("$phone", (phone ?? "").Trim()));

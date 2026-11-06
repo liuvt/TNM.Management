@@ -50,10 +50,10 @@
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.PricesView))
                     {
-                        <div class="nav-group-label"><AppIcon Name="wrench" /> <span>Nhân sự lắp đặt</span></div>
+                        <div class="nav-group-label"><AppIcon Name="wrench" /> <span>Người lắp đặt</span></div>
                         @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
                         {
-                            <NavLink class="nav-child" href="/catalog/installers"><span>Khai báo nhân sự lắp</span></NavLink>
+                            <NavLink class="nav-child" href="/catalog/installers"><span>Khai báo người lắp đặt</span></NavLink>
                         }
                         @if (Accounts.HasPermission(nav.User, Permissions.PricesView))
                         {
@@ -81,10 +81,17 @@
                     @if (Accounts.HasPermission(nav.User, Permissions.QuantityCountView)) { <NavLink href="/quantity-counts"><AppIcon Name="clipboard" /> <span>Kiểm kê tồn kho</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.DevicesView)) { <NavLink href="/devices"><AppIcon Name="device" /> <span>Thiết bị & gia hạn</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.InventoryWarranty)) { <NavLink href="/warranties"><AppIcon Name="wrench" /> <span>Bảo hành</span></NavLink> }
-                    <div class="nav-heading">Tài chính & báo cáo</div>
-                    @if (Accounts.HasPermission(nav.User, Permissions.FinanceView)) { <NavLink href="/finance"><AppIcon Name="wallet" /> <span>Công nợ & thanh toán</span></NavLink> }
-                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsView)) { <NavLink href="/reports"><AppIcon Name="chart" /> <span>Báo cáo & nhật ký</span></NavLink> }
-                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsAuditView)) { <NavLink href="/activity"><AppIcon Name="shield" /> <span>Nhật ký hoạt động</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.FinanceView))
+                    {
+                        <div class="nav-heading">Tài chính & báo cáo</div>
+                        <NavLink href="/finance"><AppIcon Name="wallet" /> <span>Công nợ & thanh toán</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsView) || Accounts.HasPermission(nav.User, Permissions.ReportsAuditView))
+                    {
+                        <div class="nav-heading">Hoạt động</div>
+                        @if (Accounts.HasPermission(nav.User, Permissions.ReportsView)) { <NavLink href="/reports"><AppIcon Name="chart" /> <span>Báo cáo & nhật ký</span></NavLink> }
+                        @if (Accounts.HasPermission(nav.User, Permissions.ReportsAuditView)) { <NavLink href="/activity"><AppIcon Name="shield" /> <span>Nhật ký hoạt động</span></NavLink> }
+                    }
                     <div class="nav-heading">Thiết lập</div>
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage)) { <NavLink href="/admin/master-data"><AppIcon Name="settings" /> <span>Danh mục nền</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.WarehouseScopeManage)) { <NavLink href="/admin/warehouses"><AppIcon Name="warehouse" /> <span>Phạm vi kho</span></NavLink> }

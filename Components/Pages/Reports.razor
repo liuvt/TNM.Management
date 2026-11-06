@@ -3,7 +3,7 @@
 @inject DemoDb Db
 @inject PermissionGate Gate
 <PageTitle>Báo cáo · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">REPORTS / TRACEABILITY</div><h1>Báo cáo & nhật ký hệ thống</h1><p>Truy vết IMEI, phiếu xuất nhập kho, người tác động và lịch sử dữ liệu.</p></div>
+<div class="page-head"><div><div class="eyebrow">HOẠT ĐỘNG / TRUY VẾT</div><h1>Báo cáo & nhật ký hệ thống</h1><p>Truy vết IMEI, phiếu xuất nhập kho, người tác động và lịch sử dữ liệu.</p></div>
 <div class="button-group">@if(canInventoryExport){<a class="btn secondary" href="/export/inventory.csv">↓ Báo cáo kho CSV</a>}@if(canFinanceExport){<a class="btn secondary" href="/export/invoices.csv">↓ Công nợ CSV</a>}</div></div>
 @if(canLedger){<section class="panel"><div class="panel-head"><div><h2>Sổ nhập / xuất / điều chuyển</h2><p>Giao dịch phát sinh được lưu kể cả sau khi IMEI thay đổi vị trí.</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="IMEI / SKU / người tác động..." /></div>
 <div class="table-wrap"><table><thead><tr><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ</th><th>SKU</th><th>IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
