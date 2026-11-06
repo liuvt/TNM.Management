@@ -55,7 +55,7 @@ else
                     {
                         <label>Mã *<input @bind="code" placeholder="@CodeExample" maxlength="32" /></label>
                     }
-                    <label>Tên *<input @bind="name" placeholder="@NameExample" maxlength="160" /></label>
+                    <label>@(Section=="customers" ? "Tên khách hàng / Đơn vị *" : "Tên *")<input @bind="name" placeholder="@NameExample" maxlength="160" /></label>
                     @if(Section=="suppliers")
                     {
                         <label>Số điện thoại<input @bind="phone" placeholder="0901234567" /></label>
@@ -63,6 +63,7 @@ else
                     }
                     else if(Section=="customers")
                     {
+                        <label>Người đại diện (B2B)<input @bind="representativeName" placeholder="Để trống nếu khách lẻ; nhập người đại diện nếu đơn vị B2B" maxlength="160" /></label>
                         <label>Số điện thoại<input @bind="phone" placeholder="0901234567" /></label>
                         <label>Nguồn KH / Tên Sale<input @bind="sourceName" placeholder="VD: Sale Nguyễn Văn A / Đại lý..." /></label>
                         <label>Địa chỉ<input @bind="address" placeholder="Địa chỉ liên hệ" /></label>
@@ -210,7 +211,7 @@ else
     private readonly HashSet<long> selected=[];
     private long? editingId,pendingDelete;
     private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending;
-    private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",department="Kỹ thuật";
+    private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật";
     private long groupId,productId,buyPrice,standard,installed,renewal;
     private int discount,page=1,pageSize=50;
     private DateTime effective=DateTime.Today,until=DateTime.Today.AddDays(30);
@@ -266,7 +267,7 @@ else
         "customer-groups"=>customerGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{customers.Count(c=>c.GroupId==x.Id)} khách hàng")).ToList(),
         "areas"=>areas.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{x.Warehouses} kho")).ToList(),
         "suppliers"=>suppliers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Group,$"{x.Phone} · MST {x.TaxCode}")).ToList(),
-        "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Group,$"{x.Phone} · {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa rõ nguồn":x.SourceName)} · {x.Address}")).ToList(),
+        "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.B2BDisplayName,x.Group,$"{(string.IsNullOrWhiteSpace(x.Phone)?"Chưa có SĐT":x.Phone)}{(string.IsNullOrWhiteSpace(x.RepresentativeName)?"":$" · Người đại diện: {x.RepresentativeName}")} · {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa rõ nguồn":x.SourceName)}{(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
         "installers"=>installers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Department,$"SĐT: {(string.IsNullOrWhiteSpace(x.Phone)?"—":x.Phone)} · Đơn giá lắp: {x.RateSummary}")).ToList(),
         "installer-rates"=>installerRates.Select(x=>new CatalogRow(x.Id,x.EmployeeCode,$"{x.EmployeeName} → {x.Product}",x.EmployeeName,$"Đơn giá đi lắp: {Money(x.InstallRate)} · hiệu lực {x.EffectiveFrom}")).ToList(),
         "warehouses"=>warehouses.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Area,$"{x.ImeiCount:N0} IMEI ({x.InStockCount:N0} trong kho · {x.InstalledCount:N0} đã kích hoạt){(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
@@ -329,7 +330,7 @@ else
     private void GoPage(int n){page=Math.Clamp(n,1,PageCount);pendingDelete=null;}
     private void ToggleRow(long id,bool value){if(value)selected.Add(id);else selected.Remove(id);}
     private void TogglePage(ChangeEventArgs e){bool check=e.Value is bool b && b;foreach(var r in PageRows){if(check)selected.Add(r.Id);else selected.Remove(r.Id);}}
-    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName="";department="Kỹ thuật";groupId=productId=buyPrice=standard=installed=renewal=0;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
+    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName="";department="Kỹ thuật";groupId=productId=buyPrice=standard=installed=renewal=0;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
     private long GetInstallerRateInput(long prodId)=>installerProductRates.TryGetValue(prodId,out var v)?v:0;
     private void SetInstallerRateInput(long prodId,object? val){if(long.TryParse(val?.ToString(),out var v)&&v>=0)installerProductRates[prodId]=v;else installerProductRates.Remove(prodId);}
     private void Create(){ResetFields();if(CurrentSection=="customers")code=Catalog.PeekNextCustomerCode();showEditor=true;scrollEditorPending=true;message="";}
@@ -342,7 +343,7 @@ else
             case "supplier-groups":case "product-groups":case "customer-groups":case "areas":
                 code=row.Code;name=row.Name;break;
             case "suppliers":{var x=suppliers.First(s=>s.Id==row.Id);code=x.Code;name=x.Name;phone=x.Phone;tax=x.TaxCode;groupId=x.GroupId??0;break;}
-            case "customers":{var x=customers.First(c=>c.Id==row.Id);code=x.Code;name=x.Name;phone=x.Phone;address=x.Address;sourceName=x.SourceName;groupId=x.GroupId??0;break;}
+            case "customers":{var x=customers.First(c=>c.Id==row.Id);code=x.Code;name=x.Name;representativeName=x.RepresentativeName;phone=x.Phone;address=x.Address;sourceName=x.SourceName;groupId=x.GroupId??0;break;}
             case "installers":{var x=installers.First(i=>i.Id==row.Id);code=x.Code;name=x.Name;phone=x.Phone;department=x.Department;foreach(var kv in Catalog.InstallerRatesForEmployee(x.Id))installerProductRates[kv.Key]=kv.Value;break;}
             case "installer-rates":{var x=installerRates.First(r=>r.Id==row.Id);groupId=x.EmployeeId;productId=x.ProductId;buyPrice=x.InstallRate;effective=DateTime.ParseExact(x.EffectiveFrom,"yyyy-MM-dd",CultureInfo.InvariantCulture);break;}
             case "warehouses":{var x=warehouses.First(w=>w.Id==row.Id);code=x.Code;name=x.Name;address=x.Address;groupId=x.AreaId??0;break;}
@@ -360,7 +361,7 @@ else
             {
                 case "supplier-groups":case "product-groups":case "customer-groups":case "areas": Catalog.SaveGroup(actor,GroupType,editingId,code,name);break;
                 case "suppliers":Catalog.SaveSupplier(actor,editingId,code,name,groupId,phone,tax);break;
-                case "customers":Catalog.SaveCustomer(actor,editingId,code,name,groupId,phone,address,sourceName);break;
+                case "customers":Catalog.SaveCustomer(actor,editingId,code,name,groupId,phone,address,sourceName,representativeName);break;
                 case "installers":Catalog.SaveInstaller(actor,editingId,code,name,phone,department,installerProductRates);break;
                 case "installer-rates":if(editingId.HasValue)Catalog.UpdateInstallerRate(actor,editingId.Value,groupId,productId,buyPrice,effective);else Catalog.SetInstallerRate(actor,groupId,productId,buyPrice,effective);break;
                 case "warehouses":Catalog.SaveWarehouse(actor,editingId,code,name,groupId,address);break;

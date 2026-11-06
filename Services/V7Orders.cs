@@ -40,7 +40,11 @@ public record V7Order(
     long Price,
     List<V7OrderLine> Lines,
     string CustomerCode = "",
-    string CustomerGroup = "");
+    string CustomerGroup = "",
+    string RepresentativeName = "")
+{
+    public string CustomerB2BDisplay => string.IsNullOrWhiteSpace(RepresentativeName) ? Customer : $"{Customer} (ĐD: {RepresentativeName})";
+}
 
 public sealed class V7Orders(IWebHostEnvironment env)
 {
@@ -157,7 +161,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             o.product_id,p.name,o.status,o.source,o.imei,w.name,o.installer,
             o.installer_employee_id,COALESCE(o.installer_fee_vnd,0),
             COALESCE(o.install_address,''),COALESCE(o.install_at,''),COALESCE(o.plate_no,''),o.unit_price_vnd,
-            COALESCE(c.code,''),COALESCE(cg.name,'-')
+            COALESCE(c.code,''),COALESCE(cg.name,'-'),COALESCE(c.representative_name,'')
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
             LEFT JOIN customer_groups cg ON cg.id=c.group_id
             LEFT JOIN warehouses w ON w.id=o.warehouse_id
@@ -193,7 +197,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 r.GetInt64(17),
                 lines,
                 r.GetString(18),
-                r.GetString(19)));
+                r.GetString(19),
+                r.GetString(20)));
         }
         return list;
     }

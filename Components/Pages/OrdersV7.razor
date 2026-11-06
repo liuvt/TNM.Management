@@ -24,16 +24,16 @@
         <option value="0">— Chọn khách hàng —</option>
         @foreach(var x in customers)
         {
-            <option value="@x.Id">@x.Code — @x.Name (Nhóm: @x.Group@(!string.IsNullOrWhiteSpace(x.Phone) ? $" · SĐT: {x.Phone}" : ""))</option>
+            <option value="@x.Id">@x.Code — @x.B2BDisplayName</option>
         }
     </select>
 </label>
 <label>SĐT khách hàng (Chọn từ Danh sách KH) *
     <select @bind="customer" @bind:after="OnCustomerChanged">
-        <option value="0">— Chọn SĐT từ danh sách khách hàng —</option>
+        <option value="0">— Chọn SĐT khách hàng —</option>
         @foreach(var x in customers)
         {
-            <option value="@x.Id">@(string.IsNullOrWhiteSpace(x.Phone) ? "[Chưa cập nhật SĐT]" : x.Phone) — @x.Name (@x.Code) · Nhóm: @x.Group</option>
+            <option value="@x.Id">@(string.IsNullOrWhiteSpace(x.Phone) ? $"Chưa có SĐT ({x.Code})" : x.Phone)</option>
         }
     </select>
 </label>
@@ -56,7 +56,15 @@
 {
     <div style="margin-top:0.75rem;padding:0.65rem 0.9rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px;display:flex;flex-wrap:wrap;gap:1rem;align-items:center;font-size:0.9rem">
         <div><strong>Mã KH:</strong> @SelectedCustomer.Code</div>
-        <div><strong>Khách hàng:</strong> @SelectedCustomer.Name</div>
+        @if(string.IsNullOrWhiteSpace(SelectedCustomer.RepresentativeName))
+        {
+            <div><strong>Khách hàng:</strong> @SelectedCustomer.Name</div>
+        }
+        else
+        {
+            <div><strong>Đơn vị (B2B):</strong> @SelectedCustomer.Name</div>
+            <div><strong>Người đại diện:</strong> <span style="font-weight:600;color:#0f172a">@SelectedCustomer.RepresentativeName</span></div>
+        }
         <div><strong>Thuộc nhóm:</strong> <span class="chip">@SelectedCustomer.Group</span></div>
         <div style="display:flex;align-items:center;gap:0.4rem">
             <strong>SĐT liên hệ:</strong>
@@ -127,7 +135,7 @@
 
 <section class="panel"><div class="panel-head"><h2>Xử lý &amp; Điều phối SO</h2></div>
 <div class="form-grid">
-<label>Chọn đơn hàng<select @bind="selected" @bind:after="OnOrderSelected"><option value="0">— Chọn đơn —</option>@foreach(var o in orders){<option value="@o.Id">@o.Code — @o.Customer (@o.Product) [@o.Status]</option>}</select></label>
+<label>Chọn đơn hàng<select @bind="selected" @bind:after="OnOrderSelected"><option value="0">— Chọn đơn —</option>@foreach(var o in orders){<option value="@o.Id">@o.Code — @o.CustomerB2BDisplay (@o.Product) [@o.Status]</option>}</select></label>
 <label>Kho duyệt xuất<select @bind="warehouse"><option value="0">— Chọn kho —</option>@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
 <label>Nhân sự lắp đặt (đã khai báo)
     <select @bind="installerEmployeeId" @bind:after="OnInstallerEmployeeChanged">
@@ -187,7 +195,15 @@
 <tr>
     <td><strong>@o.Code</strong></td>
     <td>
-        <div><strong>@o.Customer</strong> @(!string.IsNullOrWhiteSpace(o.CustomerCode) ? $"({o.CustomerCode})" : "")</div>
+        @if(string.IsNullOrWhiteSpace(o.RepresentativeName))
+        {
+            <div><strong>@o.Customer</strong> @(!string.IsNullOrWhiteSpace(o.CustomerCode) ? $"({o.CustomerCode})" : "")</div>
+        }
+        else
+        {
+            <div><strong>@o.Customer</strong> @(!string.IsNullOrWhiteSpace(o.CustomerCode) ? $"({o.CustomerCode})" : "") <span class="chip blue-chip">B2B</span></div>
+            <div><small>Người đại diện: <strong>@o.RepresentativeName</strong></small></div>
+        }
         <small>SĐT: @(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</small>
     </td>
     <td><span class="chip">@(string.IsNullOrWhiteSpace(o.CustomerGroup) ? "—" : o.CustomerGroup)</span></td>

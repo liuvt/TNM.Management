@@ -4,7 +4,10 @@ public record DashboardVm(long Products, long Customers, long Stock, long Consig
     long OpenOrders, long Unpaid, long Revenue, long Received, long RenewalRevenue);
 public record ProductVm(long Id, string Sku, string Name, string Group, long Cost, long Renewal,
     long Installation, int WarrantyMonths, bool IsSerialized);
-public record CustomerVm(long Id, string Code, string Name, string Group, string Source, string Phone, string Address = "");
+public record CustomerVm(long Id, string Code, string Name, string Group, string Source, string Phone, string Address = "", string RepresentativeName = "")
+{
+    public string B2BDisplayName => string.IsNullOrWhiteSpace(RepresentativeName) ? Name : $"{Name} (ĐD: {RepresentativeName})";
+}
 public record StockVm(long Id, string Imei, string Sku, string Product, string Status, string Holder, string UpdatedAt, long ProductId);
 public record DeviceVm(long ActivationId, string Imei, string Sku, string Customer, string Plate,
     string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId);

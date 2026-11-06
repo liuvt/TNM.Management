@@ -102,6 +102,9 @@ public sealed class DemoDb
             Exec(c, null, File.ReadAllText(Path.Combine(_contentRoot, "Data", demo ? "seed.sql" : "seed_empty.sql")));
         }
         Exec(c, null, "INSERT OR IGNORE INTO warehouse_locations(warehouse_id,code,name) SELECT id,'MAIN','Vị trí chính' FROM warehouses");
+        var custCols = Query(c, "PRAGMA table_info(customers)", r => S(r, 1));
+        if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
     }
 
     public DashboardVm Dashboard()
@@ -145,8 +148,8 @@ public sealed class DemoDb
     public List<CustomerVm> Customers()
     {
         using var c = Open();
-        return Query(c, "SELECT c.id,c.code,c.name,COALESCE(g.name,'-'),c.source_name,c.phone,c.address FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id DESC",
-          r => new CustomerVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6)));
+        return Query(c, "SELECT c.id,c.code,c.name,COALESCE(g.name,'-'),c.source_name,c.phone,c.address,COALESCE(c.representative_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id DESC",
+          r => new CustomerVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),S(r,7)));
     }
 
     public List<StockVm> Stock()

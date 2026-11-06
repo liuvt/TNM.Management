@@ -17,7 +17,10 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public record Area(long Id, string Code, string Name, long Warehouses);
     public record Warehouse(long Id, string Code, string Name, long? AreaId, string Area, string Address, long ImeiCount = 0, long InStockCount = 0, long InstalledCount = 0);
     public record Product(long Id, string Code, string Name, long GroupId, string Group, bool Active);
-    public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "");
+    public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "", string RepresentativeName = "")
+    {
+        public string B2BDisplayName => string.IsNullOrWhiteSpace(RepresentativeName) ? Name : $"{Name} (ĐD: {RepresentativeName})";
+    }
     public record Installer(long Id, string Code, string Name, string Department, string Phone, string RateSummary);
     public record InstallerRate(long Id, long EmployeeId, string EmployeeCode, string EmployeeName, long ProductId, string Product, long InstallRate, string EffectiveFrom);
     public record PurchasePrice(long Id, long GroupId, string Group, long ProductId, string Product, long UnitCost, string EffectiveFrom);
@@ -49,6 +52,10 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public void Initialize()
     {
         Write(c => {
+            var custCols = Read(c, "PRAGMA table_info(customers)", r => Txt(r, 1));
+            if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
+
             Do(c, """
                 CREATE TABLE IF NOT EXISTS v7_installer_product_rates(
                   id INTEGER PRIMARY KEY,
@@ -197,7 +204,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             r => new Warehouse(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), r.GetInt64(6), r.GetInt64(7), r.GetInt64(8)));
     }
     public List<Product> Products() { using var c = Open(); return Read(c, "SELECT id,sku,name,group_id,group_name,is_active FROM v7_product_master WHERE is_active=1 ORDER BY id DESC", r => new Product(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5) == 1)); }
-    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7))); }
+    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,''),COALESCE(c.representative_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7), Txt(r, 8))); }
     public List<Installer> Installers()
     {
         using var c = Open();
@@ -270,9 +277,10 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "WAREHOUSE", wid, code); return wid;
         });
     }
-    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "")
+    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "", string representativeName = "")
     {
         name = Required(name, "Tên khách hàng");
+        var rep = (representativeName ?? "").Trim();
         return Write(actor, c => {
             Exists(c, "customer_groups", groupId);
             long cid;
@@ -282,15 +290,15 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 Exists(c, "customers", id.Value);
                 var existingCode = Convert.ToString(Cell(c, "SELECT code FROM customers WHERE id=$id", ("$id", id.Value))) ?? "";
                 finalCode = string.IsNullOrWhiteSpace(code) ? existingCode : Code(code);
-                Do(c, "UPDATE customers SET code=$code,name=$name,group_id=$g,phone=$phone,address=$address,source_name=$src WHERE id=$id",
-                    ("$code", finalCode), ("$name", name), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()), ("$id", id.Value));
+                Do(c, "UPDATE customers SET code=$code,name=$name,representative_name=$rep,group_id=$g,phone=$phone,address=$address,source_name=$src WHERE id=$id",
+                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()), ("$id", id.Value));
                 cid = id.Value;
             }
             else
             {
                 finalCode = NextCustomerCode(c);
-                Do(c, "INSERT INTO customers(code,name,group_id,phone,address,source_name) VALUES($code,$name,$g,$phone,$address,$src)",
-                    ("$code", finalCode), ("$name", name), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()));
+                Do(c, "INSERT INTO customers(code,name,representative_name,group_id,phone,address,source_name) VALUES($code,$name,$rep,$g,$phone,$address,$src)",
+                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()));
                 cid = Num(c, "SELECT last_insert_rowid()");
             }
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "CUSTOMER", cid, finalCode);

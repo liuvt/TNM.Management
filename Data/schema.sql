@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS customers(
   group_id INTEGER NOT NULL REFERENCES customer_groups(id),
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
+  representative_name TEXT NOT NULL DEFAULT '',
   source_type TEXT NOT NULL DEFAULT 'SALE' CHECK(source_type IN ('SALE','AGENCY','DIRECT')),
   source_name TEXT NOT NULL DEFAULT '',
   phone TEXT NOT NULL DEFAULT '',
