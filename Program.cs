@@ -44,7 +44,18 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     options.ForwardLimit = 1;
 });
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents(options =>
+{
+    options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromHours(4);
+    options.DisconnectedCircuitMaxRetained = 500;
+    options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(2);
+});
+builder.Services.Configure<Microsoft.AspNetCore.SignalR.HubOptions>(hubOptions =>
+{
+    hubOptions.ClientTimeoutInterval = TimeSpan.FromHours(2);
+    hubOptions.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    hubOptions.HandshakeTimeout = TimeSpan.FromMinutes(1);
+});
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<DemoDb>();
 builder.Services.AddScoped<V6Ops>();

@@ -117,4 +117,5 @@ button:disabled,input:disabled,select:disabled{cursor:not-allowed;opacity:.65}
 .catalog-row-actions .btn{margin-right:5px}
 .catalog-editor{border-color:#ffe2db;scroll-margin-top:75px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#components-reconnect-modal,.components-reconnect-modal{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;width:0!important;height:0!important;overflow:hidden!important}
 @media(max-width:720px){.catalog-toolbar-search{width:100%}.catalog-toolbar .button-group{justify-content:flex-start}.catalog-pagination{align-items:flex-start}}

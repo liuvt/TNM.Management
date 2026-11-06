@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <base href="/" />
     <title>TNM.Management · Quản trị vận hành</title>
-    <link rel="stylesheet" href="css/app.css?v=6.1-coral" />
+    <link rel="stylesheet" href="css/app.css?v=6.2-coral" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
+    <div id="components-reconnect-modal" style="display:none !important;visibility:hidden !important;pointer-events:none !important;" aria-hidden="true"></div>
     <Routes @rendermode="InteractiveServer" />
-    <script src="js/catalog-export.js"></script>
-    <script src="_framework/blazor.web.js"></script>
+    <script src="_framework/blazor.web.js" autostart="false"></script>
+    <script src="js/catalog-export.js?v=6.2"></script>
 </body>
 </html>
