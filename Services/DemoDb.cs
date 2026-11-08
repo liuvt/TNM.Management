@@ -145,6 +145,12 @@ public sealed class DemoDb
         return Query(c, "SELECT id,full_name FROM employees WHERE department='Kỹ thuật' AND is_active=1 AND deleted_at IS NULL", r => (L(r,0),S(r,1)));
     }
 
+    public List<(long Id, string Name)> Suppliers()
+    {
+        using var c = Open();
+        return Query(c, "SELECT id,name FROM suppliers WHERE is_active=1 AND deleted_at IS NULL ORDER BY id", r => (L(r,0),S(r,1)));
+    }
+
     public List<CustomerVm> Customers()
     {
         using var c = Open();
@@ -167,7 +173,7 @@ public sealed class DemoDb
           r => new StockVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7)));
     }
 
-    public int Receive(long productId, long warehouseId, string multiline)
+    public int Receive(long productId, long warehouseId, string multiline, long? supplierId = null)
     {
         var codes = multiline.Replace("\r","").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
            .Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
@@ -176,18 +182,39 @@ public sealed class DemoDb
         return Tx((c,t) => {
             if (N(c,t,"SELECT COUNT(*) FROM products WHERE id=$id AND is_serialized=1 AND is_active=1 AND deleted_at IS NULL",("$id",productId)) == 0)
                 throw new InvalidOperationException("Nhập kho theo IMEI chỉ hỗ trợ sản phẩm có serial đang kinh doanh.");
-            var cost = N(c,t,"SELECT base_cost_vnd FROM products WHERE id=$id",("$id",productId));
+            var cost = N(c,t,@"SELECT COALESCE(
+                (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
+                NULLIF((SELECT base_cost_vnd FROM products WHERE id=$id), 0),
+                0)",("$id",productId));
+            var resolvedSup = supplierId.HasValue && supplierId.Value > 0
+                ? supplierId.Value
+                : N(c,t,@"SELECT COALESCE(
+                    (SELECT s.id FROM suppliers s JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC,s.id LIMIT 1),
+                    (SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1),
+                    0)",("$id",productId));
+            var prodName = QueryTx(c,t,"SELECT sku||' · '||name FROM products WHERE id=$id", r => S(r,0), ("$id",productId)).FirstOrDefault() ?? $"SP #{productId}";
             var code = "NK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
             Exec(c,t,"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,actor_user_id,notes) VALUES($n,'RECEIVE',$w,$actor,'Nhập kho IMEI')",
               ("$n",code),("$w",warehouseId),("$actor",ActorId));
             var transId = N(c,t,"SELECT last_insert_rowid()");
             foreach(var imei in codes)
             {
-                Exec(c,t,"INSERT INTO stock_units(product_id,imei,status,warehouse_id) VALUES($p,$i,'IN_STOCK',$w)",
-                    ("$p",productId),("$i",imei),("$w",warehouseId));
+                Exec(c,t,"INSERT INTO stock_units(product_id,imei,status,warehouse_id,supplier_id) VALUES($p,$i,'IN_STOCK',$w,$sup)",
+                    ("$p",productId),("$i",imei),("$w",warehouseId),("$sup",resolvedSup > 0 ? resolvedSup : null));
                 var stockId = N(c,t,"SELECT last_insert_rowid()");
                 Exec(c,t,"INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
                     ("$t",transId),("$s",stockId),("$p",productId),("$cost",cost));
+            }
+            if (resolvedSup > 0 && cost * codes.Count > 0)
+            {
+                var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                var totalCost = cost * codes.Count;
+                Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                    ("$no",invNo),("$sup",resolvedSup),("$amt",totalCost),("$note",$"Nhập lô {codes.Count} IMEI ({code}): {prodName}"));
+                var invId = N(c,t,"SELECT last_insert_rowid()");
+                Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
+                    ("$i",invId),("$d",$"Nhập kho IMEI ({code}): {prodName}"),("$p",productId),("$q",codes.Count),("$c",cost));
             }
             Log(c,t,"RECEIVE","INVENTORY_TX",transId,$"{codes.Count} thiết bị / Product {productId}");
             return codes.Count;
@@ -290,21 +317,105 @@ public sealed class DemoDb
     public List<InvoiceVm> Invoices()
     {
         using var c = Open();
-        return Query(c, @"SELECT i.id,i.invoice_no,i.invoice_type,COALESCE(c.name,s.name,'-'),i.amount_vnd,
-          COALESCE(pa.paid,0),i.status,i.issued_at,i.due_at
-          FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+        var allLines = Query(c, @"SELECT l.id,l.invoice_id,l.description,COALESCE(p.sku,''),l.quantity,l.unit_price_vnd
+            FROM invoice_lines l LEFT JOIN products p ON p.id=l.product_id
+            WHERE l.deleted_at IS NULL ORDER BY l.id",
+            r => new InvoiceLineVm(L(r,0),L(r,1),S(r,2),S(r,3),L(r,4),L(r,5)))
+            .GroupBy(x => x.InvoiceId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        return Query(c, @"SELECT i.id,i.invoice_no,i.invoice_type,
+          CASE
+            WHEN c.id IS NOT NULL THEN CASE WHEN COALESCE(c.representative_name,'')<>'' THEN c.name || ' (ĐD: ' || c.representative_name || ')' ELSE c.name END
+            WHEN s.id IS NOT NULL THEN s.name
+            WHEN COALESCE(o.installer,'')<>'' THEN o.installer
+            WHEN COALESCE(i.notes,'')<>'' THEN i.notes
+            ELSE '-'
+          END AS partner_name,
+          i.amount_vnd,COALESCE(pa.paid,0),i.status,i.issued_at,i.due_at,
+          COALESCE(i.notes,''),
+          COALESCE(o.code, CASE WHEN i.renewal_id IS NOT NULL THEN 'GH#'||i.renewal_id ELSE '' END, '')
+          FROM invoices i
+          LEFT JOIN customers c ON c.id=i.customer_id
           LEFT JOIN suppliers s ON s.id=i.supplier_id
-          LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) AS paid FROM payment_allocations GROUP BY invoice_id) pa ON pa.invoice_id=i.id
+          LEFT JOIN v7_orders o ON o.id=i.v7_order_id
+          LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) AS paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) pa ON pa.invoice_id=i.id
           WHERE i.deleted_at IS NULL
           ORDER BY i.id DESC",
-          r => new InvoiceVm(L(r,0),S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),S(r,6),S(r,7),S(r,8)));
+          r => {
+              var id = L(r,0);
+              var lines = allLines.TryGetValue(id, out var list) ? list : [];
+              return new InvoiceVm(id,S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),S(r,6),S(r,7),S(r,8),S(r,9),S(r,10),lines);
+          });
+    }
+
+    public List<PaymentRowVm> Payments()
+    {
+        using var c = Open();
+        return Query(c, @"SELECT p.id,p.payment_no,p.direction,p.method,pa.allocated_vnd,i.invoice_no,i.invoice_type,
+          CASE
+            WHEN c.id IS NOT NULL THEN c.name
+            WHEN s.id IS NOT NULL THEN s.name
+            WHEN COALESCE(o.installer,'')<>'' THEN o.installer
+            WHEN COALESCE(i.notes,'')<>'' THEN i.notes
+            ELSE '-'
+          END,
+          p.paid_at
+          FROM payment_allocations pa
+          JOIN payments p ON p.id=pa.payment_id
+          JOIN invoices i ON i.id=pa.invoice_id
+          LEFT JOIN customers c ON c.id=i.customer_id
+          LEFT JOIN suppliers s ON s.id=i.supplier_id
+          LEFT JOIN v7_orders o ON o.id=i.v7_order_id
+          WHERE pa.deleted_at IS NULL AND p.deleted_at IS NULL AND i.deleted_at IS NULL
+          ORDER BY p.id DESC, pa.id DESC LIMIT 300",
+          r => new PaymentRowVm(L(r,0),S(r,1),S(r,2),S(r,3),L(r,4),S(r,5),S(r,6),S(r,7),S(r,8)));
+    }
+
+    public long CreateCustomInvoice(string invoiceType, long? customerId, long? supplierId, string partnerLabel, string description, long? productId, long quantity, long unitPriceVnd, string dueAt)
+    {
+        if (invoiceType is not ("PURCHASE" or "SALE" or "RENEWAL" or "SERVICE" or "COMMISSION"))
+            throw new InvalidOperationException("Loại chứng từ công nợ không hợp lệ.");
+        if (quantity <= 0 || unitPriceVnd <= 0)
+            throw new InvalidOperationException("Số lượng và đơn giá phải lớn hơn 0.");
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException("Vui lòng nhập nội dung / diễn giải chứng từ.");
+
+        var prefix = invoiceType switch
+        {
+            "PURCHASE" => "NK-",
+            "SALE" => "HD-",
+            "RENEWAL" => "GH-",
+            "SERVICE" => "CL-",
+            "COMMISSION" => "HH-",
+            _ => "CT-"
+        };
+        var total = quantity * unitPriceVnd;
+        var due = string.IsNullOrWhiteSpace(dueAt) ? DateTime.Today.AddDays(15).ToString("yyyy-MM-dd") : dueAt.Trim();
+        var noteText = string.IsNullOrWhiteSpace(partnerLabel) ? description.Trim() : $"{partnerLabel.Trim()} — {description.Trim()}";
+
+        return Tx((c,t) => {
+            var invNo = prefix + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+            Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,supplier_id,due_at,amount_vnd,notes)
+                VALUES($no,$type,$cust,$sup,$due,$amt,$note)",
+                ("$no",invNo),("$type",invoiceType),
+                ("$cust",customerId is > 0 ? customerId : null),
+                ("$sup",supplierId is > 0 ? supplierId : null),
+                ("$due",due),("$amt",total),("$note",noteText));
+            var invId = N(c,t,"SELECT last_insert_rowid()");
+            Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$u)",
+                ("$i",invId),("$d",description.Trim()),("$p",productId is > 0 ? productId : null),("$q",quantity),("$u",unitPriceVnd));
+            Log(c,t,"CREATE","INVOICE",invId,$"{invNo} ({invoiceType}): {total:N0} VND");
+            return invId;
+        });
     }
 
     private static void InsertPayment(SqliteConnection c, SqliteTransaction t, long invoiceId, long amount, string method)
     {
         var invoiceType = QueryTx(c,t,"SELECT invoice_type FROM invoices WHERE id=$id", r => S(r,0), ("$id",invoiceId)).Single();
         var direction = invoiceType is "SALE" or "RENEWAL" ? "IN" : "OUT";
-        var no = "PT-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+        var prefix = direction == "IN" ? "PT-" : "PC-";
+        var no = prefix + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
         Exec(c,t,"INSERT INTO payments(payment_no,direction,method,amount_vnd) VALUES($n,$d,$m,$a)",
           ("$n",no),("$d",direction),("$m",method),("$a",amount));
         var paymentId = N(c,t,"SELECT last_insert_rowid()");

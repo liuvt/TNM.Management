@@ -249,13 +249,27 @@ public sealed class V6Ops(IWebHostEnvironment environment)
     public void ReceivePurchase(long user, long purchaseId)
     {
         Transact(user, c => {
-            var header = Read(c, "SELECT warehouse_id,location_id,status FROM purchase_orders WHERE id=$id", r => (W: r.GetInt64(0), L: r.GetInt64(1), S: Text(r, 2)), ("$id", purchaseId)).FirstOrDefault();
+            var header = Read(c, "SELECT warehouse_id,location_id,status,supplier_id,po_no FROM purchase_orders WHERE id=$id", r => (W: r.GetInt64(0), L: r.GetInt64(1), S: Text(r, 2), Sup: r.GetInt64(3), PoNo: Text(r, 4)), ("$id", purchaseId)).FirstOrDefault();
             if (header.W == 0 || header.S != "DRAFT") throw new InvalidOperationException("PO không ở trạng thái chờ nhận."); EnsureWarehouse(c, user, header.W);
-            var lines = Read(c, "SELECT product_id,quantity FROM purchase_order_lines WHERE po_id=$id", r => (P: r.GetInt64(0), Q: r.GetInt64(1)), ("$id", purchaseId));
+            var lines = Read(c, "SELECT l.product_id,l.quantity,l.unit_cost_vnd,p.name FROM purchase_order_lines l JOIN products p ON p.id=l.product_id WHERE l.po_id=$id", r => (P: r.GetInt64(0), Q: r.GetInt64(1), Cost: r.GetInt64(2), Name: Text(r, 3)), ("$id", purchaseId));
             foreach (var line in lines) RecordMovement(c, user, line.P, header.W, header.L, line.Q, "PURCHASE_RECEIVE", $"Nhận PO #{purchaseId}", "PURCHASE", purchaseId);
             Execute(c, "INSERT INTO goods_receipts(receipt_no,po_id,received_by) VALUES('GR-'||lower(hex(randomblob(7))),$id,$u)", ("$id", purchaseId), ("$u", user));
             Execute(c, "UPDATE purchase_orders SET status='RECEIVED',received_at=CURRENT_TIMESTAMP WHERE id=$id", ("$id", purchaseId));
-            Audit(c, user, "PO_RECEIVE", "PURCHASE_ORDER", purchaseId, "Nhận hàng hoàn tất"); return 0;
+
+            // Tự động tạo hóa đơn công nợ phải trả Nhà cung cấp (PURCHASE)
+            var totalCost = lines.Sum(x => x.Q * x.Cost);
+            var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+            Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
+                VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                ("$no", invNo), ("$sup", header.Sup), ("$amt", totalCost), ("$note", $"Nhập hàng theo {header.PoNo}"));
+            var invId = InsertId(c);
+            foreach (var line in lines)
+            {
+                Execute(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
+                    ("$i", invId), ("$d", $"Nhập hàng NCC ({header.PoNo}): {line.Name}"), ("$p", line.P), ("$q", line.Q), ("$c", line.Cost));
+            }
+
+            Audit(c, user, "PO_RECEIVE", "PURCHASE_ORDER", purchaseId, "Nhận hàng hoàn tất & ghi nhận công nợ NCC"); return 0;
         });
     }
     public List<WarrantyRow> Warranties()

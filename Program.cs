@@ -272,15 +272,20 @@ app.MapGet("/export/inventory.csv", (DemoDb db, V6Ops ops, HttpContext http) =>
     ops.IsWarehouseRestricted(AuthRepository.PrincipalId(http.User)) ? (IResult)Results.Forbid()
     : Results.File(CsvExports.Inventory(db), "text/csv; charset=utf-8", "tnm-inventory.csv"))
     .RequireAuthorization(Permissions.InventoryLedgerExport,Permissions.InventoryView);
-app.MapGet("/export/invoices.csv", (DemoDb db, AuthRepository repository, HttpContext http) =>
+app.MapGet("/export/invoices.csv", (DemoDb db, AuthRepository repository, HttpContext http, string? type) =>
 {
     var types = new List<string>();
     if (repository.HasPermission(http.User,Permissions.FinanceCustomerView)) types.Add("SALE");
     if (repository.HasPermission(http.User,Permissions.FinanceRenewView)) types.Add("RENEWAL");
     if (repository.HasPermission(http.User,Permissions.FinanceSupplierView)) {types.Add("PURCHASE");types.Add("SUPPLIER");}
     if (repository.HasPermission(http.User,Permissions.FinanceOtherView))
+    {
+        types.Add("SERVICE");
+        types.Add("COMMISSION");
         types.AddRange(db.Invoices().Select(x=>x.Type).Where(x=>x is not ("SALE" or "RENEWAL" or "PURCHASE" or "SUPPLIER")).Distinct());
-    return Results.File(CsvExports.Invoices(db,types), "text/csv; charset=utf-8", "tnm-invoices.csv");
+    }
+    var suffix = string.IsNullOrWhiteSpace(type) || type == "ALL" ? "all" : type.ToLowerInvariant();
+    return Results.File(CsvExports.Invoices(db,types,type), "text/csv; charset=utf-8", $"tnm-cong-no-{suffix}.csv");
 }).RequireAuthorization(Permissions.FinanceExport,Permissions.FinanceView);
 app.MapGet("/export/product-catalog.csv", (ProductMaster master,V6Ops ops,HttpContext http) =>
     ops.IsWarehouseRestricted(AuthRepository.PrincipalId(http.User)) ? (IResult)Results.Forbid()

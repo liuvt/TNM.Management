@@ -244,7 +244,9 @@ public static class FlowTester
                 ops.ReceivePurchase(ownerId, poId);
                 var bal = ops.Balances(ownerId).First(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Quantity;
                 Assert(bal == 50, $"Tồn kho sau khi nhận PO phải bằng 50, thực tế = {bal}");
-                return $"PO #{poId} đã nhận hàng · Tồn kho DX00002 tại Kho Q7 = {bal}.";
+                Assert(db.Invoices().Any(i => i.Type == "PURCHASE" && i.Total == 7_500_000),
+                    "Sau khi nhận PO phải tự động sinh hóa đơn Công nợ Sản phẩm (PURCHASE) 7.500.000 ₫.");
+                return $"PO #{poId} đã nhận hàng · Tồn kho DX00002 = {bal} · Tự động sinh công nợ NCC 7.500.000 ₫.";
             });
 
             Step("4. Kho Số lượng & PO", "Xuất kho, Điều chuyển liên kho & Chặn xuất âm tồn", () =>
@@ -349,8 +351,9 @@ public static class FlowTester
                 var qtyAfter = ops.Balances(ownerId).First(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Quantity;
                 Assert(qtyAfter == 22, $"Tồn số lượng DX00002 phải tự động trừ 1 (23 -> 22), thực tế = {qtyAfter}");
                 Assert(db.Invoices().Any(i => i.Type == "SALE" && i.Total == 3_420_000), "Phải tự động sinh hóa đơn phải thu SALE tổng 3.420.000 ₫.");
+                Assert(db.Invoices().Any(i => i.Type == "SERVICE" && i.Total == 300_000), "Phải tự động sinh công nợ chi phí công lắp kỹ thuật (SERVICE) 300.000 ₫.");
 
-                return $"Đơn {orderRow.Code} (3 dòng SP) hoàn tất · Trừ 2 IMEI & 1 Thẻ nhớ · Tổng công lắp {orderRow.InstallerFee:N0} ₫ · HĐ {orderRow.Price:N0} ₫.";
+                return $"Đơn {orderRow.Code} (3 dòng SP) hoàn tất · Trừ 2 IMEI & 1 Thẻ nhớ · Tự sinh HĐ Khách {orderRow.Price:N0} ₫ & Công nợ Kỹ thuật {orderRow.InstallerFee:N0} ₫.";
             });
 
             Step("6. Đơn hàng & Điều phối V7", "Luồng SO Đối tác (PARTNER): Không trừ kho nội bộ nhưng vẫn kích hoạt thuê bao & công nợ", () =>
@@ -397,7 +400,17 @@ public static class FlowTester
                 var saleInvPaid = db.Invoices().First(i => i.Id == saleInv.Id);
                 Assert(saleInvPaid.Status == "PAID" && saleInvPaid.Balance == 0, "Sau khi trả đủ, trạng thái phải là PAID.");
 
-                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) & Tất toán HĐ {saleInvPaid.Code} (OPEN -> PARTIAL -> PAID).";
+                // Kiểm tra chi trả công nợ Kỹ thuật (SERVICE) & lập + chi Hoa hồng Sale (COMMISSION)
+                var srvInv = db.Invoices().First(i => i.Type == "SERVICE" && i.Total == 300_000);
+                db.PayInvoice(srvInv.Id, 300_000, "BANK");
+                Assert(db.Invoices().First(i => i.Id == srvInv.Id).Status == "PAID", "Công nợ kỹ thuật sau khi chi trả phải chuyển sang PAID.");
+
+                var commId = db.CreateCustomInvoice("COMMISSION", null, null, "Sale Nguyễn Minh Anh", "Hoa hồng đơn SO7-000001", imeiProdId, 2, 100_000, DateTime.Today.AddDays(10).ToString("yyyy-MM-dd"));
+                db.PayInvoice(commId, 200_000, "BANK");
+                Assert(db.Invoices().First(i => i.Id == commId).Status == "PAID", "Công nợ hoa hồng Sale sau khi chi trả phải chuyển sang PAID.");
+                Assert(db.Payments().Count >= 5, "Sổ phiếu thu/chi phải ghi nhận đầy đủ các giao dịch PT (IN) và PC (OUT).");
+
+                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Tất toán HĐ Khách ({saleInvPaid.Code}), Công Kỹ thuật ({srvInv.Code}) & Hoa hồng Sale.";
             });
 
             // =========================================================================

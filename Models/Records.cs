@@ -11,10 +11,16 @@ public record CustomerVm(long Id, string Code, string Name, string Group, string
 public record StockVm(long Id, string Imei, string Sku, string Product, string Status, string Holder, string UpdatedAt, long ProductId);
 public record DeviceVm(long ActivationId, string Imei, string Sku, string Customer, string Plate,
     string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId);
+public record InvoiceLineVm(long Id, long InvoiceId, string Description, string ProductSku, long Quantity, long UnitPrice)
+{
+    public long LineTotal => Quantity * UnitPrice;
+}
+public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt);
 public record InvoiceVm(long Id, string Code, string Type, string Customer, long Total, long Paid,
-    string Status, string CreatedAt, string DueAt)
+    string Status, string CreatedAt, string DueAt, string Notes = "", string RefCode = "", List<InvoiceLineVm>? Lines = null)
 {
     public long Balance => Total - Paid;
+    public bool IsReceivable => Type is "SALE" or "RENEWAL";
 }
 public record LedgerVm(long Id, string At, string Type, string Sku, string Imei, string Target, string Actor);
 public record AuditVm(long Id, string At, string Actor, string Action, string Entity, string Details);

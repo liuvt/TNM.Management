@@ -43,10 +43,37 @@ public static class CsvExports
         }));
         return Encode(rows);
     }
-    public static byte[] Invoices(DemoDb db, IEnumerable<string>? visibleTypes = null)
+    public static byte[] Invoices(DemoDb db, IEnumerable<string>? visibleTypes = null, string? categoryFilter = null)
     {
-        var rows=new List<IEnumerable<string>> { new[] { "Số hóa đơn", "Loại", "Đối tác", "Phát sinh VND", "Đã thanh toán VND", "Còn nợ VND", "Trạng thái", "Đến hạn" } };
-        rows.AddRange(db.Invoices().Where(x=>visibleTypes is null || visibleTypes.Contains(x.Type)).Select(x=>(IEnumerable<string>)new[] { x.Code, x.Type, x.Customer, x.Total.ToString(), x.Paid.ToString(), x.Balance.ToString(), x.Status, x.DueAt }));
+        var list = db.Invoices().Where(x => visibleTypes is null || visibleTypes.Contains(x.Type));
+        if (!string.IsNullOrWhiteSpace(categoryFilter) && categoryFilter != "ALL")
+        {
+            list = categoryFilter.ToUpperInvariant() switch
+            {
+                "PURCHASE" => list.Where(x => x.Type is "PURCHASE" or "SUPPLIER"),
+                "SALE" => list.Where(x => x.Type == "SALE"),
+                "RENEWAL" => list.Where(x => x.Type == "RENEWAL"),
+                "OTHER" => list.Where(x => x.Type is "SERVICE" or "COMMISSION" || x.Type is not ("SALE" or "RENEWAL" or "PURCHASE" or "SUPPLIER")),
+                _ => list.Where(x => string.Equals(x.Type, categoryFilter, StringComparison.OrdinalIgnoreCase))
+            };
+        }
+        var rows = new List<IEnumerable<string>> { new[] {
+            "Số chứng từ", "Loại công nợ", "Tính chất", "Đối tác / Thụ hưởng", "Tham chiếu",
+            "Chi tiết mặt hàng / Nội dung", "Phát sinh (VND)", "Đã thanh toán (VND)", "Còn nợ (VND)",
+            "Trạng thái", "Ngày lập", "Đến hạn", "Ghi chú"
+        } };
+        foreach (var x in list)
+        {
+            var lineSummary = x.Lines is { Count: > 0 }
+                ? string.Join(" | ", x.Lines.Select(l => $"{(string.IsNullOrWhiteSpace(l.ProductSku) ? "" : $"[{l.ProductSku}] ")}{l.Description} (SL: {l.Quantity} × {l.UnitPrice:N0})"))
+                : x.Notes;
+            var nature = x.IsReceivable ? "Phải thu (IN)" : "Phải trả (OUT)";
+            rows.Add(new[] {
+                x.Code, x.Type, nature, x.Customer, x.RefCode, lineSummary,
+                x.Total.ToString(), x.Paid.ToString(), x.Balance.ToString(),
+                x.Status, x.CreatedAt, x.DueAt, x.Notes
+            });
+        }
         return Encode(rows);
     }
 }

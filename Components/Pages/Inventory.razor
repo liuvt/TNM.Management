@@ -10,10 +10,11 @@
 <div class="two-column">
 @if(canReceive){<section class="panel edit-panel" hidden="@(!showReceive)"><div class="panel-head"><h2>Nhập kho hàng mới</h2></div>
  <div class="form-grid one">
+ <label>Nhà cung cấp<select @bind="supplierId"><option value="0">— Tự động theo bảng giá NCC —</option>@foreach(var s in suppliers){<option value="@s.Id">@s.Name</option>}</select></label>
  <label>Sản phẩm có IMEI<select @bind="productId">@foreach(var p in products.Where(x=>x.IsSerialized)){<option value="@p.Id">@p.Sku — @p.Name</option>}</select></label>
  <label>Kho nhận<select @bind="warehouseId">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
  <label>Danh sách IMEI (mỗi dòng một mã)<textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009"></textarea></label>
- </div><div class="form-actions"><button class="btn" @onclick="Receive">+ Nhập IMEI</button><span class="feedback">@receiveMessage</span></div>
+ </div><div class="form-actions"><button class="btn" @onclick="Receive">+ Nhập IMEI & Ghi nhận công nợ NCC</button><span class="feedback">@receiveMessage</span></div>
 </section>}
 @if(canMove){<section class="panel edit-panel" hidden="@(!showMove)"><div class="panel-head"><h2>Điều chuyển / thu hồi</h2></div>
  <div class="form-grid one">
@@ -46,17 +47,17 @@
  }
 
  private List<ProductVm> products=[];private List<StockVm> stock=[];private List<CustomerVm> customers=[];
- private List<(long Id,string Name)> warehouses=[],techs=[];
- private long productId=1,warehouseId=1,stockId=3,targetId=1;
+ private List<(long Id,string Name)> warehouses=[],techs=[],suppliers=[];
+ private long productId=1,warehouseId=1,stockId=3,targetId=1,supplierId=0;
  private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="",warehouseFilter="";
  private bool canReceive,canMove,canLedger,canConsignOut,canConsignReturn,canTechOut,canTechReturn;
- protected override async Task OnInitializedAsync(){Reload();warehouses=Db.Warehouses();techs=Db.Technicians();customers=Db.Customers();products=Db.Products();canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
+ protected override async Task OnInitializedAsync(){Reload();warehouses=Db.Warehouses();techs=Db.Technicians();suppliers=Db.Suppliers();customers=Db.Customers();products=Db.Products();if(products.Any(x=>x.IsSerialized))productId=products.First(x=>x.IsSerialized).Id;if(warehouses.Count>0)warehouseId=warehouses[0].Id;canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
  canConsignOut=await Gate.CanAsync(Permissions.InventoryConsignOut);canConsignReturn=await Gate.CanAsync(Permissions.InventoryConsignReturn);
  canTechOut=await Gate.CanAsync(Permissions.InventoryTechOut);canTechReturn=await Gate.CanAsync(Permissions.InventoryTechReturn);
  canMove=canConsignOut||canConsignReturn||canTechOut||canTechReturn;
  moveType=canConsignOut?"CONSIGN_OUT":canConsignReturn?"CONSIGN_RETURN":canTechOut?"TECH_OUT":"TECH_RETURN";}
  private void Reload(){stock=Db.Stock();}
- private async Task Receive(){try{Db.ActorId=await Gate.RequireAsync(Permissions.InventoryReceive);var n=Db.Receive(productId,warehouseId,imeis);Reload();imeis="";receiveMessage=$"Đã nhập {n} IMEI.";}catch(Exception ex){receiveMessage="Lỗi: "+ex.Message;}}
+ private async Task Receive(){try{Db.ActorId=await Gate.RequireAsync(Permissions.InventoryReceive);var n=Db.Receive(productId,warehouseId,imeis,supplierId>0?supplierId:null);Reload();imeis="";receiveMessage=$"Đã nhập {n} IMEI & ghi nhận công nợ NCC.";}catch(Exception ex){receiveMessage="Lỗi: "+ex.Message;}}
  private async Task Move(){try{var required=moveType switch
  {"CONSIGN_OUT"=>Permissions.InventoryConsignOut,"CONSIGN_RETURN"=>Permissions.InventoryConsignReturn,
   "TECH_OUT"=>Permissions.InventoryTechOut,"TECH_RETURN"=>Permissions.InventoryTechReturn,

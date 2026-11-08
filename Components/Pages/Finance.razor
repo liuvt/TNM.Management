@@ -2,52 +2,663 @@
 @page "/finance"
 @inject DemoDb Db
 @inject PermissionGate Gate
-<PageTitle>Công nợ · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">FINANCE / RECEIVABLES</div><h1>Công nợ & thanh toán</h1><p>Hóa đơn độc lập đơn hàng; ghi nhận từng phiếu thu và phân bổ vào chứng từ.</p></div>@if(canExport){<a href="/export/invoices.csv" class="btn secondary">↓ Xuất CSV</a>}</div>
-<div class="crud-actionbar">@if(canPay){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showPay))">@(showPay?"Đóng · + Thanh toán":"+ Thanh toán")</button>}</div>
+<PageTitle>Công nợ & Kế toán · TNM</PageTitle>
 
-
-<div class="stats-grid three">
- <div class="stat"><small>Tổng giá trị hóa đơn</small><strong>@Money(invoices.Sum(x=>x.Total))</strong><span>Gồm tất cả nhóm nghiệp vụ</span></div>
- <div class="stat"><small>Đã thanh toán</small><strong>@Money(invoices.Sum(x=>x.Paid))</strong><span>Từ sổ phân bổ</span></div>
- <div class="stat"><small>Còn công nợ</small><strong class="orange">@Money(invoices.Sum(x=>x.Balance))</strong><span>Chưa thu / chưa chi</span></div>
+<div class="page-head">
+  <div>
+    <div class="eyebrow">FINANCE / ACCOUNTING & LEDGER</div>
+    <h1>Công nợ & Thanh toán</h1>
+    <p>Quản lý xuyên suốt 4 phân mục công nợ (Sản phẩm NCC, Khách hàng, Gia hạn, Chi phí Kỹ thuật/Hoa hồng Sale) & Sổ phiếu Thu/Chi.</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    @if (canExport)
+    {
+      <a href="/export/invoices.csv?type=@(activeTab == "PAYMENTS" ? "ALL" : activeTab)" class="btn secondary">
+        ↓ Xuất báo cáo CSV (@TabExportLabel(activeTab))
+      </a>
+    }
+  </div>
 </div>
-@if(canPay){<section class="panel edit-panel" hidden="@(!showPay)"><div class="panel-head"><h2>Hạch toán thanh toán cho hóa đơn</h2></div>
-<div class="form-grid">
-<label>Hóa đơn còn công nợ<select @bind="invoiceId">@foreach(var x in invoices.Where(x=>x.Balance>0 && x.Status!="VOID")){<option value="@x.Id">@x.Code — còn @Money(x.Balance)</option>}</select></label>
-<label>Số tiền thanh toán (VND)<input type="number" min="1" @bind="amount" /></label>
-<label>Phương thức<select @bind="method"><option value="BANK">Chuyển khoản</option><option value="CASH">Tiền mặt</option></select></label>
-</div><div class="form-actions"><button class="btn" @onclick="Pay">+ Ghi phiếu thanh toán</button><span class="feedback">@message</span></div></section>}
-<section class="panel"><div class="panel-head"><div><h2>Sổ công nợ</h2><p>Đã thanh toán và số dư được tính từ bảng phân bổ thanh toán.</p></div></div>
-<div class="table-wrap"><table><thead><tr><th>SỐ HÓA ĐƠN</th><th>LOẠI</th><th>ĐỐI TÁC</th><th>PHÁT SINH</th><th>ĐÃ THANH TOÁN</th><th>CÒN NỢ</th><th>ĐẾN HẠN</th><th>TRẠNG THÁI</th></tr></thead><tbody>
-@foreach(var x in invoices){<tr><td><strong>@x.Code</strong></td><td>@x.Type</td><td>@x.Customer</td><td>@Money(x.Total)</td><td>@Money(x.Paid)</td><td><strong>@Money(x.Balance)</strong></td><td>@x.DueAt</td><td><span class="chip @(x.Status=="PAID"?"green-chip":x.Status=="PARTIAL"?"purple-chip":"orange-chip")">@x.Status</span></td></tr>}
-</tbody></table></div></section>
-@code {
- private bool showPay;
- private void ToggleForm(string form){
-  showPay = form=="showPay" && !showPay;
- }
 
- private List<InvoiceVm> invoices=[];private long invoiceId=1,amount=100000;
- private string method="BANK",message="";
- private bool canPay,canExport,canCustomer,canRenewal,canSupplier,canOther;
- protected override async Task OnInitializedAsync(){
- canCustomer=await Gate.CanAsync(Permissions.FinanceCustomerView);
- canRenewal=await Gate.CanAsync(Permissions.FinanceRenewView);
- canSupplier=await Gate.CanAsync(Permissions.FinanceSupplierView);
- canOther=await Gate.CanAsync(Permissions.FinanceOtherView);
- canPay=await Gate.CanAsync(Permissions.FinancePay);
- canExport=await Gate.CanAsync(Permissions.FinanceExport);
- Reload();}
- private void Reload(){invoices=Db.Invoices().Where(x=>CanSeeType(x.Type)).ToList();var first=invoices.FirstOrDefault(x=>x.Balance>0);if(first!=null&&!invoices.Any(x=>x.Id==invoiceId && x.Balance>0))invoiceId=first.Id;}
- private bool CanSeeType(string type)=>type switch{
- "SALE"=>canCustomer,"RENEWAL"=>canRenewal,"PURCHASE" or "SUPPLIER"=>canSupplier,_=>canOther};
- private static string PermissionForType(string type)=>type switch{
- "SALE"=>Permissions.FinanceCustomerView,"RENEWAL"=>Permissions.FinanceRenewView,
- "PURCHASE" or "SUPPLIER"=>Permissions.FinanceSupplierView,_=>Permissions.FinanceOtherView};
- private async Task Pay(){try{Db.ActorId=await Gate.RequireAsync(Permissions.FinancePay);
- var item=Db.Invoices().FirstOrDefault(x=>x.Id==invoiceId) ?? throw new InvalidOperationException("Hóa đơn không tồn tại.");
- await Gate.RequireAsync(PermissionForType(item.Type));
- Db.PayInvoice(invoiceId,amount,method);Reload();message="Thanh toán đã được ghi nhận.";}catch(Exception ex){message="Lỗi: "+ex.Message;}}
- private string Money(long v)=>v.ToString("N0")+" ₫";
+<div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button type="button" class="btn @(activeTab == "ALL" ? "" : "secondary")" @onclick='() => SetTab("ALL")'>
+      Tổng hợp (@invoices.Count)
+    </button>
+    @if (canSupplier)
+    {
+      <button type="button" class="btn @(activeTab == "PURCHASE" ? "" : "secondary")" @onclick='() => SetTab("PURCHASE")'>
+        1. Công nợ Sản phẩm (Nhập hàng) (@invoices.Count(x => x.Type is "PURCHASE" or "SUPPLIER"))
+      </button>
+    }
+    @if (canCustomer)
+    {
+      <button type="button" class="btn @(activeTab == "SALE" ? "" : "secondary")" @onclick='() => SetTab("SALE")'>
+        2. Công nợ Khách hàng (@invoices.Count(x => x.Type == "SALE"))
+      </button>
+    }
+    @if (canRenewal)
+    {
+      <button type="button" class="btn @(activeTab == "RENEWAL" ? "" : "secondary")" @onclick='() => SetTab("RENEWAL")'>
+        3. Công nợ Gia hạn (@invoices.Count(x => x.Type == "RENEWAL"))
+      </button>
+    }
+    @if (canOther)
+    {
+      <button type="button" class="btn @(activeTab == "OTHER" ? "" : "secondary")" @onclick='() => SetTab("OTHER")'>
+        4. Chi phí khác (Kỹ thuật / Sale) (@invoices.Count(x => x.Type is "SERVICE" or "COMMISSION"))
+      </button>
+    }
+    <button type="button" class="btn @(activeTab == "PAYMENTS" ? "" : "secondary")" @onclick='() => SetTab("PAYMENTS")'>
+      5. Sổ Phiếu Thu / Chi (@payments.Count)
+    </button>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    @if (canPay)
+    {
+      <button type="button" class="btn secondary" @onclick="() => ToggleForm(nameof(showPay))">
+        @(showPay ? "Đóng · Hạch toán Thu/Chi" : "+ Cập nhật / Hạch toán Thu-Chi")
+      </button>
+      <button type="button" class="btn secondary" @onclick="() => ToggleForm(nameof(showCreate))">
+        @(showCreate ? "Đóng · Lập chứng từ" : "+ Lập chứng từ công nợ")
+      </button>
+    }
+  </div>
+</div>
+
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
+  <div class="stat">
+    <small>Phải thu (Khách hàng & Gia hạn)</small>
+    <strong style="color:#0284c7">@Money(Receivables.Sum(x => x.Balance))</strong>
+    <span>Còn phải thu / Tổng phát sinh: @Money(Receivables.Sum(x => x.Total))</span>
+  </div>
+  <div class="stat">
+    <small>Đã thu (Thực thu IN)</small>
+    <strong style="color:#15803d">@Money(Receivables.Sum(x => x.Paid))</strong>
+    <span>Từ đơn hàng lắp đặt & gia hạn</span>
+  </div>
+  <div class="stat">
+    <small>Phải trả (NCC & Kỹ thuật / Sale)</small>
+    <strong class="orange">@Money(Payables.Sum(x => x.Balance))</strong>
+    <span>Còn phải trả / Tổng phát sinh: @Money(Payables.Sum(x => x.Total))</span>
+  </div>
+  <div class="stat">
+    <small>Đã chi (Thực chi OUT)</small>
+    <strong style="color:#7c3aed">@Money(Payables.Sum(x => x.Paid))</strong>
+    <span>Thanh toán NCC, công lắp & hoa hồng</span>
+  </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+  <div class="panel-note" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+    @message
+  </div>
+}
+
+@if (canPay)
+{
+  <section class="panel edit-panel" hidden="@(!showPay)">
+    <div class="panel-head">
+      <div>
+        <h2>Cập nhật công nợ — Hạch toán Phiếu Thu / Phiếu Chi</h2>
+        <p>Tự động phân loại Phiếu Thu (PT - khách thanh toán/gia hạn) hoặc Phiếu Chi (PC - trả NCC/kỹ thuật/hoa hồng Sale).</p>
+      </div>
+    </div>
+    <div class="form-grid">
+      <label>Chứng từ còn công nợ *
+        <select @bind="invoiceId" @bind:after="OnInvoicePicked">
+          @foreach (var x in OpenInvoicesForPayment)
+          {
+            <option value="@x.Id">[@TypeLabel(x.Type)] @x.Code — @x.Customer (Còn nợ: @Money(x.Balance))</option>
+          }
+        </select>
+      </label>
+      <label>Số tiền thanh toán (VND) *
+        <input type="number" min="1" step="10000" @bind="amount" />
+      </label>
+      <label>Phương thức thanh toán *
+        <select @bind="method">
+          <option value="BANK">Chuyển khoản ngân hàng (BANK)</option>
+          <option value="CASH">Tiền mặt (CASH)</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn" @onclick="Pay">+ Ghi nhận thanh toán</button>
+      @if (SelectedPayInvoice is not null)
+      {
+        <button type="button" class="btn secondary" @onclick="() => amount = SelectedPayInvoice.Balance">
+          Tất toán 100% (@Money(SelectedPayInvoice.Balance))
+        </button>
+        <span style="font-size:12px;color:#475569">
+          Loại phiếu: <strong>@(SelectedPayInvoice.IsReceivable ? "Phiếu Thu (IN)" : "Phiếu Chi (OUT)")</strong> · Đối tác: <strong>@SelectedPayInvoice.Customer</strong>
+        </span>
+      }
+    </div>
+  </section>
+
+  <section class="panel edit-panel" hidden="@(!showCreate)">
+    <div class="panel-head">
+      <div>
+        <h2>Lập chứng từ Công nợ mới (Chi phí Kỹ thuật / Hoa hồng Sale / Nhập hàng)</h2>
+        <p>Dùng để ghi nhận hoa hồng Sale, chi phí kỹ thuật phát sinh ngoài đơn hoặc công nợ nhà cung cấp bổ sung.</p>
+      </div>
+    </div>
+    <div class="form-grid">
+      <label>Nhóm chứng từ công nợ *
+        <select @bind="newType">
+          @if (canOther)
+          {
+            <option value="COMMISSION">Chi phí Hoa hồng Sale (COMMISSION - Phải trả)</option>
+            <option value="SERVICE">Chi phí Công kỹ thuật / Dịch vụ (SERVICE - Phải trả)</option>
+          }
+          @if (canSupplier)
+          {
+            <option value="PURCHASE">Công nợ Sản phẩm / Nhập hàng NCC (PURCHASE - Phải trả)</option>
+          }
+          @if (canCustomer)
+          {
+            <option value="SALE">Công nợ Khách hàng bổ sung (SALE - Phải thu)</option>
+          }
+        </select>
+      </label>
+
+      @if (newType == "PURCHASE")
+      {
+        <label>Nhà cung cấp *
+          <select @bind="newSupplierId">
+            <option value="0">— Chọn Nhà cung cấp —</option>
+            @foreach (var s in suppliers)
+            {
+              <option value="@s.Id">@s.Name</option>
+            }
+          </select>
+        </label>
+      }
+      else if (newType == "SALE")
+      {
+        <label>Khách hàng *
+          <select @bind="newCustomerId">
+            <option value="0">— Chọn Khách hàng —</option>
+            @foreach (var c in customers)
+            {
+              <option value="@c.Id">@c.Code — @c.B2BDisplayName</option>
+            }
+          </select>
+        </label>
+      }
+      else
+      {
+        <label>Người thụ hưởng (Kỹ thuật / Sale / Đối tác) *
+          <input @bind="newPartnerLabel" placeholder="VD: Sale Nguyễn Minh Anh / Kỹ thuật Trần Văn B..." />
+        </label>
+      }
+
+      <label>Sản phẩm liên quan (Tùy chọn)
+        <select @bind="newProductId">
+          <option value="0">— Không gắn mã SP cụ thể —</option>
+          @foreach (var p in products)
+          {
+            <option value="@p.Id">@p.Sku — @p.Name</option>
+          }
+        </select>
+      </label>
+
+      <label>Số lượng *
+        <input type="number" min="1" @bind="newQty" />
+      </label>
+
+      <label>Đơn giá (VND) *
+        <input type="number" min="1000" step="10000" @bind="newUnitPrice" />
+      </label>
+
+      <label>Hạn thanh toán *
+        <input type="date" @bind="newDueDate" />
+      </label>
+
+      <label style="grid-column:1 / -1">Nội dung / Diễn giải chi tiết *
+        <input @bind="newDescription" placeholder="VD: Hoa hồng đại lý tháng 11/2026 đơn SO7-000001..." />
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn" @onclick="CreateInvoice">
+        + Tạo chứng từ (@Money(newQty * newUnitPrice))
+      </button>
+    </div>
+  </section>
+}
+
+@if (selectedInvoice is not null)
+{
+  <section class="panel" style="border:2px solid #0284c7;background:#f8fafc;margin-bottom:16px">
+    <div class="panel-head">
+      <div>
+        <div class="eyebrow">BIỂU MẪU CHI TIẾT CHỨNG TỪ CÔNG NỢ</div>
+        <h2>@selectedInvoice.Code — @TypeLabel(selectedInvoice.Type)</h2>
+        <p>
+          Đối tác / Thụ hưởng: <strong>@selectedInvoice.Customer</strong>
+          @if (!string.IsNullOrWhiteSpace(selectedInvoice.RefCode))
+          {
+            <span> · Tham chiếu: <strong>@selectedInvoice.RefCode</strong></span>
+          }
+          · Ngày lập: <strong>@selectedInvoice.CreatedAt</strong> · Đến hạn: <strong>@selectedInvoice.DueAt</strong>
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        @if (canPay && selectedInvoice.Balance > 0 && selectedInvoice.Status != "VOID")
+        {
+          <button type="button" class="btn" @onclick="() => QuickPay(selectedInvoice)">
+            @(selectedInvoice.IsReceivable ? "Thu tiền chứng từ này" : "Chi trả chứng từ này")
+          </button>
+        }
+        <button type="button" class="btn secondary" @onclick="() => selectedInvoice = null">Đóng chi tiết</button>
+      </div>
+    </div>
+
+    <div class="stats-grid three" style="margin-bottom:12px">
+      <div class="stat"><small>Tổng phát sinh</small><strong>@Money(selectedInvoice.Total)</strong></div>
+      <div class="stat"><small>Đã thanh toán</small><strong style="color:#15803d">@Money(selectedInvoice.Paid)</strong></div>
+      <div class="stat"><small>Số dư còn nợ</small><strong class="orange">@Money(selectedInvoice.Balance)</strong></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>MÃ SP (SKU)</th>
+            <th>DIỄN GIẢI / HẠNG MỤC CHI TIẾT</th>
+            <th>SỐ LƯỢNG</th>
+            <th>ĐƠN GIÁ</th>
+            <th>THÀNH TIỀN</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (selectedInvoice.Lines is { Count: > 0 })
+          {
+            var idx = 0;
+            @foreach (var line in selectedInvoice.Lines)
+            {
+              idx++;
+              <tr>
+                <td>@idx</td>
+                <td>@(string.IsNullOrWhiteSpace(line.ProductSku) ? "—" : line.ProductSku)</td>
+                <td>@line.Description</td>
+                <td><strong>@line.Quantity</strong></td>
+                <td>@Money(line.UnitPrice)</td>
+                <td><strong>@Money(line.LineTotal)</strong></td>
+              </tr>
+            }
+          }
+          else
+          {
+            <tr>
+              <td>1</td>
+              <td>—</td>
+              <td>@(string.IsNullOrWhiteSpace(selectedInvoice.Notes) ? TypeLabel(selectedInvoice.Type) : selectedInvoice.Notes)</td>
+              <td>1</td>
+              <td>@Money(selectedInvoice.Total)</td>
+              <td><strong>@Money(selectedInvoice.Total)</strong></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}
+
+@if (activeTab == "PAYMENTS")
+{
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>5. Sổ Lịch sử Phiếu Thu / Phiếu Chi</h2>
+        <p>Ghi nhận toàn bộ lịch sử thu nợ khách hàng (PT - IN) và chi trả NCC / kỹ thuật / hoa hồng (PC - OUT).</p>
+      </div>
+      <input class="search-input" style="min-width:260px" @bind="search" @bind:event="oninput" placeholder="Tìm số phiếu, hóa đơn, đối tác..." />
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SỐ PHIẾU</th>
+            <th>LOẠI PHIẾU</th>
+            <th>PHƯƠNG THỨC</th>
+            <th>CHỨNG TỪ PHÂN BỔ</th>
+            <th>NHÓM CÔNG NỢ</th>
+            <th>ĐỐI TÁC / THỤ HƯỞNG</th>
+            <th>SỐ TIỀN</th>
+            <th>THỜI GIAN</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var p in FilteredPayments)
+          {
+            <tr>
+              <td><strong>@p.PaymentNo</strong></td>
+              <td>
+                <span class="chip @(p.Direction == "IN" ? "green-chip" : "purple-chip")">
+                  @(p.Direction == "IN" ? "Phiếu Thu (IN)" : "Phiếu Chi (OUT)")
+                </span>
+              </td>
+              <td>@(p.Method == "BANK" ? "Chuyển khoản" : "Tiền mặt")</td>
+              <td><strong>@p.InvoiceNo</strong></td>
+              <td>@TypeLabel(p.InvoiceType)</td>
+              <td>@p.Partner</td>
+              <td><strong style="color:@(p.Direction == "IN" ? "#15803d" : "#b45309")">@Money(p.Amount)</strong></td>
+              <td>@p.PaidAt</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}
+else
+{
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>@TabHeading(activeTab)</h2>
+        <p>Nhấn "Chi tiết" trên từng dòng để xem mẫu chứng từ chi tiết theo form; nhấn "Thu/Chi" để cập nhật công nợ nhanh.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select class="search-input" style="min-width:170px" @bind="statusFilter">
+          <option value="">— Mọi trạng thái —</option>
+          <option value="UNPAID">Còn nợ (OPEN + PARTIAL)</option>
+          <option value="OPEN">Chưa thanh toán (OPEN)</option>
+          <option value="PARTIAL">Thanh toán 1 phần (PARTIAL)</option>
+          <option value="PAID">Đã tất toán (PAID)</option>
+        </select>
+        <input class="search-input" style="min-width:250px" @bind="search" @bind:event="oninput" placeholder="Tìm số chứng từ, đối tác, ghi chú..." />
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SỐ CHỨNG TỪ</th>
+            <th>PHÂN MỤC CÔNG NỢ</th>
+            <th>ĐỐI TÁC / THỤ HƯỞNG</th>
+            <th>CHI TIẾT / THAM CHIẾU</th>
+            <th>PHÁT SINH</th>
+            <th>ĐÃ THANH TOÁN</th>
+            <th>CÒN NỢ</th>
+            <th>ĐẾN HẠN</th>
+            <th>TRẠNG THÁI</th>
+            <th>THAO TÁC</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var x in FilteredInvoices)
+          {
+            <tr>
+              <td><strong>@x.Code</strong></td>
+              <td>
+                <span class="chip @(x.IsReceivable ? "blue-chip" : "purple-chip")">@TypeLabel(x.Type)</span>
+              </td>
+              <td><strong>@x.Customer</strong></td>
+              <td style="max-width:280px;font-size:12px;color:#475569">
+                @if (!string.IsNullOrWhiteSpace(x.RefCode))
+                {
+                  <div><strong>Mã gốc:</strong> @x.RefCode</div>
+                }
+                @if (x.Lines is { Count: > 0 })
+                {
+                  <div>@string.Join(", ", x.Lines.Select(l => $"{l.Description} (×{l.Quantity})"))</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(x.Notes))
+                {
+                  <div>@x.Notes</div>
+                }
+              </td>
+              <td>@Money(x.Total)</td>
+              <td>@Money(x.Paid)</td>
+              <td><strong style="color:@(x.Balance > 0 ? "#d97706" : "#15803d")">@Money(x.Balance)</strong></td>
+              <td>@x.DueAt</td>
+              <td>
+                <span class="chip @(x.Status == "PAID" ? "green-chip" : x.Status == "PARTIAL" ? "purple-chip" : "orange-chip")">
+                  @StatusLabel(x.Status)
+                </span>
+              </td>
+              <td>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button type="button" class="btn secondary" style="padding:4px 8px;font-size:12px" @onclick="() => selectedInvoice = x">
+                    Chi tiết
+                  </button>
+                  @if (canPay && x.Balance > 0 && x.Status != "VOID")
+                  {
+                    <button type="button" class="btn" style="padding:4px 8px;font-size:12px" @onclick="() => QuickPay(x)">
+                      @(x.IsReceivable ? "Thu nợ" : "Chi trả")
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}
+
+@code {
+  private string activeTab = "ALL";
+  private bool showPay, showCreate;
+  private string search = "", statusFilter = "", message = "";
+  private InvoiceVm? selectedInvoice;
+
+  private List<InvoiceVm> invoices = [];
+  private List<PaymentRowVm> payments = [];
+  private List<CustomerVm> customers = [];
+  private List<ProductVm> products = [];
+  private List<(long Id, string Name)> suppliers = [];
+
+  private long invoiceId, amount = 100_000;
+  private string method = "BANK";
+
+  // Form lập chứng từ công nợ mới
+  private string newType = "COMMISSION", newPartnerLabel = "", newDescription = "";
+  private long newSupplierId, newCustomerId, newProductId, newQty = 1, newUnitPrice = 200_000;
+  private DateTime newDueDate = DateTime.Today.AddDays(15);
+
+  private bool canPay, canExport, canCustomer, canRenewal, canSupplier, canOther;
+
+  private IEnumerable<InvoiceVm> Receivables => invoices.Where(x => x.IsReceivable && x.Status != "VOID");
+  private IEnumerable<InvoiceVm> Payables => invoices.Where(x => !x.IsReceivable && x.Status != "VOID");
+  private IEnumerable<InvoiceVm> OpenInvoicesForPayment => invoices.Where(x => x.Balance > 0 && x.Status != "VOID");
+  private InvoiceVm? SelectedPayInvoice => invoices.FirstOrDefault(x => x.Id == invoiceId);
+
+  private IEnumerable<InvoiceVm> FilteredInvoices => invoices
+    .Where(x => activeTab switch
+    {
+      "PURCHASE" => x.Type is "PURCHASE" or "SUPPLIER",
+      "SALE" => x.Type == "SALE",
+      "RENEWAL" => x.Type == "RENEWAL",
+      "OTHER" => x.Type is "SERVICE" or "COMMISSION" || x.Type is not ("SALE" or "RENEWAL" or "PURCHASE" or "SUPPLIER"),
+      _ => true
+    })
+    .Where(x => string.IsNullOrWhiteSpace(statusFilter) ||
+      (statusFilter == "UNPAID" ? x.Balance > 0 && x.Status != "VOID" : x.Status == statusFilter))
+    .Where(x => string.IsNullOrWhiteSpace(search) ||
+      (x.Code + " " + x.Customer + " " + x.Notes + " " + x.RefCode + " " + TypeLabel(x.Type))
+        .Contains(search, StringComparison.OrdinalIgnoreCase));
+
+  private IEnumerable<PaymentRowVm> FilteredPayments => payments
+    .Where(x => string.IsNullOrWhiteSpace(search) ||
+      (x.PaymentNo + " " + x.InvoiceNo + " " + x.Partner + " " + x.Method)
+        .Contains(search, StringComparison.OrdinalIgnoreCase));
+
+  protected override async Task OnInitializedAsync()
+  {
+    canCustomer = await Gate.CanAsync(Permissions.FinanceCustomerView);
+    canRenewal = await Gate.CanAsync(Permissions.FinanceRenewView);
+    canSupplier = await Gate.CanAsync(Permissions.FinanceSupplierView);
+    canOther = await Gate.CanAsync(Permissions.FinanceOtherView);
+    canPay = await Gate.CanAsync(Permissions.FinancePay);
+    canExport = await Gate.CanAsync(Permissions.FinanceExport);
+
+    customers = Db.Customers();
+    products = Db.Products();
+    suppliers = Db.Suppliers();
+    if (suppliers.Count > 0) newSupplierId = suppliers[0].Id;
+    if (customers.Count > 0) newCustomerId = customers[0].Id;
+    newType = canOther ? "COMMISSION" : canSupplier ? "PURCHASE" : "SALE";
+    Reload();
+  }
+
+  private void SetTab(string tab)
+  {
+    activeTab = tab;
+  }
+
+  private void ToggleForm(string form)
+  {
+    showPay = form == nameof(showPay) && !showPay;
+    showCreate = form == nameof(showCreate) && !showCreate;
+  }
+
+  private void Reload()
+  {
+    invoices = Db.Invoices().Where(x => CanSeeType(x.Type)).ToList();
+    payments = Db.Payments().Where(x => CanSeeType(x.InvoiceType)).ToList();
+    var firstOpen = invoices.FirstOrDefault(x => x.Balance > 0 && x.Status != "VOID");
+    if (firstOpen != null && !invoices.Any(x => x.Id == invoiceId && x.Balance > 0))
+    {
+      invoiceId = firstOpen.Id;
+      amount = firstOpen.Balance;
+    }
+    if (selectedInvoice != null)
+    {
+      selectedInvoice = invoices.FirstOrDefault(x => x.Id == selectedInvoice.Id);
+    }
+  }
+
+  private void OnInvoicePicked()
+  {
+    if (SelectedPayInvoice is not null)
+      amount = SelectedPayInvoice.Balance;
+  }
+
+  private void QuickPay(InvoiceVm inv)
+  {
+    invoiceId = inv.Id;
+    amount = inv.Balance;
+    showPay = true;
+    showCreate = false;
+  }
+
+  private bool CanSeeType(string type) => type switch
+  {
+    "SALE" => canCustomer,
+    "RENEWAL" => canRenewal,
+    "PURCHASE" or "SUPPLIER" => canSupplier,
+    _ => canOther
+  };
+
+  private static string PermissionForType(string type) => type switch
+  {
+    "SALE" => Permissions.FinanceCustomerView,
+    "RENEWAL" => Permissions.FinanceRenewView,
+    "PURCHASE" or "SUPPLIER" => Permissions.FinanceSupplierView,
+    _ => Permissions.FinanceOtherView
+  };
+
+  private async Task Pay()
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      var item = Db.Invoices().FirstOrDefault(x => x.Id == invoiceId)
+        ?? throw new InvalidOperationException("Chứng từ công nợ không tồn tại.");
+      await Gate.RequireAsync(PermissionForType(item.Type));
+      Db.PayInvoice(invoiceId, amount, method);
+      Reload();
+      message = $"Đã ghi nhận {(item.IsReceivable ? "Phiếu Thu" : "Phiếu Chi")} {Money(amount)} cho chứng từ {item.Code}.";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task CreateInvoice()
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      await Gate.RequireAsync(PermissionForType(newType));
+      long? custId = newType == "SALE" ? newCustomerId : null;
+      long? supId = newType == "PURCHASE" ? newSupplierId : null;
+      if (newType == "PURCHASE" && (supId is null or <= 0))
+        throw new InvalidOperationException("Vui lòng chọn Nhà cung cấp.");
+      if (newType == "SALE" && (custId is null or <= 0))
+        throw new InvalidOperationException("Vui lòng chọn Khách hàng.");
+      if (newType is "SERVICE" or "COMMISSION" && string.IsNullOrWhiteSpace(newPartnerLabel))
+        throw new InvalidOperationException("Vui lòng nhập tên Kỹ thuật / Sale thụ hưởng.");
+
+      var createdId = Db.CreateCustomInvoice(
+        newType,
+        custId,
+        supId,
+        newPartnerLabel,
+        newDescription,
+        newProductId > 0 ? newProductId : null,
+        newQty,
+        newUnitPrice,
+        newDueDate.ToString("yyyy-MM-dd"));
+
+      newDescription = "";
+      showCreate = false;
+      Reload();
+      selectedInvoice = invoices.FirstOrDefault(x => x.Id == createdId);
+      message = $"Đã lập chứng từ công nợ {selectedInvoice?.Code} thành công.";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private static string TypeLabel(string type) => type switch
+  {
+    "PURCHASE" or "SUPPLIER" => "1. Công nợ Sản phẩm (Nhập NCC)",
+    "SALE" => "2. Công nợ Khách hàng (Đơn lắp)",
+    "RENEWAL" => "3. Công nợ Gia hạn",
+    "SERVICE" => "4a. Công kỹ thuật lắp đặt",
+    "COMMISSION" => "4b. Hoa hồng Sale",
+    _ => type
+  };
+
+  private static string StatusLabel(string status) => status switch
+  {
+    "OPEN" => "Chưa thanh toán (OPEN)",
+    "PARTIAL" => "Thanh toán 1 phần (PARTIAL)",
+    "PAID" => "Đã tất toán (PAID)",
+    "VOID" => "Đã hủy (VOID)",
+    _ => status
+  };
+
+  private static string TabHeading(string tab) => tab switch
+  {
+    "PURCHASE" => "1. Công nợ Sản phẩm (Nhập hàng Nhà cung cấp)",
+    "SALE" => "2. Công nợ Khách hàng (Đơn hàng & Lắp đặt)",
+    "RENEWAL" => "3. Công nợ Gia hạn thiết bị",
+    "OTHER" => "4. Công nợ Chi phí khác (Công kỹ thuật lắp đặt / Hoa hồng Sale)",
+    _ => "Tổng hợp Sổ Công nợ (Phải thu & Phải trả)"
+  };
+
+  private static string TabExportLabel(string tab) => tab switch
+  {
+    "PURCHASE" => "Công nợ Sản phẩm",
+    "SALE" => "Công nợ Khách hàng",
+    "RENEWAL" => "Công nợ Gia hạn",
+    "OTHER" => "Chi phí Kỹ thuật & Sale",
+    _ => "Toàn bộ Công nợ"
+  };
+
+  private static string Money(long v) => v.ToString("N0") + " ₫";
 }

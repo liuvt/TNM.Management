@@ -437,9 +437,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
             Role(c, actor, "ADMIN", "MANAGER", "CSKH");
             if (Status(c, id) != "REPORTED") throw new InvalidOperationException("Đơn chưa báo cáo lắp đặt.");
 
-            using var q = Cmd(c, "SELECT customer_id,warehouse_id,source,unit_price_vnd FROM v7_orders WHERE id=$id", ("$id", id));
-            long customer, warehouse, totalPrice;
-            string source;
+            using var q = Cmd(c, "SELECT customer_id,warehouse_id,source,unit_price_vnd,COALESCE(installer_fee_vnd,0),COALESCE(installer,''),COALESCE(code,'') FROM v7_orders WHERE id=$id", ("$id", id));
+            long customer, warehouse, totalPrice, totalInstallerFee;
+            string source, installerName, orderCode;
             using (var r = q.ExecuteReader())
             {
                 if (!r.Read()) throw new InvalidOperationException("Không thấy đơn.");
@@ -447,16 +447,19 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 warehouse = r.IsDBNull(1) ? 0 : r.GetInt64(1);
                 source = r.GetString(2);
                 totalPrice = r.GetInt64(3);
+                totalInstallerFee = r.GetInt64(4);
+                installerName = r.GetString(5);
+                orderCode = r.GetString(6);
             }
 
-            using var lq = Cmd(c, @"SELECT l.id,l.product_id,p.name,p.is_serialized,l.quantity,l.unit_price_vnd,l.unit_cost_snapshot_vnd,COALESCE(l.imei,''),COALESCE(l.plate_no,''),COALESCE(l.vin_no,'')
+            using var lq = Cmd(c, @"SELECT l.id,l.product_id,p.name,p.is_serialized,l.quantity,l.unit_price_vnd,l.unit_cost_snapshot_vnd,COALESCE(l.imei,''),COALESCE(l.plate_no,''),COALESCE(l.vin_no,''),COALESCE(l.installer_fee_vnd,0)
                 FROM v7_order_lines l JOIN products p ON p.id=l.product_id
                 WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id));
-            var lines = new List<(long LineId, long ProductId, string ProductName, bool IsSerialized, long Qty, long UnitPrice, long UnitCost, string Imei, string PlateNo, string VinNo)>();
+            var lines = new List<(long LineId, long ProductId, string ProductName, bool IsSerialized, long Qty, long UnitPrice, long UnitCost, string Imei, string PlateNo, string VinNo, long InstallerFee)>();
             using (var lr = lq.ExecuteReader())
             {
                 while (lr.Read())
-                    lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9)));
+                    lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9), lr.GetInt64(10)));
             }
 
             long? saleOutTxId = null;
@@ -530,14 +533,30 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
             // Tự động tạo hóa đơn công nợ SALE gồm đầy đủ các dòng sản phẩm
             var invoiceNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,due_at,amount_vnd)
-                VALUES($no,'SALE',$c,$o,date('now','+30 days'),$price)",
-                ("$no", invoiceNo), ("$c", customer), ("$o", id), ("$price", totalPrice));
+            Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,due_at,amount_vnd,notes)
+                VALUES($no,'SALE',$c,$o,date('now','+30 days'),$price,$notes)",
+                ("$no", invoiceNo), ("$c", customer), ("$o", id), ("$price", totalPrice), ("$notes", $"Đơn hàng lắp đặt {orderCode}"));
             var invoiceId = Scalar(c, "SELECT last_insert_rowid()");
             foreach (var grp in lines.GroupBy(x => (x.ProductId, x.ProductName, x.UnitPrice)))
             {
                 Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
                     ("$i", invoiceId), ("$desc", $"Thiết bị & lắp đặt: {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.UnitPrice));
+            }
+
+            // Tự động tạo chứng từ công nợ chi phí công kỹ thuật lắp đặt (SERVICE) nếu đơn có công lắp > 0
+            if (totalInstallerFee > 0)
+            {
+                var srvNo = "CL-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                var partnerLabel = !string.IsNullOrWhiteSpace(installerName) ? installerName : "Nhân sự lắp đặt";
+                Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,v7_order_id,due_at,amount_vnd,notes)
+                    VALUES($no,'SERVICE',$o,date('now','+15 days'),$fee,$notes)",
+                    ("$no", srvNo), ("$o", id), ("$fee", totalInstallerFee), ("$notes", $"{partnerLabel} — Công lắp đặt đơn {orderCode}"));
+                var srvInvId = Scalar(c, "SELECT last_insert_rowid()");
+                foreach (var grp in lines.Where(x => x.InstallerFee > 0).GroupBy(x => (x.ProductId, x.ProductName, x.InstallerFee)))
+                {
+                    Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
+                        ("$i", srvInvId), ("$desc", $"Công lắp đặt ({orderCode}): {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.InstallerFee));
+                }
             }
 
             Run(c, "UPDATE v7_orders SET status='COMPLETED',activated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE id=$id", ("$id", id));
