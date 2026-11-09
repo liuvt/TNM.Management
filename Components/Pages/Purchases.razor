@@ -1,6 +1,7 @@
 @page "/purchases"
 @attribute [Authorize(Policy = Permissions.PurchaseView)]
 @inject V6Ops Ops
+@inject InputCatalog Catalog
 @inject PermissionGate Gate
 
 <PageTitle>Mua hàng NCC · TNM.Management</PageTitle>
@@ -100,7 +101,7 @@
 
         <div class="form-grid">
             <label>Nhà cung cấp
-                <select @bind="supplier" disabled="@(suppliers.Count == 0)">
+                <select @bind="supplier" @bind:after="OnSupplierOrProductChanged" disabled="@(suppliers.Count == 0)">
                     <option value="0">— Chọn nhà cung cấp —</option>
                     @foreach (var x in suppliers)
                     {
@@ -109,7 +110,7 @@
                 </select>
             </label>
             <label>Hàng hóa không IMEI
-                <select @bind="product" disabled="@(products.Count == 0)">
+                <select @bind="product" @bind:after="OnSupplierOrProductChanged" disabled="@(products.Count == 0)">
                     <option value="0">— Chọn mã hàng —</option>
                     @foreach (var x in products)
                     {
@@ -229,6 +230,21 @@
         // Khi đổi kho, không sử dụng ID vị trí còn sót của kho cũ.
         location = AvailableLocations.FirstOrDefault()?.Id ?? 0;
         message = "";
+    }
+
+    private void OnSupplierOrProductChanged()
+    {
+        if (supplier > 0 && product > 0)
+        {
+            try
+            {
+                cost = Catalog.QuotePurchase(supplier, product);
+            }
+            catch
+            {
+                // Giữ nguyên giá nhập hiện tại nếu cặp NCC - SP chưa khai báo trong bảng giá
+            }
+        }
     }
 
     private void ReloadOrders() => orders = Ops.Purchases(actor);

@@ -258,6 +258,17 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             long result;
             if (id.HasValue) { Exists(c, table, id.Value); Do(c, $"UPDATE {table} SET code=$code,name=$name WHERE id=$id", ("$code", code), ("$name", name), ("$id", id.Value)); result = id.Value; }
             else { Do(c, $"INSERT INTO {table}(code,name) VALUES($code,$name)", ("$code", code), ("$name", name)); result = Num(c, "SELECT last_insert_rowid()"); }
+            if (type == "SUPPLIER" && code != "DEFAULT" && Num(c, "SELECT COUNT(*) FROM suppliers WHERE group_id=$g AND deleted_at IS NULL", ("$g", result)) == 0)
+            {
+                var nextNo = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM suppliers");
+                var supCode = $"NCC{nextNo:D5}";
+                while (Num(c, "SELECT COUNT(*) FROM suppliers WHERE code=$c", ("$c", supCode)) > 0)
+                {
+                    nextNo++;
+                    supCode = $"NCC{nextNo:D5}";
+                }
+                Do(c, "INSERT INTO suppliers(code,name,group_id,phone,tax_code) VALUES($c,$n,$g,'','')", ("$c", supCode), ("$n", name), ("$g", result));
+            }
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", table.ToUpperInvariant(), result, code); return result;
         });
     }
@@ -429,6 +440,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             if (Num(c, "SELECT COUNT(*) FROM v7_supplier_group_prices WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Dòng giá nhập không tồn tại.");
             Do(c, "UPDATE v7_supplier_group_prices SET supplier_group_id=$g,product_id=$p,unit_cost_vnd=$v,effective_from=$d WHERE id=$id",
                 ("$g", groupId), ("$p", productId), ("$v", amount), ("$d", effective.ToString("yyyy-MM-dd")), ("$id", id));
+            if (amount > 0) Do(c, "UPDATE products SET base_cost_vnd=$v WHERE id=$p", ("$v", amount), ("$p", productId));
             Audit(c, actor, "UPDATE_PRICE", "SUPPLIER_GROUP_PRICE", id, $"group={groupId};product={productId}"); return 0;
         });
     }
@@ -440,6 +452,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             if (Num(c, "SELECT COUNT(*) FROM v7_group_prices WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Dòng giá bán không tồn tại.");
             Do(c, "UPDATE v7_group_prices SET group_id=$g,product_id=$p,standard_price_vnd=$s,installed_price_vnd=$i,renewal_price_vnd=$r,effective_from=$d WHERE id=$id",
                 ("$g", groupId), ("$p", productId), ("$s", standard), ("$i", installed), ("$r", renewal), ("$d", effective.ToString("yyyy-MM-dd")), ("$id", id));
+            if (renewal > 0) Do(c, "UPDATE products SET renewal_fee_vnd=$r WHERE id=$p", ("$r", renewal), ("$p", productId));
             Audit(c, actor, "UPDATE_PRICE", "CUSTOMER_GROUP_PRICE", id, $"group={groupId};product={productId}"); return 0;
         });
     }
@@ -481,6 +494,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         if (amount < 0) throw new InvalidOperationException("Giá không được âm."); var date = effective.ToString("yyyy-MM-dd"); Write(actor, c => {
             Exists(c, "supplier_groups", groupId); Exists(c, "products", productId);
             Do(c, "INSERT INTO v7_supplier_group_prices(supplier_group_id,product_id,unit_cost_vnd,effective_from) VALUES($g,$p,$v,$d) ON CONFLICT(supplier_group_id,product_id,effective_from) DO UPDATE SET unit_cost_vnd=excluded.unit_cost_vnd,deleted_at=NULL,deleted_by=NULL", ("$g", groupId), ("$p", productId), ("$v", amount), ("$d", date));
+            if (amount > 0) Do(c, "UPDATE products SET base_cost_vnd=$v WHERE id=$p", ("$v", amount), ("$p", productId));
             Audit(c, actor, "SET_PRICE", "SUPPLIER_GROUP", groupId, $"product={productId}; from={date}"); return 0;
         });
     }
@@ -489,6 +503,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         if (standard < 0 || installed < 0 || renewal < 0) throw new InvalidOperationException("Giá không được âm."); var date = effective.ToString("yyyy-MM-dd"); Write(actor, c => {
             Exists(c, "customer_groups", groupId); Exists(c, "products", productId);
             Do(c, "INSERT INTO v7_group_prices(group_id,product_id,standard_price_vnd,installed_price_vnd,renewal_price_vnd,effective_from) VALUES($g,$p,$s,$i,$r,$d) ON CONFLICT(group_id,product_id,effective_from) DO UPDATE SET standard_price_vnd=excluded.standard_price_vnd,installed_price_vnd=excluded.installed_price_vnd,renewal_price_vnd=excluded.renewal_price_vnd,deleted_at=NULL,deleted_by=NULL", ("$g", groupId), ("$p", productId), ("$s", standard), ("$i", installed), ("$r", renewal), ("$d", date));
+            if (renewal > 0) Do(c, "UPDATE products SET renewal_fee_vnd=$r WHERE id=$p", ("$r", renewal), ("$p", productId));
             Audit(c, actor, "SET_PRICE", "CUSTOMER_GROUP", groupId, $"product={productId}; from={date}"); return 0;
         });
     }

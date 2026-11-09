@@ -180,7 +180,8 @@ public static class FlowTester
                 loc1Id = locs.First(l => l.WarehouseId == wh1Id && l.Code == "MAIN").Id;
                 loc2Id = locs.First(l => l.WarehouseId == wh2Id && l.Code == "MAIN").Id;
 
-                installerId = catalog.SaveInstaller(ownerId, null, "KT001", "Nguyễn Kỹ Thuật", "0912333444", "Kỹ thuật");
+                installerId = catalog.SaveInstaller(ownerId, null, "KT001", "Nguyễn Kỹ Thuật", "0912333444", "Cộng tác viên lắp đặt");
+                Assert(db.Suppliers().Count >= 1 && db.Technicians().Count >= 1, "Danh sách NCC và Nhân sự kỹ thuật trên DemoDb phải truy vấn hợp lệ.");
                 return $"Đã tạo NCC #{supplierId}, KH #{customerId}, Nhân sự lắp #{installerId}, Kho #{wh1Id} & #{wh2Id} (tự sinh vị trí MAIN).";
             });
 

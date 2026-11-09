@@ -105,6 +105,38 @@ public sealed class DemoDb
         var custCols = Query(c, "PRAGMA table_info(customers)", r => S(r, 1));
         if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
+
+        var sgCols = Query(c, "PRAGMA table_info(supplier_groups)", r => S(r, 1));
+        if (sgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)))
+        {
+            // Tự động đồng bộ Nhóm NCC -> Đơn vị NCC nếu nhóm đã khai báo bảng giá nhưng chưa tạo dòng trong suppliers
+            var missingSupGroups = Query(c, @"SELECT sg.id, sg.code, sg.name FROM supplier_groups sg
+                WHERE sg.deleted_at IS NULL AND sg.code <> 'DEFAULT'
+                  AND NOT EXISTS (SELECT 1 FROM suppliers s WHERE s.group_id=sg.id AND s.deleted_at IS NULL)",
+                r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2)));
+            foreach (var grp in missingSupGroups)
+            {
+                var nextNo = N(c, null, "SELECT COALESCE(MAX(id),0)+1 FROM suppliers");
+                var supCode = $"NCC{nextNo:D5}";
+                while (N(c, null, "SELECT COUNT(*) FROM suppliers WHERE code=$c", ("$c", supCode)) > 0)
+                {
+                    nextNo++;
+                    supCode = $"NCC{nextNo:D5}";
+                }
+                Exec(c, null, "INSERT INTO suppliers(code,name,group_id,phone,tax_code) VALUES($c,$n,$g,'','')",
+                    ("$c", supCode), ("$n", grp.Name), ("$g", grp.Id));
+            }
+
+            // Đồng bộ giá vốn & giá gia hạn từ bảng giá V7 về bảng products
+            Exec(c, null, @"UPDATE products SET base_cost_vnd = COALESCE(
+                (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
+                base_cost_vnd)
+                WHERE base_cost_vnd = 0 AND EXISTS (SELECT 1 FROM v7_supplier_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0)");
+            Exec(c, null, @"UPDATE products SET renewal_fee_vnd = COALESCE(
+                (SELECT gp.renewal_price_vnd FROM v7_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0 ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
+                renewal_fee_vnd)
+                WHERE renewal_fee_vnd = 0 AND EXISTS (SELECT 1 FROM v7_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0)");
+        }
     }
 
     public DashboardVm Dashboard()
@@ -129,7 +161,12 @@ public sealed class DemoDb
     public List<ProductVm> Products()
     {
         using var c = Open();
-        return Query(c, "SELECT p.id,p.sku,p.name,g.name,p.base_cost_vnd,p.renewal_fee_vnd,p.install_fee_vnd,p.warranty_months,p.is_serialized FROM products p JOIN product_groups g ON g.id=p.group_id WHERE p.is_active=1 AND p.deleted_at IS NULL ORDER BY p.id DESC",
+        return Query(c, @"SELECT p.id,p.sku,p.name,g.name,
+            COALESCE(NULLIF(p.base_cost_vnd,0),(SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
+            COALESCE(NULLIF(p.renewal_fee_vnd,0),(SELECT gp.renewal_price_vnd FROM v7_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
+            COALESCE(NULLIF(p.install_fee_vnd,0),(SELECT CASE WHEN gp.installed_price_vnd>gp.standard_price_vnd AND gp.standard_price_vnd>0 THEN gp.installed_price_vnd-gp.standard_price_vnd ELSE gp.installed_price_vnd END FROM v7_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.installed_price_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
+            p.warranty_months,p.is_serialized
+            FROM products p JOIN product_groups g ON g.id=p.group_id WHERE p.is_active=1 AND p.deleted_at IS NULL ORDER BY p.id DESC",
           r => new ProductVm(L(r,0),S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),L(r,6),(int)L(r,7),L(r,8)==1));
     }
 
@@ -142,13 +179,13 @@ public sealed class DemoDb
     public List<(long Id, string Name)> Technicians()
     {
         using var c = Open();
-        return Query(c, "SELECT id,full_name FROM employees WHERE department='Kỹ thuật' AND is_active=1 AND deleted_at IS NULL", r => (L(r,0),S(r,1)));
+        return Query(c, "SELECT id,full_name FROM employees WHERE is_active=1 AND deleted_at IS NULL ORDER BY id", r => (L(r,0),S(r,1)));
     }
 
     public List<(long Id, string Name)> Suppliers()
     {
         using var c = Open();
-        return Query(c, "SELECT id,name FROM suppliers WHERE is_active=1 AND deleted_at IS NULL ORDER BY id", r => (L(r,0),S(r,1)));
+        return Query(c, "SELECT id,name FROM suppliers WHERE deleted_at IS NULL ORDER BY id", r => (L(r,0),S(r,1)));
     }
 
     public List<CustomerVm> Customers()

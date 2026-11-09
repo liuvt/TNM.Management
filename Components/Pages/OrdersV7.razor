@@ -101,21 +101,24 @@
     {
         <div class="table-wrap" style="margin-top:0.75rem">
             <table>
-                <thead><tr><th>#</th><th>Mã SP</th><th>Tên sản phẩm</th><th>Loại</th><th>Số lượng</th><th>Thao tác</th></tr></thead>
+                <thead><tr><th>#</th><th>Mã SP</th><th>Tên sản phẩm</th><th>Loại</th><th>Đơn giá dự kiến</th><th>Số lượng</th><th>Thành tiền</th><th>Thao tác</th></tr></thead>
                 <tbody>
                     @for(int i = 0; i < draftLines.Count; i++)
                     {
                         var idx = i;
                         var item = draftLines[idx];
                         var p = products.FirstOrDefault(x => x.Id == item.ProductId);
+                        var unitPrice = Orders.PreviewUnitPrice(customer, item.ProductId);
                         <tr>
                             <td>@(idx + 1)</td>
                             <td><strong>@(p?.Sku ?? "—")</strong></td>
                             <td>@(p?.Name ?? "—")</td>
                             <td>@(p?.IsSerialized == true ? $"Thiết bị IMEI (tách {item.Quantity} dòng lắp đặt)" : "Quản lý số lượng")</td>
+                            <td><strong>@unitPrice.ToString("N0") ₫</strong></td>
                             <td style="max-width:110px">
                                 <input type="number" min="1" max="100" value="@item.Quantity" @onchange="e => UpdateDraftQty(idx, e.Value)" />
                             </td>
+                            <td><strong style="color:#0284c7">@((unitPrice * item.Quantity).ToString("N0")) ₫</strong></td>
                             <td>
                                 <button type="button" class="btn secondary btn-sm" @onclick="() => RemoveDraftLine(idx)">Xóa</button>
                             </td>
@@ -389,6 +392,15 @@
   Orders.ReportLines(actor,selected,payload);
   return Task.CompletedTask;
  });
- private Task Complete()=>Act(actor=>{Orders.Complete(actor,selected);return Task.CompletedTask;});
+ private Task Complete()=>Act(actor=>{
+  var o = SelectedOrder;
+  if (o is not null && o.Status == "DISPATCHED" && o.Lines.Any(x => x.IsSerialized) && lineReports.Values.Any(v => !string.IsNullOrWhiteSpace(v.Imei)))
+  {
+   var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
+   Orders.ReportLines(actor,selected,payload);
+  }
+  Orders.Complete(actor,selected);
+  return Task.CompletedTask;
+ });
  private Task Cancel()=>Act(actor=>{Orders.Cancel(actor,selected);return Task.CompletedTask;});
 }

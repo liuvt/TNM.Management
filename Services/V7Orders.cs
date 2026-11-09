@@ -107,11 +107,33 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
     private static (long Price, long Cost) QuoteOrderPrice(SqliteConnection c, long customerId, long productId)
     {
-        var cost = Scalar(c, "SELECT base_cost_vnd FROM products WHERE id=$p", ("$p", productId));
-        var basePrice = Scalar(c, @"SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd ELSE standard_price_vnd END FROM v7_group_prices
+        var cost = Scalar(c, @"SELECT COALESCE(
+            (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
+            NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
+            0)", ("$p", productId));
+        var basePrice = Scalar(c, @"SELECT CASE
+            WHEN installed_price_vnd>0 THEN installed_price_vnd
+            WHEN standard_price_vnd>0 THEN standard_price_vnd
+            ELSE renewal_price_vnd END
+            FROM v7_group_prices
             WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p
               AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
             ORDER BY effective_from DESC,id DESC LIMIT 1", ("$c", customerId), ("$p", productId));
+        if (basePrice <= 0)
+        {
+            basePrice = Scalar(c, @"SELECT CASE
+                WHEN installed_price_vnd>0 THEN installed_price_vnd
+                WHEN standard_price_vnd>0 THEN standard_price_vnd
+                ELSE renewal_price_vnd END
+                FROM v7_group_prices
+                WHERE product_id=$p AND deleted_at IS NULL
+                  AND (installed_price_vnd>0 OR standard_price_vnd>0 OR renewal_price_vnd>0)
+                ORDER BY effective_from DESC,id DESC LIMIT 1", ("$p", productId));
+        }
+        if (basePrice <= 0)
+        {
+            basePrice = Scalar(c, @"SELECT COALESCE(MAX(install_rate_vnd),0) FROM v7_installer_product_rates WHERE product_id=$p AND deleted_at IS NULL", ("$p", productId));
+        }
         if (basePrice <= 0)
             basePrice = cost + Scalar(c, "SELECT install_fee_vnd FROM products WHERE id=$p", ("$p", productId));
         var discount = Scalar(c, @"SELECT COALESCE(MAX(discount_percent),0) FROM v7_group_campaigns
@@ -119,6 +141,13 @@ public sealed class V7Orders(IWebHostEnvironment env)
               AND start_date<=date('now') AND end_date>=date('now')", ("$c", customerId));
         var finalPrice = (long)((decimal)basePrice * (100 - discount) / 100m);
         return (finalPrice, cost);
+    }
+
+    public long PreviewUnitPrice(long customerId, long productId)
+    {
+        if (customerId <= 0 || productId <= 0) return 0;
+        using var c = Open();
+        return QuoteOrderPrice(c, customerId, productId).Price;
     }
 
     public List<V7Order> List()
@@ -243,7 +272,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             throw new InvalidOperationException("Chọn khách hàng và ít nhất 1 sản phẩm cho đơn hàng.");
 
         return Tx(actor, c => {
-            Role(c, actor, "SELLER", "CSKH", "MANAGER", "ADMIN");
+            Role(c, actor, "SELLER", "CSKH", "MANAGER", "ADMIN", "ACCOUNTANT", "WAREHOUSE");
             if (Scalar(c, "SELECT COUNT(*) FROM customers WHERE id=$id AND is_active=1 AND deleted_at IS NULL", ("$id", customer)) == 0)
                 throw new InvalidOperationException("Khách hàng không hợp lệ.");
 
@@ -306,7 +335,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
     public void Approve(long actor, long id, long warehouse)
     {
         Tx(actor, c => {
-            Role(c, actor, "ADMIN", "MANAGER");
+            Role(c, actor, "ADMIN", "MANAGER", "WAREHOUSE", "ACCOUNTANT", "CSKH");
             if (Status(c, id) != "PENDING") throw new InvalidOperationException("Đơn không ở trạng thái chờ duyệt.");
             if (Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouse)) == 0)
                 throw new InvalidOperationException("Kho không tồn tại.");
@@ -319,7 +348,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
     public void Dispatch(long actor, long id, bool partner, string installer, long? installerEmployeeId = null)
     {
         Tx(actor, c => {
-            Role(c, actor, "ADMIN", "MANAGER", "CSKH");
+            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT");
             if (Status(c, id) != "APPROVED") throw new InvalidOperationException("Đơn chưa được duyệt.");
             long? empId = installerEmployeeId is > 0 ? installerEmployeeId : null;
             string installerName = (installer ?? "").Trim();
@@ -386,8 +415,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
     public void ReportLines(long actor, long id, IReadOnlyList<V7OrderLineReport> reports)
     {
         Tx(actor, c => {
-            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "TECH", "INSTALLER");
-            if (Status(c, id) != "DISPATCHED") throw new InvalidOperationException("Đơn chưa được điều phối.");
+            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "TECH", "INSTALLER", "WAREHOUSE", "ACCOUNTANT");
+            if (Status(c, id) is not ("DISPATCHED" or "REPORTED")) throw new InvalidOperationException("Đơn chưa được điều phối.");
 
             using var q = Cmd(c, @"SELECT l.id,p.is_serialized,p.name FROM v7_order_lines l JOIN products p ON p.id=l.product_id
                 WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id));
@@ -434,8 +463,10 @@ public sealed class V7Orders(IWebHostEnvironment env)
     public void Complete(long actor, long id)
     {
         Tx(actor, c => {
-            Role(c, actor, "ADMIN", "MANAGER", "CSKH");
-            if (Status(c, id) != "REPORTED") throw new InvalidOperationException("Đơn chưa báo cáo lắp đặt.");
+            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT");
+            var curStatus = Status(c, id);
+            if (curStatus is not ("REPORTED" or "DISPATCHED"))
+                throw new InvalidOperationException("Đơn chưa điều phối hoặc chưa báo cáo lắp đặt.");
 
             using var q = Cmd(c, "SELECT customer_id,warehouse_id,source,unit_price_vnd,COALESCE(installer_fee_vnd,0),COALESCE(installer,''),COALESCE(code,'') FROM v7_orders WHERE id=$id", ("$id", id));
             long customer, warehouse, totalPrice, totalInstallerFee;
@@ -462,6 +493,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9), lr.GetInt64(10)));
             }
 
+            if (curStatus == "DISPATCHED" && lines.Any(x => x.IsSerialized))
+                throw new InvalidOperationException("Đơn chưa báo cáo lắp đặt.");
+
             long? saleOutTxId = null;
             foreach (var ln in lines)
             {
@@ -475,7 +509,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     long stockUnitId;
                     if (source == "INTERNAL")
                     {
-                        using var find = Cmd(c, "SELECT id FROM stock_units WHERE imei=$imei AND product_id=$p AND warehouse_id=$w AND status='IN_STOCK'",
+                        using var find = Cmd(c, @"SELECT id FROM stock_units
+                            WHERE imei=$imei AND product_id=$p
+                              AND ((status='IN_STOCK' AND (warehouse_id=$w OR $w=0)) OR status IN ('CONSIGNED','TECHNICIAN'))",
                             ("$imei", ln.Imei), ("$p", ln.ProductId), ("$w", warehouse));
                         var stock = find.ExecuteScalar();
                         if (stock is null) throw new InvalidOperationException($"IMEI '{ln.Imei}' ({ln.ProductName}) không có trong kho đã duyệt hoặc đã xuất.");
@@ -492,7 +528,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         Run(c, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
                             ("$t", saleOutTxId.Value), ("$s", stockUnitId), ("$p", ln.ProductId), ("$cost", ln.UnitCost));
 
-                        Run(c, "UPDATE stock_units SET status='INSTALLED',warehouse_id=NULL,customer_id=$c,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$id AND status='IN_STOCK'",
+                        Run(c, "UPDATE stock_units SET status='INSTALLED',warehouse_id=NULL,customer_id=$c,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$id AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')",
                             ("$c", customer), ("$id", stockUnitId));
                         if (Scalar(c, "SELECT changes()") != 1) throw new InvalidOperationException($"Không thể trừ kho IMEI '{ln.Imei}'.");
                         Run(c, "INSERT INTO v7_stock_effects(order_id,stock_unit_id) VALUES($o,$s)", ("$o", id), ("$s", stockUnitId));
@@ -568,7 +604,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
     public void Cancel(long actor, long id)
     {
         Tx(actor, c => {
-            Role(c, actor, "ADMIN", "MANAGER", "CSKH");
+            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
             if (Status(c, id) == "COMPLETED") throw new InvalidOperationException("Không được hủy đơn đã hoàn tất.");
             Run(c, "UPDATE v7_orders SET status='CANCELLED' WHERE id=$id AND status<>'CANCELLED'", ("$id", id));
             Event(c, id, actor, "CANCELLED");
