@@ -64,7 +64,7 @@
                 {
                     <tr>
                         <td><strong>@s.Sku</strong></td>
-                        <td>@s.ProductName</td>
+                        <td class="wrap-cell">@s.ProductName</td>
                         <td>@(s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng")</td>
                         <td><span class="chip @(s.InStockQty > 0 ? "green-chip" : "orange-chip")" style="font-size:0.9rem;font-weight:700">@s.InStockQty.ToString("N0")</span></td>
                         <td>@s.ConsignedOrTechQty.ToString("N0")</td>
@@ -86,7 +86,7 @@
 </select>
 <select class="search-input" style="min-width:240px" @bind="warehouseFilter"><option value="0">— Tất cả Kho tồn (@stock.Count(s => s.Status == "IN_STOCK")) —</option>@foreach(var w in warehouses){<option value="@w.Id">@w.Name (Tồn kho: @stock.Count(s => s.Status == "IN_STOCK" && s.WarehouseId == w.Id))</option>}</select><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div></div>
 <div class="table-wrap"><table><thead><tr><th>IMEI / SERIAL</th><th>SKU</th><th>TÊN THIẾT BỊ</th><th>TRẠNG THÁI</th><th>VỊ TRÍ / ĐƠN VỊ GIỮ</th><th>CẬP NHẬT</th></tr></thead><tbody>
-@foreach(var x in FilteredStock.Take(300)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td>@x.Holder</td><td>@x.UpdatedAt</td></tr>}
+@foreach(var x in FilteredStock.Take(300)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td class="wrap-cell">@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td class="wrap-cell">@x.Holder</td><td>@x.UpdatedAt</td></tr>}
 </tbody></table></div></section>
 @code {
  private bool showReceive, showMove;

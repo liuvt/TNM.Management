@@ -19,7 +19,7 @@
 <label>Ghi chú<input @bind="statusNote" /></label></div>
 <div class="form-actions"><button class="btn" @onclick="UpdateStatus">Cập nhật trạng thái</button><span class="feedback">@statusMessage</span></div></section></div>
 <section class="panel"><div class="panel-head"><h2>Danh sách bảo hành</h2></div><div class="table-wrap"><table><thead><tr><th>Phiếu</th><th>IMEI</th><th>Sản phẩm</th><th>Sự cố</th><th>Tiếp nhận</th><th>Trạng thái</th></tr></thead><tbody>
-@foreach(var x in warranties){<tr><td>#@x.Id</td><td>@x.Imei</td><td>@x.Product</td><td>@x.Problem</td><td>@x.Received</td><td>@x.Status</td></tr>}
+@foreach(var x in warranties){<tr><td>#@x.Id</td><td>@x.Imei</td><td class="wrap-cell">@x.Product</td><td class="wrap-cell">@x.Problem</td><td>@x.Received</td><td>@x.Status</td></tr>}
 </tbody></table></div></section>
 @code {
  private bool showCreate, showStatus;

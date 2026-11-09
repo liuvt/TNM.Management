@@ -7,11 +7,11 @@
 <div class="button-group">@if(canInventoryExport){<a class="btn secondary" href="/export/inventory.csv">↓ Báo cáo kho CSV</a>}@if(canFinanceExport){<a class="btn secondary" href="/export/invoices.csv">↓ Công nợ CSV</a>}</div></div>
 @if(canLedger){<section class="panel"><div class="panel-head"><div><h2>Sổ nhập / xuất / điều chuyển</h2><p>Giao dịch phát sinh được lưu kể cả sau khi IMEI thay đổi vị trí.</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="IMEI / SKU / người tác động..." /></div>
 <div class="table-wrap"><table><thead><tr><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ</th><th>SKU</th><th>IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
-@foreach(var r in ledger.Where(x=>(x.Imei+x.Sku+x.Target+x.Actor).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td>#@r.Id</td><td>@r.At</td><td><span class="chip">@r.Type</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td>@r.Target</td><td>@r.Actor</td></tr>}
+@foreach(var r in ledger.Where(x=>(x.Imei+x.Sku+x.Target+x.Actor).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td>#@r.Id</td><td>@r.At</td><td><span class="chip">@r.Type</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td class="wrap-cell">@r.Target</td><td>@r.Actor</td></tr>}
 </tbody></table></div></section>}
 @if(canAudit){<section class="panel"><div class="panel-head"><div><h2>Audit log</h2><p>Ghi nhận thao tác, bảng dữ liệu bị ảnh hưởng và nội dung thay đổi.</p></div></div>
 <div class="table-wrap"><table><thead><tr><th>ID</th><th>THỜI GIAN</th><th>NGƯỜI DÙNG</th><th>HÀNH ĐỘNG</th><th>ĐỐI TƯỢNG</th><th>GHI CHÚ</th></tr></thead><tbody>
-@foreach(var a in audit){<tr><td>#@a.Id</td><td>@a.At</td><td>@a.Actor</td><td><span class="chip">@a.Action</span></td><td>@a.Entity</td><td>@a.Details</td></tr>}
+@foreach(var a in audit){<tr><td>#@a.Id</td><td>@a.At</td><td>@a.Actor</td><td><span class="chip">@a.Action</span></td><td>@a.Entity</td><td class="wrap-cell">@a.Details</td></tr>}
 </tbody></table></div></section>}
 @code {
  private bool canInventoryExport,canFinanceExport,canLedger,canAudit;

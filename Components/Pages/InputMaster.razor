@@ -484,7 +484,7 @@ else
                         {
                             <tr @key="row.Id">
                                 <td><input type="checkbox" aria-label="@($"Chọn {row.Name}")" checked="@selected.Contains(row.Id)" @onchange="e => ToggleRow(row.Id,e.Value is bool b && b)" /></td>
-                                <td><strong>@row.Code</strong></td><td class="name-cell">@row.Name</td><td>@row.Group</td><td>@row.Details</td>
+                                <td><strong>@row.Code</strong></td><td class="name-cell">@row.Name</td><td>@row.Group</td><td class="wrap-cell">@row.Details</td>
                                 @if(canUpdate || canAudit)
                                 {
                                     <td class="catalog-row-actions">

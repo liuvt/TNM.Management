@@ -500,7 +500,7 @@ public sealed class DemoDb
             WHEN c.id IS NOT NULL THEN CASE WHEN COALESCE(c.representative_name,'')<>'' THEN c.name || ' (ĐD: ' || c.representative_name || ')' ELSE c.name END
             WHEN s.id IS NOT NULL THEN s.name
             WHEN COALESCE(o.installer,'')<>'' THEN o.installer
-            WHEN COALESCE(i.notes,'')<>'' THEN i.notes
+            WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes, ' — ') > 0 THEN SUBSTR(i.notes, 1, INSTR(i.notes, ' — ') - 1) ELSE i.notes END
             ELSE '-'
           END AS partner_name,
           i.amount_vnd,COALESCE(pa.paid,0),i.status,i.issued_at,i.due_at,
@@ -528,7 +528,7 @@ public sealed class DemoDb
             WHEN c.id IS NOT NULL THEN c.name
             WHEN s.id IS NOT NULL THEN s.name
             WHEN COALESCE(o.installer,'')<>'' THEN o.installer
-            WHEN COALESCE(i.notes,'')<>'' THEN i.notes
+            WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes, ' — ') > 0 THEN SUBSTR(i.notes, 1, INSTR(i.notes, ' — ') - 1) ELSE i.notes END
             ELSE '-'
           END,
           p.paid_at

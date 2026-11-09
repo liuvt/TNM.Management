@@ -306,7 +306,7 @@
               <tr>
                 <td>@idx</td>
                 <td>@(string.IsNullOrWhiteSpace(line.ProductSku) ? "—" : line.ProductSku)</td>
-                <td>@line.Description</td>
+                <td class="wrap-cell">@line.Description</td>
                 <td><strong>@line.Quantity</strong></td>
                 <td>@Money(line.UnitPrice)</td>
                 <td><strong>@Money(line.LineTotal)</strong></td>
@@ -318,7 +318,7 @@
             <tr>
               <td>1</td>
               <td>—</td>
-              <td>@(string.IsNullOrWhiteSpace(selectedInvoice.Notes) ? TypeLabel(selectedInvoice.Type) : selectedInvoice.Notes)</td>
+              <td class="wrap-cell">@(string.IsNullOrWhiteSpace(selectedInvoice.Notes) ? TypeLabel(selectedInvoice.Type) : selectedInvoice.Notes)</td>
               <td>1</td>
               <td>@Money(selectedInvoice.Total)</td>
               <td><strong>@Money(selectedInvoice.Total)</strong></td>
@@ -367,7 +367,7 @@
               <td>@(p.Method == "BANK" ? "Chuyển khoản" : "Tiền mặt")</td>
               <td><strong>@p.InvoiceNo</strong></td>
               <td>@TypeLabel(p.InvoiceType)</td>
-              <td>@p.Partner</td>
+              <td class="wrap-cell">@p.Partner</td>
               <td><strong style="color:@(p.Direction == "IN" ? "#15803d" : "#b45309")">@Money(p.Amount)</strong></td>
               <td>@p.PaidAt</td>
             </tr>
@@ -518,7 +518,7 @@ else if (activeTab == "SNAPSHOT_STATS")
                   }
                 </div>
               </td>
-              <td>
+              <td class="wrap-cell">
                 <div><strong>@o.CustomerName</strong></div>
                 @if (!string.IsNullOrWhiteSpace(o.ContactName))
                 {
@@ -526,7 +526,7 @@ else if (activeTab == "SNAPSHOT_STATS")
                 }
               </td>
               <td><span class="chip blue-chip">@o.SellerDisplay</span></td>
-              <td style="max-width:300px;font-size:12px;color:#334155">@o.ProductSummary</td>
+              <td class="wrap-cell" style="max-width:300px;font-size:12px;color:#334155">@o.ProductSummary</td>
               <td><strong>@o.TotalQty</strong></td>
               <td><strong style="color:#0284c7">@Money(o.RevenueSnapshotVnd)</strong></td>
               <td>@Money(o.CostSnapshotVnd)</td>
@@ -584,19 +584,25 @@ else
               <td>
                 <span class="chip @(x.IsReceivable ? "blue-chip" : "purple-chip")">@TypeLabel(x.Type)</span>
               </td>
-              <td><strong>@x.Customer</strong></td>
-              <td style="max-width:280px;font-size:12px;color:#475569">
+              <td class="wrap-cell"><strong>@x.Customer</strong></td>
+              <td class="wrap-cell" style="max-width:320px;font-size:12px;color:#475569">
                 @if (!string.IsNullOrWhiteSpace(x.RefCode))
                 {
                   <div><strong>Mã gốc:</strong> @x.RefCode</div>
                 }
-                @if (x.Lines is { Count: > 0 })
-                {
-                  <div>@string.Join(", ", x.Lines.Select(l => $"{l.Description} (×{l.Quantity})"))</div>
-                }
-                else if (!string.IsNullOrWhiteSpace(x.Notes))
+                @if (!string.IsNullOrWhiteSpace(x.Notes))
                 {
                   <div>@x.Notes</div>
+                }
+                @if (x.Lines is { Count: > 0 })
+                {
+                  <div style="color:#64748b;margin-top:2px">
+                    @string.Join(", ", x.Lines.Take(2).Select(l => $"{l.Description} (×{l.Quantity})"))
+                    @if (x.Lines.Count > 2)
+                    {
+                      <span> … <strong>(+@(x.Lines.Count - 2) mục — bấm Chi tiết)</strong></span>
+                    }
+                  </div>
                 }
               </td>
               <td>@Money(x.Total)</td>

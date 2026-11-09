@@ -514,7 +514,7 @@
                                 <small style="color:#15803d;font-weight:600" title="Đơn đã hoàn thành và khóa cố định giá snapshot">🔒 Khóa Snapshot</small>
                             }
                         </td>
-                        <td>
+                        <td class="wrap-cell">
                             <div><strong>@o.CustomerB2BDisplay</strong> @(!string.IsNullOrWhiteSpace(o.CustomerCode) ? $"({o.CustomerCode})" : "")</div>
                             @if(!string.IsNullOrWhiteSpace(o.ContactName))
                             {
@@ -532,7 +532,7 @@
                                 <span>—</span>
                             }
                         </td>
-                        <td>
+                        <td class="wrap-cell">
                             <div><strong>@o.Product</strong></div>
                             <span class="chip">Thời hạn: @o.DurationDisplay</span>
                         </td>
@@ -543,7 +543,7 @@
                                 <small style="color:#64748b">Giá vốn: @o.CostSnapshot.ToString("N0") ₫</small>
                             }
                         </td>
-                        <td>
+                        <td class="wrap-cell">
                             <div><strong>@(string.IsNullOrWhiteSpace(o.InstallAt) ? "—" : o.InstallAt)</strong></div>
                             <small>@(string.IsNullOrWhiteSpace(o.InstallAddress) ? "—" : o.InstallAddress)</small>
                             @if(!string.IsNullOrWhiteSpace(o.Notes))
@@ -556,7 +556,7 @@
                             <div><strong>@(o.Warehouse ?? "Chưa chọn kho")</strong></div>
                             <span class="chip @(o.DeductStock ? "green-chip" : "orange-chip")">@o.StockEffectDisplay</span>
                         </td>
-                        <td>
+                        <td class="wrap-cell">
                             <div><span class="chip">@o.InstallerTypeDisplay</span></div>
                             <div><strong>@(string.IsNullOrWhiteSpace(o.Installer) ? "—" : o.Installer)</strong></div>
                             @if(o.InstallerFee > 0)
@@ -564,7 +564,7 @@
                                 <small>Công lắp: @o.InstallerFee.ToString("N0") ₫</small>
                             }
                         </td>
-                        <td>
+                        <td class="wrap-cell">
                             @if(o.Lines.Any(l => !string.IsNullOrWhiteSpace(l.Imei)))
                             {
                                 @foreach(var l in o.Lines.Where(x => !string.IsNullOrWhiteSpace(x.Imei)))
