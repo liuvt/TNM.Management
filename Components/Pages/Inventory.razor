@@ -11,10 +11,11 @@
 @if(canReceive){<section class="panel edit-panel" hidden="@(!showReceive)"><div class="panel-head"><h2>Nhập kho hàng mới</h2></div>
  <div class="form-grid one">
  <label>Nhà cung cấp<select @bind="supplierId"><option value="0">— Tự động theo bảng giá NCC —</option>@foreach(var s in suppliers){<option value="@s.Id">@s.Name</option>}</select></label>
- <label>Sản phẩm có IMEI<select @bind="productId">@foreach(var p in products.Where(x=>x.IsSerialized)){<option value="@p.Id">@p.Sku — @p.Name</option>}</select></label>
+ <label>Sản phẩm có IMEI<select @bind="productId">@foreach(var p in products.Where(x=>x.IsSerialized)){<option value="@p.Id">@p.Sku — @p.Name (Tồn hiện tại: @p.StockInHand)</option>}</select></label>
  <label>Kho nhận<select @bind="warehouseId">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
- <label>Danh sách IMEI (mỗi dòng một mã)<textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009"></textarea></label>
- </div><div class="form-actions"><button class="btn" @onclick="Receive">+ Nhập IMEI & Ghi nhận công nợ NCC</button><span class="feedback">@receiveMessage</span></div>
+ <label>Số lượng nhập (nếu chưa có sẵn mã IMEI từng thiết bị)<input type="number" min="1" max="500" @bind="receiveQty" /></label>
+ <label>Danh sách IMEI (mỗi dòng một mã — tùy chọn, nếu để trống sẽ tạo theo Số lượng nhập)<textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009&#10;(Nếu để trống hệ thống sẽ nhập theo Số lượng nhập ở trên và cập nhật IMEI khi lắp đặt)"></textarea></label>
+ </div><div class="form-actions"><button class="btn" @onclick="Receive">+ Nhập kho &amp; Ghi nhận công nợ NCC</button><span class="feedback">@receiveMessage</span></div>
 </section>}
 @if(canMove){<section class="panel edit-panel" hidden="@(!showMove)"><div class="panel-head"><h2>Điều chuyển / thu hồi</h2></div>
  <div class="form-grid one">
@@ -35,9 +36,57 @@
  <div class="panel-note">Kiểm tra trạng thái và lưu cả phiếu xuất/nhập trước khi cập nhật vị trí IMEI.</div>
 </section>}
 </div>
-<section class="panel"><div class="panel-head"><div><h2>Danh sách thiết bị</h2><p>@stock.Count IMEI được ghi nhận</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select class="search-input" style="min-width:240px" @bind="warehouseFilter"><option value="">— Tất cả Kho / Vị trí (@stock.Count) —</option>@foreach(var w in warehouses){<option value="@w.Name">@w.Name (@stock.Count(s => s.Holder == w.Name))</option>}</select><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div></div>
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2>Tổng hợp số lượng tồn kho theo sản phẩm</h2>
+            <p>Số lượng tồn kho sẽ tự động giảm ngay khi đơn hàng lắp đặt hoàn thành (trừ trường hợp Hãng lắp đặt tích Không trừ tồn kho).</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <span class="chip green-chip">Tổng tồn trong kho: @summaries.Sum(x => x.InStockQty).ToString("N0")</span>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>MÃ SP</th>
+                    <th>TÊN SẢN PHẨM</th>
+                    <th>LOẠI QUẢN LÝ</th>
+                    <th>TỒN TRONG KHO (KHẢ DỤNG)</th>
+                    <th>KÝ GỬI / KỸ THUẬT GIỮ</th>
+                    <th>ĐÃ LẮP ĐẶT / KÍCH HOẠT</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach(var s in summaries)
+                {
+                    <tr>
+                        <td><strong>@s.Sku</strong></td>
+                        <td>@s.ProductName</td>
+                        <td>@(s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng")</td>
+                        <td><span class="chip @(s.InStockQty > 0 ? "green-chip" : "orange-chip")" style="font-size:0.9rem;font-weight:700">@s.InStockQty.ToString("N0")</span></td>
+                        <td>@s.ConsignedOrTechQty.ToString("N0")</td>
+                        <td><strong>@s.InstalledQty.ToString("N0")</strong></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel"><div class="panel-head"><div><h2>Danh sách thiết bị IMEI</h2><p>Đang hiển thị @FilteredStock.Count() / @stock.Count IMEI (Trong kho khả dụng: <strong>@stock.Count(s => s.Status == "IN_STOCK")</strong>)</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<select class="search-input" style="min-width:210px" @bind="statusFilter">
+    <option value="IN_STOCK">Trong kho khả dụng (@stock.Count(s => s.Status == "IN_STOCK"))</option>
+    <option value="CONSIGNED">Đang ký gửi (@stock.Count(s => s.Status == "CONSIGNED"))</option>
+    <option value="TECHNICIAN">Kỹ thuật giữ (@stock.Count(s => s.Status == "TECHNICIAN"))</option>
+    <option value="INSTALLED">Đã lắp đặt / Kích hoạt (@stock.Count(s => s.Status == "INSTALLED"))</option>
+    <option value="ALL">— Tất cả trạng thái (@stock.Count) —</option>
+</select>
+<select class="search-input" style="min-width:240px" @bind="warehouseFilter"><option value="0">— Tất cả Kho tồn (@stock.Count(s => s.Status == "IN_STOCK")) —</option>@foreach(var w in warehouses){<option value="@w.Id">@w.Name (Tồn kho: @stock.Count(s => s.Status == "IN_STOCK" && s.WarehouseId == w.Id))</option>}</select><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div></div>
 <div class="table-wrap"><table><thead><tr><th>IMEI / SERIAL</th><th>SKU</th><th>TÊN THIẾT BỊ</th><th>TRẠNG THÁI</th><th>VỊ TRÍ / ĐƠN VỊ GIỮ</th><th>CẬP NHẬT</th></tr></thead><tbody>
-@foreach(var x in stock.Where(x=> (string.IsNullOrEmpty(warehouseFilter) || x.Holder==warehouseFilter) && (x.Imei+x.Sku+x.Holder).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td>@x.Holder</td><td>@x.UpdatedAt</td></tr>}
+@foreach(var x in FilteredStock.Take(300)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td>@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td>@x.Holder</td><td>@x.UpdatedAt</td></tr>}
 </tbody></table></div></section>
 @code {
  private bool showReceive, showMove;
@@ -47,17 +96,23 @@
  }
 
  private List<ProductVm> products=[];private List<StockVm> stock=[];private List<CustomerVm> customers=[];
+ private List<ProductStockSummaryVm> summaries=[];
  private List<(long Id,string Name)> warehouses=[],techs=[],suppliers=[];
- private long productId=1,warehouseId=1,stockId=3,targetId=1,supplierId=0;
- private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="",warehouseFilter="";
+ private long productId=1,warehouseId=1,stockId=3,targetId=1,supplierId=0,warehouseFilter=0;
+ private int receiveQty=1;
+ private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="",statusFilter="IN_STOCK";
  private bool canReceive,canMove,canLedger,canConsignOut,canConsignReturn,canTechOut,canTechReturn;
- protected override async Task OnInitializedAsync(){Reload();warehouses=Db.Warehouses();techs=Db.Technicians();suppliers=Db.Suppliers();customers=Db.Customers();products=Db.Products();if(products.Any(x=>x.IsSerialized))productId=products.First(x=>x.IsSerialized).Id;if(warehouses.Count>0)warehouseId=warehouses[0].Id;canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
+ private IEnumerable<StockVm> FilteredStock => stock.Where(x =>
+  (statusFilter == "ALL" || x.Status == statusFilter) &&
+  (warehouseFilter == 0 || x.WarehouseId == warehouseFilter || (x.Status != "IN_STOCK" && warehouses.FirstOrDefault(w => w.Id == warehouseFilter).Name == x.Holder)) &&
+  (string.IsNullOrWhiteSpace(search) || (x.Imei + " " + x.Sku + " " + x.Product + " " + x.Holder).Contains(search, StringComparison.OrdinalIgnoreCase)));
+ protected override async Task OnInitializedAsync(){warehouses=Db.Warehouses();techs=Db.Technicians();suppliers=Db.Suppliers();customers=Db.Customers();Reload();if(products.Any(x=>x.IsSerialized))productId=products.First(x=>x.IsSerialized).Id;if(warehouses.Count>0)warehouseId=warehouses[0].Id;canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
  canConsignOut=await Gate.CanAsync(Permissions.InventoryConsignOut);canConsignReturn=await Gate.CanAsync(Permissions.InventoryConsignReturn);
  canTechOut=await Gate.CanAsync(Permissions.InventoryTechOut);canTechReturn=await Gate.CanAsync(Permissions.InventoryTechReturn);
  canMove=canConsignOut||canConsignReturn||canTechOut||canTechReturn;
  moveType=canConsignOut?"CONSIGN_OUT":canConsignReturn?"CONSIGN_RETURN":canTechOut?"TECH_OUT":"TECH_RETURN";}
- private void Reload(){stock=Db.Stock();}
- private async Task Receive(){try{Db.ActorId=await Gate.RequireAsync(Permissions.InventoryReceive);var n=Db.Receive(productId,warehouseId,imeis,supplierId>0?supplierId:null);Reload();imeis="";receiveMessage=$"Đã nhập {n} IMEI & ghi nhận công nợ NCC.";}catch(Exception ex){receiveMessage="Lỗi: "+ex.Message;}}
+ private void Reload(){stock=Db.Stock();products=Db.Products();summaries=Db.ProductStockSummaries();}
+ private async Task Receive(){try{Db.ActorId=await Gate.RequireAsync(Permissions.InventoryReceive);var n=Db.Receive(productId,warehouseId,imeis,supplierId>0?supplierId:null,receiveQty);Reload();imeis="";receiveQty=1;receiveMessage=$"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC.";}catch(Exception ex){receiveMessage="Lỗi: "+ex.Message;}}
  private async Task Move(){try{var required=moveType switch
  {"CONSIGN_OUT"=>Permissions.InventoryConsignOut,"CONSIGN_RETURN"=>Permissions.InventoryConsignReturn,
   "TECH_OUT"=>Permissions.InventoryTechOut,"TECH_RETURN"=>Permissions.InventoryTechReturn,

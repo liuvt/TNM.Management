@@ -41,9 +41,19 @@ public record V7Order(
     List<V7OrderLine> Lines,
     string CustomerCode = "",
     string CustomerGroup = "",
-    string RepresentativeName = "")
+    string RepresentativeName = "",
+    string ContactName = "",
+    long DurationMonths = 12,
+    bool DeductStock = true,
+    string ActivatedAt = "",
+    long? WarehouseId = null,
+    string Notes = "",
+    bool Cod = false)
 {
     public string CustomerB2BDisplay => string.IsNullOrWhiteSpace(RepresentativeName) ? Customer : $"{Customer} (ĐD: {RepresentativeName})";
+    public string DurationDisplay => DurationMonths == 12 ? "1 năm" : (DurationMonths > 0 && DurationMonths % 12 == 0) ? $"{DurationMonths / 12} năm" : $"{DurationMonths} tháng";
+    public string InstallerTypeDisplay => Source == "PARTNER" ? "Hãng lắp đặt" : "ĐV lắp đặt";
+    public string StockEffectDisplay => DeductStock ? "Trừ tồn kho" : "Không trừ tồn kho (Hãng)";
 }
 
 public sealed class V7Orders(IWebHostEnvironment env)
@@ -67,8 +77,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
         r.Close();
         if (!cols.Contains("installer_employee_id")) Run(c, "ALTER TABLE v7_orders ADD COLUMN installer_employee_id INTEGER REFERENCES employees(id)");
         if (!cols.Contains("installer_fee_vnd")) Run(c, "ALTER TABLE v7_orders ADD COLUMN installer_fee_vnd INTEGER NOT NULL DEFAULT 0");
+        if (!cols.Contains("contact_name")) Run(c, "ALTER TABLE v7_orders ADD COLUMN contact_name TEXT NOT NULL DEFAULT ''");
         if (!cols.Contains("customer_phone")) Run(c, "ALTER TABLE v7_orders ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''");
         if (!cols.Contains("sale_source")) Run(c, "ALTER TABLE v7_orders ADD COLUMN sale_source TEXT NOT NULL DEFAULT ''");
+        if (!cols.Contains("duration_months")) Run(c, "ALTER TABLE v7_orders ADD COLUMN duration_months INTEGER NOT NULL DEFAULT 12");
+        if (!cols.Contains("deduct_stock")) Run(c, "ALTER TABLE v7_orders ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1");
 
         Run(c, """
             CREATE TABLE IF NOT EXISTS v7_order_lines(
@@ -190,7 +203,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
             o.product_id,p.name,o.status,o.source,o.imei,w.name,o.installer,
             o.installer_employee_id,COALESCE(o.installer_fee_vnd,0),
             COALESCE(o.install_address,''),COALESCE(o.install_at,''),COALESCE(o.plate_no,''),o.unit_price_vnd,
-            COALESCE(c.code,''),COALESCE(cg.name,'-'),COALESCE(c.representative_name,'')
+            COALESCE(c.code,''),COALESCE(cg.name,'-'),COALESCE(c.representative_name,''),
+            COALESCE(o.contact_name,''),COALESCE(o.duration_months,12),COALESCE(o.deduct_stock,1),
+            COALESCE(o.activated_at,''),o.warehouse_id,COALESCE(o.notes,''),COALESCE(o.collect_on_delivery,0)
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
             LEFT JOIN customer_groups cg ON cg.id=c.group_id
             LEFT JOIN warehouses w ON w.id=o.warehouse_id
@@ -227,7 +242,14 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 lines,
                 r.GetString(18),
                 r.GetString(19),
-                r.GetString(20)));
+                r.GetString(20),
+                r.GetString(21),
+                r.GetInt64(22),
+                r.GetInt64(23) == 1,
+                r.GetString(24),
+                r.IsDBNull(25) ? null : r.GetInt64(25),
+                r.GetString(26),
+                r.GetInt64(27) == 1));
         }
         return list;
     }
@@ -265,11 +287,22 @@ public sealed class V7Orders(IWebHostEnvironment env)
         bool cod,
         string? customerPhone = null,
         string? installAt = null,
-        string? saleSource = null)
+        string? saleSource = null,
+        string? contactName = null,
+        long durationMonths = 12,
+        long? warehouseId = null,
+        bool partner = false,
+        string? installer = null,
+        long? installerEmployeeId = null,
+        bool deductStock = true)
     {
         var validItems = (items ?? []).Where(x => x.ProductId > 0 && x.Quantity > 0).ToList();
         if (customer < 1 || validItems.Count == 0)
             throw new InvalidOperationException("Chọn khách hàng và ít nhất 1 sản phẩm cho đơn hàng.");
+        if (!deductStock && !partner)
+            throw new InvalidOperationException("Chỉ cho phép chọn 'Không trừ tồn kho' khi Đơn vị lắp đặt là Hãng lắp đặt.");
+        if (!deductStock && string.IsNullOrWhiteSpace(installer) && !(installerEmployeeId is > 0))
+            throw new InvalidOperationException("Khi chọn 'Không trừ tồn kho', bắt buộc phải nhập/chọn tên Hãng lắp đặt.");
 
         return Tx(actor, c => {
             Role(c, actor, "SELLER", "CSKH", "MANAGER", "ADMIN", "ACCOUNTANT", "WAREHOUSE");
@@ -302,15 +335,19 @@ public sealed class V7Orders(IWebHostEnvironment env)
             var totalQty = expandedLines.Sum(x => x.Qty);
             var primaryProduct = expandedLines[0].ProductId;
 
+            var contact = (contactName ?? "").Trim();
             var phone = !string.IsNullOrWhiteSpace(customerPhone) ? customerPhone.Trim() : Str(c, "SELECT COALESCE(phone,'') FROM customers WHERE id=$id", ("$id", customer));
             var src = !string.IsNullOrWhiteSpace(saleSource) ? saleSource.Trim() : Str(c, "SELECT COALESCE(NULLIF(source_name,''),(SELECT display_name FROM app_users WHERE id=$u),'') FROM customers WHERE id=$id", ("$id", customer), ("$u", actor));
             var addr = !string.IsNullOrWhiteSpace(address) ? address.Trim() : Str(c, "SELECT COALESCE(address,'') FROM customers WHERE id=$id", ("$id", customer));
             var when = !string.IsNullOrWhiteSpace(installAt) ? FormatInstallDateTime(installAt) : DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+            var dur = durationMonths > 0 ? durationMonths : 12;
 
-            Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,customer_phone,sale_source,install_address,install_at,notes,collect_on_delivery)
-                VALUES(lower(hex(randomblob(16))),$c,$s,$p,$qty,$price,$cost,$phone,$src,$a,$at,$n,$cod)",
+            Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,contact_name,customer_phone,sale_source,duration_months,deduct_stock,source,install_address,install_at,notes,collect_on_delivery)
+                VALUES(lower(hex(randomblob(16))),$c,$s,$p,$qty,$price,$cost,$contact,$phone,$src,$dur,$deduct,$source,$a,$at,$n,$cod)",
                 ("$c", customer), ("$s", actor), ("$p", primaryProduct), ("$qty", totalQty), ("$price", totalPrice), ("$cost", totalCost),
-                ("$phone", phone), ("$src", src), ("$a", addr), ("$at", when), ("$n", notes ?? ""), ("$cod", cod ? 1 : 0));
+                ("$contact", contact), ("$phone", phone), ("$src", src), ("$dur", dur), ("$deduct", deductStock ? 1 : 0),
+                ("$source", partner ? "PARTNER" : "INTERNAL"),
+                ("$a", addr), ("$at", when), ("$n", notes ?? ""), ("$cod", cod ? 1 : 0));
             var id = Scalar(c, "SELECT last_insert_rowid()");
             Run(c, "UPDATE v7_orders SET code=$code WHERE id=$id", ("$code", $"SO7-{id:000000}"), ("$id", id));
 
@@ -322,6 +359,18 @@ public sealed class V7Orders(IWebHostEnvironment env)
             }
 
             Event(c, id, actor, "CREATED");
+
+            // Nếu CSKH đã chọn Kho hoặc Đơn vị / Hãng lắp đặt ngay khi tạo đơn thì ghi nhận luôn (nhưng chưa trừ tồn kho cho đến khi Hoàn thành)
+            if (warehouseId is > 0 && Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouseId.Value)) > 0)
+            {
+                Run(c, "UPDATE v7_orders SET status='APPROVED',warehouse_id=$w WHERE id=$id", ("$w", warehouseId.Value), ("$id", id));
+                Event(c, id, actor, "APPROVED");
+            }
+            if ((installerEmployeeId is > 0) || !string.IsNullOrWhiteSpace(installer))
+            {
+                ApplyDispatchInternal(c, actor, id, partner, installer ?? "", installerEmployeeId, deductStock, warehouseId);
+            }
+
             return id;
         });
     }
@@ -336,53 +385,136 @@ public sealed class V7Orders(IWebHostEnvironment env)
     {
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "WAREHOUSE", "ACCOUNTANT", "CSKH");
-            if (Status(c, id) != "PENDING") throw new InvalidOperationException("Đơn không ở trạng thái chờ duyệt.");
+            var st = Status(c, id);
+            if (st is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Đơn đã hoàn tất hoặc đã hủy.");
             if (Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouse)) == 0)
                 throw new InvalidOperationException("Kho không tồn tại.");
-            Run(c, "UPDATE v7_orders SET status='APPROVED',warehouse_id=$w WHERE id=$id", ("$w", warehouse), ("$id", id));
+            var nextSt = st == "PENDING" ? "APPROVED" : st;
+            Run(c, "UPDATE v7_orders SET status=$st,warehouse_id=$w WHERE id=$id", ("$st", nextSt), ("$w", warehouse), ("$id", id));
             Event(c, id, actor, "APPROVED");
             return 0;
         });
     }
 
-    public void Dispatch(long actor, long id, bool partner, string installer, long? installerEmployeeId = null)
+    private static void ApplyDispatchInternal(SqliteConnection c, long actor, long id, bool partner, string installer, long? installerEmployeeId, bool? deductStock, long? warehouseId)
+    {
+        var curSt = Status(c, id);
+        if (curSt is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Đơn đã hoàn tất hoặc đã hủy.");
+
+        bool effectiveDeduct = deductStock ?? !partner;
+        if (!effectiveDeduct && !partner)
+            throw new InvalidOperationException("Chỉ cho phép chọn 'Không trừ tồn kho' khi Đơn vị lắp đặt là Hãng lắp đặt.");
+
+        if (warehouseId is > 0 && Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouseId.Value)) > 0)
+        {
+            Run(c, "UPDATE v7_orders SET warehouse_id=$w WHERE id=$id", ("$w", warehouseId.Value), ("$id", id));
+        }
+
+        long? empId = installerEmployeeId is > 0 ? installerEmployeeId : null;
+        string installerName = (installer ?? "").Trim();
+        long totalFee = 0;
+
+        if (empId.HasValue)
+        {
+            var empName = Str(c, "SELECT full_name FROM employees WHERE id=$id AND deleted_at IS NULL", ("$id", empId.Value));
+            if (string.IsNullOrWhiteSpace(empName)) throw new InvalidOperationException("Nhân sự lắp đặt không tồn tại.");
+            if (string.IsNullOrWhiteSpace(installerName)) installerName = empName;
+
+            using var lq = Cmd(c, "SELECT id,product_id,quantity FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", id));
+            using var lr = lq.ExecuteReader();
+            var orderLines = new List<(long LineId, long ProductId, long Qty)>();
+            while (lr.Read()) orderLines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetInt64(2)));
+            lr.Close();
+
+            foreach (var ln in orderLines)
+            {
+                using var rq = Cmd(c, "SELECT install_rate_vnd FROM v7_installer_product_rates WHERE employee_id=$e AND product_id=$p AND deleted_at IS NULL", ("$e", empId.Value), ("$p", ln.ProductId));
+                var rateVal = rq.ExecuteScalar();
+                var unitFee = rateVal is not null ? Convert.ToInt64(rateVal) : Scalar(c, "SELECT technical_fee_vnd FROM products WHERE id=$p", ("$p", ln.ProductId));
+                Run(c, "UPDATE v7_order_lines SET installer_fee_vnd=$fee WHERE id=$lid", ("$fee", unitFee), ("$lid", ln.LineId));
+                totalFee += unitFee * ln.Qty;
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(installerName))
+        {
+            throw new InvalidOperationException(partner
+                ? "Bắt buộc phải chọn hoặc nhập tên Hãng lắp đặt."
+                : "Cần chọn nhân sự lắp đặt hoặc nhập tên Đơn vị lắp đặt.");
+        }
+
+        var nextSt = curSt == "REPORTED" ? "REPORTED" : "DISPATCHED";
+        Run(c, "UPDATE v7_orders SET status=$st,source=$s,installer=$i,installer_employee_id=$emp,installer_fee_vnd=$fee,deduct_stock=$deduct WHERE id=$id",
+            ("$st", nextSt), ("$s", partner ? "PARTNER" : "INTERNAL"), ("$i", installerName), ("$emp", empId), ("$fee", totalFee), ("$deduct", effectiveDeduct ? 1 : 0), ("$id", id));
+        Event(c, id, actor, "DISPATCHED");
+    }
+
+    public void Dispatch(long actor, long id, bool partner, string installer, long? installerEmployeeId = null, bool? deductStock = null, long? warehouseId = null)
     {
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT");
-            if (Status(c, id) != "APPROVED") throw new InvalidOperationException("Đơn chưa được duyệt.");
-            long? empId = installerEmployeeId is > 0 ? installerEmployeeId : null;
-            string installerName = (installer ?? "").Trim();
-            long totalFee = 0;
+            ApplyDispatchInternal(c, actor, id, partner, installer, installerEmployeeId, deductStock, warehouseId);
+            return 0;
+        });
+    }
 
-            if (empId.HasValue)
+    public void UpdateOrderInfo(
+        long actor,
+        long id,
+        string contactName,
+        string customerPhone,
+        string installAddress,
+        string installAt,
+        long durationMonths,
+        string notes,
+        bool cod,
+        long? warehouseId,
+        bool partner,
+        string installer,
+        long? installerEmployeeId,
+        bool deductStock)
+    {
+        Tx(actor, c => {
+            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
+            var st = Status(c, id);
+            if (st is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Không thể sửa đơn đã hoàn tất hoặc đã hủy.");
+            if (!deductStock && !partner)
+                throw new InvalidOperationException("Chỉ cho phép chọn 'Không trừ tồn kho' khi Đơn vị lắp đặt là Hãng lắp đặt.");
+            if (!deductStock && string.IsNullOrWhiteSpace(installer) && !(installerEmployeeId is > 0))
+                throw new InvalidOperationException("Khi chọn 'Không trừ tồn kho', bắt buộc phải có tên Hãng lắp đặt.");
+
+            Run(c, @"UPDATE v7_orders SET
+                contact_name=$contact,
+                customer_phone=$phone,
+                install_address=$addr,
+                install_at=$at,
+                duration_months=$dur,
+                notes=$notes,
+                collect_on_delivery=$cod,
+                deduct_stock=$deduct,
+                source=$source
+                WHERE id=$id",
+                ("$contact", (contactName ?? "").Trim()),
+                ("$phone", (customerPhone ?? "").Trim()),
+                ("$addr", (installAddress ?? "").Trim()),
+                ("$at", FormatInstallDateTime(installAt)),
+                ("$dur", durationMonths > 0 ? durationMonths : 12),
+                ("$notes", (notes ?? "").Trim()),
+                ("$cod", cod ? 1 : 0),
+                ("$deduct", deductStock ? 1 : 0),
+                ("$source", partner ? "PARTNER" : "INTERNAL"),
+                ("$id", id));
+
+            if (warehouseId is > 0 && Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouseId.Value)) > 0)
             {
-                var empName = Str(c, "SELECT full_name FROM employees WHERE id=$id AND deleted_at IS NULL", ("$id", empId.Value));
-                if (string.IsNullOrWhiteSpace(empName)) throw new InvalidOperationException("Nhân sự lắp đặt không tồn tại.");
-                if (string.IsNullOrWhiteSpace(installerName)) installerName = empName;
-
-                using var lq = Cmd(c, "SELECT id,product_id,quantity FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", id));
-                using var lr = lq.ExecuteReader();
-                var orderLines = new List<(long LineId, long ProductId, long Qty)>();
-                while (lr.Read()) orderLines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetInt64(2)));
-                lr.Close();
-
-                foreach (var ln in orderLines)
-                {
-                    using var rq = Cmd(c, "SELECT install_rate_vnd FROM v7_installer_product_rates WHERE employee_id=$e AND product_id=$p AND deleted_at IS NULL", ("$e", empId.Value), ("$p", ln.ProductId));
-                    var rateVal = rq.ExecuteScalar();
-                    var unitFee = rateVal is not null ? Convert.ToInt64(rateVal) : Scalar(c, "SELECT technical_fee_vnd FROM products WHERE id=$p", ("$p", ln.ProductId));
-                    Run(c, "UPDATE v7_order_lines SET installer_fee_vnd=$fee WHERE id=$lid", ("$fee", unitFee), ("$lid", ln.LineId));
-                    totalFee += unitFee * ln.Qty;
-                }
+                var nextSt = st == "PENDING" ? "APPROVED" : st;
+                Run(c, "UPDATE v7_orders SET status=$st,warehouse_id=$w WHERE id=$id", ("$st", nextSt), ("$w", warehouseId.Value), ("$id", id));
             }
-            else if (string.IsNullOrWhiteSpace(installerName))
+            if ((installerEmployeeId is > 0) || !string.IsNullOrWhiteSpace(installer))
             {
-                throw new InvalidOperationException("Cần chọn nhân sự lắp đặt hoặc nhập đơn vị lắp đặt.");
+                ApplyDispatchInternal(c, actor, id, partner, installer, installerEmployeeId, deductStock, warehouseId);
             }
 
-            Run(c, "UPDATE v7_orders SET status='DISPATCHED',source=$s,installer=$i,installer_employee_id=$emp,installer_fee_vnd=$fee WHERE id=$id",
-                ("$s", partner ? "PARTNER" : "INTERNAL"), ("$i", installerName), ("$emp", empId), ("$fee", totalFee), ("$id", id));
-            Event(c, id, actor, "DISPATCHED");
+            Event(c, id, actor, "UPDATED_INFO");
             return 0;
         });
     }
@@ -460,7 +592,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         });
     }
 
-    public void Complete(long actor, long id)
+    public void Complete(long actor, long id, string? activatedDate = null)
     {
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT");
@@ -468,9 +600,12 @@ public sealed class V7Orders(IWebHostEnvironment env)
             if (curStatus is not ("REPORTED" or "DISPATCHED"))
                 throw new InvalidOperationException("Đơn chưa điều phối hoặc chưa báo cáo lắp đặt.");
 
-            using var q = Cmd(c, "SELECT customer_id,warehouse_id,source,unit_price_vnd,COALESCE(installer_fee_vnd,0),COALESCE(installer,''),COALESCE(code,'') FROM v7_orders WHERE id=$id", ("$id", id));
-            long customer, warehouse, totalPrice, totalInstallerFee;
-            string source, installerName, orderCode;
+            using var q = Cmd(c, @"SELECT customer_id,warehouse_id,source,unit_price_vnd,COALESCE(installer_fee_vnd,0),
+                COALESCE(installer,''),COALESCE(code,''),COALESCE(duration_months,12),COALESCE(deduct_stock,1),COALESCE(activated_at,'')
+                FROM v7_orders WHERE id=$id", ("$id", id));
+            long customer, warehouse, totalPrice, totalInstallerFee, durationMonths;
+            bool deductStock;
+            string source, installerName, orderCode, existingActivatedAt;
             using (var r = q.ExecuteReader())
             {
                 if (!r.Read()) throw new InvalidOperationException("Không thấy đơn.");
@@ -481,20 +616,44 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 totalInstallerFee = r.GetInt64(4);
                 installerName = r.GetString(5);
                 orderCode = r.GetString(6);
+                durationMonths = r.GetInt64(7) > 0 ? r.GetInt64(7) : 12;
+                deductStock = r.GetInt64(8) == 1 && source != "PARTNER" ? true : (r.GetInt64(8) == 1);
+                existingActivatedAt = r.GetString(9);
             }
 
-            using var lq = Cmd(c, @"SELECT l.id,l.product_id,p.name,p.is_serialized,l.quantity,l.unit_price_vnd,l.unit_cost_snapshot_vnd,COALESCE(l.imei,''),COALESCE(l.plate_no,''),COALESCE(l.vin_no,''),COALESCE(l.installer_fee_vnd,0)
+            if (!deductStock)
+            {
+                if (source != "PARTNER" || string.IsNullOrWhiteSpace(installerName))
+                    throw new InvalidOperationException("Đơn hàng chọn 'Không trừ tồn kho' bắt buộc phải có Đơn vị lắp đặt là Hãng lắp đặt.");
+            }
+
+            DateTime actDate = DateTime.Today;
+            var rawAct = !string.IsNullOrWhiteSpace(activatedDate) ? activatedDate.Trim() : existingActivatedAt.Trim();
+            if (!string.IsNullOrWhiteSpace(rawAct))
+            {
+                string[] actFormats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "yyyy-MM-dd HH:mm:ss", "dd/MM/yyyy HH:mm:ss"];
+                if (DateTime.TryParseExact(rawAct, actFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedAct))
+                    actDate = parsedAct.Date;
+                else if (DateTime.TryParse(rawAct, System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), System.Globalization.DateTimeStyles.None, out var parsedVi))
+                    actDate = parsedVi.Date;
+            }
+            var actDateStr = actDate.ToString("yyyy-MM-dd");
+            var expDateStr = actDate.AddMonths((int)durationMonths).ToString("yyyy-MM-dd");
+
+            using var lq = Cmd(c, @"SELECT l.id,l.product_id,p.name,p.is_serialized,l.quantity,l.unit_price_vnd,l.unit_cost_snapshot_vnd,
+                COALESCE(l.imei,''),COALESCE(l.plate_no,''),COALESCE(l.vin_no,''),COALESCE(l.installer_fee_vnd,0),COALESCE(m.product_kind,'GOODS')
                 FROM v7_order_lines l JOIN products p ON p.id=l.product_id
+                LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
                 WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id));
-            var lines = new List<(long LineId, long ProductId, string ProductName, bool IsSerialized, long Qty, long UnitPrice, long UnitCost, string Imei, string PlateNo, string VinNo, long InstallerFee)>();
+            var lines = new List<(long LineId, long ProductId, string ProductName, bool IsSerialized, long Qty, long UnitPrice, long UnitCost, string Imei, string PlateNo, string VinNo, long InstallerFee, string ProductKind)>();
             using (var lr = lq.ExecuteReader())
             {
                 while (lr.Read())
-                    lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9), lr.GetInt64(10)));
+                    lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9), lr.GetInt64(10), lr.GetString(11)));
             }
 
-            if (curStatus == "DISPATCHED" && lines.Any(x => x.IsSerialized))
-                throw new InvalidOperationException("Đơn chưa báo cáo lắp đặt.");
+            if (curStatus == "DISPATCHED" && lines.Any(x => x.IsSerialized && string.IsNullOrWhiteSpace(x.Imei)))
+                throw new InvalidOperationException("Đơn chưa báo cáo mã IMEI lắp đặt.");
 
             long? saleOutTxId = null;
             foreach (var ln in lines)
@@ -507,21 +666,54 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         throw new InvalidOperationException($"IMEI '{ln.Imei}' đã được kích hoạt.");
 
                     long stockUnitId;
-                    if (source == "INTERNAL")
+                    if (deductStock)
                     {
-                        using var find = Cmd(c, @"SELECT id FROM stock_units
-                            WHERE imei=$imei AND product_id=$p
-                              AND ((status='IN_STOCK' AND (warehouse_id=$w OR $w=0)) OR status IN ('CONSIGNED','TECHNICIAN'))",
+                        long txWarehouse = warehouse;
+                        using var find = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
+                            WHERE imei=$imei AND product_id=$p AND deleted_at IS NULL
+                              AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')
+                            ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END, id ASC LIMIT 1",
                             ("$imei", ln.Imei), ("$p", ln.ProductId), ("$w", warehouse));
-                        var stock = find.ExecuteScalar();
-                        if (stock is null) throw new InvalidOperationException($"IMEI '{ln.Imei}' ({ln.ProductName}) không có trong kho đã duyệt hoặc đã xuất.");
-                        stockUnitId = Convert.ToInt64(stock);
+                        using var fr = find.ExecuteReader();
+                        if (fr.Read())
+                        {
+                            stockUnitId = fr.GetInt64(0);
+                            if (txWarehouse <= 0 && !fr.IsDBNull(1)) txWarehouse = fr.GetInt64(1);
+                            fr.Close();
+                        }
+                        else
+                        {
+                            fr.Close();
+                            if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei", ("$imei", ln.Imei)) > 0)
+                                throw new InvalidOperationException($"IMEI '{ln.Imei}' đã tồn tại và không còn ở trạng thái tồn kho khả dụng.");
+
+                            // ĐV lắp đặt gửi mã IMEI thực tế ngoài hiện trường về -> lấy 1 thiết bị IN_STOCK của cùng sản phẩm trong kho để gán IMEI & trừ tồn kho
+                            using var findSlot = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
+                                WHERE product_id=$p AND status='IN_STOCK' AND deleted_at IS NULL
+                                ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END,
+                                         CASE WHEN imei LIKE 'KHO-%' THEN 0 ELSE 1 END,
+                                         id ASC LIMIT 1",
+                                ("$p", ln.ProductId), ("$w", warehouse));
+                            using var sr = findSlot.ExecuteReader();
+                            if (sr.Read())
+                            {
+                                stockUnitId = sr.GetInt64(0);
+                                if (txWarehouse <= 0 && !sr.IsDBNull(1)) txWarehouse = sr.GetInt64(1);
+                                sr.Close();
+                                Run(c, "UPDATE stock_units SET imei=$imei WHERE id=$id", ("$imei", ln.Imei), ("$id", stockUnitId));
+                            }
+                            else
+                            {
+                                sr.Close();
+                                throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' hiện đã hết tồn kho (hoặc IMEI '{ln.Imei}' không có trong kho). Vui lòng nhập kho trước khi hoàn tất đơn có trừ tồn kho, hoặc chọn Hãng lắp đặt (Không trừ tồn kho).");
+                            }
+                        }
 
                         if (!saleOutTxId.HasValue)
                         {
                             var txCode = "XK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
                             Run(c, "INSERT INTO inventory_transactions(code,movement_type,warehouse_id,customer_id,actor_user_id,notes) VALUES($code,'SALE_OUT',$w,$c,$actor,'Xuất lắp đặt đơn V7')",
-                                ("$code", txCode), ("$w", warehouse), ("$c", customer), ("$actor", actor));
+                                ("$code", txCode), ("$w", txWarehouse > 0 ? txWarehouse : null), ("$c", customer), ("$actor", actor));
                             saleOutTxId = Scalar(c, "SELECT last_insert_rowid()");
                         }
 
@@ -544,25 +736,54 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
                     }
 
-                    // Tạo thuê bao kích hoạt (activations) hạn 1 năm cho từng thiết bị IMEI
+                    // Tạo thuê bao kích hoạt (activations) theo Ngày kích hoạt và Thời hạn của đơn
                     Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
-                        VALUES($o,$s,$c,$p,$plate,$vin,date('now'),date('now','+1 year'))",
-                        ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", ln.PlateNo), ("$vin", ln.VinNo));
+                        VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
+                        ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", ln.PlateNo), ("$vin", ln.VinNo), ("$act", actDateStr), ("$exp", expDateStr));
                 }
-                else if (source == "INTERNAL" && warehouse > 0)
+                else if (deductStock && ln.ProductKind == "GOODS")
                 {
-                    // Sản phẩm quản lý theo số lượng: trừ tồn tại vị trí MAIN nếu có tồn khả dụng
-                    var locId = Scalar(c, "SELECT id FROM warehouse_locations WHERE warehouse_id=$w AND is_active=1 AND deleted_at IS NULL ORDER BY CASE WHEN code='MAIN' THEN 0 ELSE 1 END, id LIMIT 1", ("$w", warehouse));
-                    if (locId > 0)
+                    // Sản phẩm hàng hóa quản lý theo số lượng: trừ tồn kho tại kho đã chọn (hoặc kho đang có tồn)
+                    long targetWh = warehouse;
+                    long locId = 0;
+                    if (targetWh > 0)
                     {
-                        var curQty = Scalar(c, "SELECT COALESCE(SUM(delta_qty),0) FROM quantity_movements WHERE product_id=$p AND warehouse_id=$w AND location_id=$l",
-                            ("$p", ln.ProductId), ("$w", warehouse), ("$l", locId));
-                        if (curQty >= ln.Qty)
+                        locId = Scalar(c, @"SELECT l.id FROM warehouse_locations l
+                            WHERE l.warehouse_id=$w AND l.is_active=1 AND l.deleted_at IS NULL
+                            ORDER BY CASE WHEN (SELECT COALESCE(SUM(delta_qty),0) FROM quantity_movements q WHERE q.product_id=$p AND q.warehouse_id=$w AND q.location_id=l.id) >= $q THEN 0 ELSE 1 END,
+                                     CASE WHEN l.code='MAIN' THEN 0 ELSE 1 END, l.id LIMIT 1",
+                            ("$w", targetWh), ("$p", ln.ProductId), ("$q", ln.Qty));
+                    }
+                    var curQty = (targetWh > 0 && locId > 0)
+                        ? Scalar(c, "SELECT COALESCE(SUM(delta_qty),0) FROM quantity_movements WHERE product_id=$p AND warehouse_id=$w AND location_id=$l",
+                            ("$p", ln.ProductId), ("$w", targetWh), ("$l", locId))
+                        : 0;
+                    if (curQty < ln.Qty)
+                    {
+                        // Tìm vị trí kho bất kỳ còn đủ tồn khả dụng của sản phẩm này
+                        using var findLoc = Cmd(c, @"SELECT warehouse_id, location_id, COALESCE(SUM(delta_qty),0) AS bal
+                            FROM quantity_movements WHERE product_id=$p
+                            GROUP BY warehouse_id, location_id
+                            HAVING bal >= $q
+                            ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END, bal DESC LIMIT 1",
+                            ("$p", ln.ProductId), ("$q", ln.Qty), ("$w", warehouse));
+                        using var lrLoc = findLoc.ExecuteReader();
+                        if (lrLoc.Read())
                         {
-                            Run(c, @"INSERT INTO quantity_movements(document_no,product_id,warehouse_id,location_id,delta_qty,movement_type,ref_type,ref_id,note,actor_user_id)
-                                VALUES('Q-'||lower(hex(randomblob(8))),$p,$w,$l,$d,'ISSUE','V7_ORDER',$o,'Xuất theo đơn hàng SO',$u)",
-                                ("$p", ln.ProductId), ("$w", warehouse), ("$l", locId), ("$d", -ln.Qty), ("$o", id), ("$u", actor));
+                            targetWh = lrLoc.GetInt64(0);
+                            locId = lrLoc.GetInt64(1);
+                            curQty = lrLoc.GetInt64(2);
                         }
+                    }
+                    if (locId > 0 && curQty >= ln.Qty)
+                    {
+                        Run(c, @"INSERT INTO quantity_movements(document_no,product_id,warehouse_id,location_id,delta_qty,movement_type,ref_type,ref_id,note,actor_user_id)
+                            VALUES('Q-'||lower(hex(randomblob(8))),$p,$w,$l,$d,'ISSUE','V7_ORDER',$o,'Xuất theo đơn hàng SO',$u)",
+                            ("$p", ln.ProductId), ("$w", targetWh), ("$l", locId), ("$d", -ln.Qty), ("$o", id), ("$u", actor));
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' không đủ số lượng tồn kho để xuất (Tồn: {curQty}, Cần xuất: {ln.Qty}).");
                     }
                 }
             }
@@ -595,7 +816,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 }
             }
 
-            Run(c, "UPDATE v7_orders SET status='COMPLETED',activated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE id=$id", ("$id", id));
+            Run(c, "UPDATE v7_orders SET status='COMPLETED',activated_at=$act,completed_at=CURRENT_TIMESTAMP WHERE id=$id", ("$act", actDateStr), ("$id", id));
             Event(c, id, actor, "COMPLETED");
             return 0;
         });

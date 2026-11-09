@@ -8,7 +8,7 @@ namespace TNM.Management.Services;
 public sealed class ProductMaster(IWebHostEnvironment environment)
 {
     public sealed record ProductRow(long Id, string Sku, string Name, long GroupId, string GroupName,
-        string Kind, string Unit, bool UsesImei, int WarrantyMonths, bool IsActive);
+        string Kind, string Unit, bool UsesImei, int WarrantyMonths, bool IsActive, long StockInHand = 0);
     public sealed record GroupRow(long Id, string Code, string Name);
     public sealed record ProductDraft(long? Id, long GroupId, string Name, string Kind, string Unit, bool UsesImei, int WarrantyMonths);
     private readonly string path = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-local.db");
@@ -58,14 +58,22 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
     public List<ProductRow> Products(bool includeInactive = false)
     {
         using var c = Open(); using var q = Sql(c, """
-            SELECT id,sku,name,group_id,group_name,product_kind,unit,is_serialized,warranty_months,is_active
+            SELECT id,sku,name,group_id,group_name,product_kind,unit,is_serialized,warranty_months,is_active,
+                   CASE
+                     WHEN product_kind <> 'GOODS' THEN 0
+                     WHEN is_serialized = 1 THEN
+                       (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=v7_product_master.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL)
+                       + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=v7_product_master.id), 0)
+                     ELSE
+                       COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=v7_product_master.id), 0)
+                   END AS stock_in_hand
             FROM v7_product_master
             WHERE ($all=1 OR is_active=1)
             ORDER BY id DESC;
             """, ("$all", includeInactive ? 1 : 0));
         using var r = q.ExecuteReader(); var rows = new List<ProductRow>();
         while (r.Read()) rows.Add(new ProductRow(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(3),
-            r.GetString(4), r.GetString(5), r.GetString(6), r.GetInt64(7) == 1, (int)r.GetInt64(8), r.GetInt64(9) == 1));
+            r.GetString(4), r.GetString(5), r.GetString(6), r.GetInt64(7) == 1, (int)r.GetInt64(8), r.GetInt64(9) == 1, r.GetInt64(10)));
         return rows;
     }
 

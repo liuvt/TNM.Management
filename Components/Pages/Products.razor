@@ -64,7 +64,7 @@
     </div>
     <p class="catalog-table-summary">@(selected.Count>0?$"Đã chọn {selected.Count} sản phẩm để xuất":"Chưa chọn dòng: xuất toàn bộ sản phẩm theo bộ lọc")</p>
     <div class="table-wrap"><table>
-        <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>IMEI</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
+        <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>IMEI</th><th>TỒN KHO</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
         <tbody>
             @foreach(var p in PageRows)
             {
@@ -72,6 +72,16 @@
                     <td><input type="checkbox" aria-label="@($"Chọn {p.Sku}")" checked="@selected.Contains(p.Id)" @onchange="e => ToggleRow(p.Id,e.Value is bool b && b)" /></td>
                     <td><strong>@p.Sku</strong></td><td class="name-cell">@p.Name</td><td>@p.GroupName</td>
                     <td>@KindName(p.Kind)</td><td>@p.Unit</td><td>@(p.UsesImei?"Có":"Không")</td>
+                    <td>
+                        @if(p.Kind == "GOODS")
+                        {
+                            <span class="chip @(p.StockInHand > 0 ? "green-chip" : "orange-chip")">@p.StockInHand.ToString("N0") @p.Unit</span>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </td>
                     <td>@p.WarrantyMonths tháng</td><td>@(p.IsActive?"Đang bán":"Ngừng bán")</td>
                     <td>
                         @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/products/{p.Id}")">Lịch sử</a>}

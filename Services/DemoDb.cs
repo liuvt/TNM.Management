@@ -165,9 +165,43 @@ public sealed class DemoDb
             COALESCE(NULLIF(p.base_cost_vnd,0),(SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
             COALESCE(NULLIF(p.renewal_fee_vnd,0),(SELECT gp.renewal_price_vnd FROM v7_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
             COALESCE(NULLIF(p.install_fee_vnd,0),(SELECT CASE WHEN gp.installed_price_vnd>gp.standard_price_vnd AND gp.standard_price_vnd>0 THEN gp.installed_price_vnd-gp.standard_price_vnd ELSE gp.installed_price_vnd END FROM v7_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.installed_price_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
-            p.warranty_months,p.is_serialized
-            FROM products p JOIN product_groups g ON g.id=p.group_id WHERE p.is_active=1 AND p.deleted_at IS NULL ORDER BY p.id DESC",
-          r => new ProductVm(L(r,0),S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),L(r,6),(int)L(r,7),L(r,8)==1));
+            p.warranty_months,p.is_serialized,
+            CASE
+              WHEN COALESCE(m.product_kind,'GOODS') <> 'GOODS' THEN 0
+              WHEN p.is_serialized = 1 THEN
+                (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL)
+                + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id), 0)
+              ELSE
+                COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id), 0)
+            END,
+            COALESCE(m.product_kind,'GOODS')
+            FROM products p JOIN product_groups g ON g.id=p.group_id
+            LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
+            WHERE p.is_active=1 AND p.deleted_at IS NULL ORDER BY p.id DESC",
+          r => new ProductVm(L(r,0),S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),L(r,6),(int)L(r,7),L(r,8)==1,L(r,9),S(r,10)));
+    }
+
+    public List<ProductStockSummaryVm> ProductStockSummaries(long? warehouseId = null)
+    {
+        using var c = Open();
+        var w = warehouseId is > 0 ? warehouseId.Value : 0;
+        return Query(c, @"SELECT p.id, p.sku, p.name, p.is_serialized, COALESCE(m.product_kind,'GOODS'),
+            CASE
+              WHEN p.is_serialized = 1 THEN
+                (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL AND ($w=0 OR u.warehouse_id=$w))
+                + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id AND ($w=0 OR qm.warehouse_id=$w)), 0)
+              ELSE
+                COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id AND ($w=0 OR qm.warehouse_id=$w)), 0)
+            END AS in_stock_qty,
+            (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status IN ('CONSIGNED','TECHNICIAN') AND u.deleted_at IS NULL) AS consigned_tech_qty,
+            (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status='INSTALLED' AND u.deleted_at IS NULL)
+              + COALESCE((SELECT ABS(SUM(qm.delta_qty)) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.movement_type='ISSUE' AND ($w=0 OR qm.warehouse_id=$w)), 0) AS installed_qty
+            FROM products p
+            LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
+            WHERE p.is_active=1 AND p.deleted_at IS NULL AND COALESCE(m.product_kind,'GOODS')='GOODS'
+            ORDER BY p.sku",
+            r => new ProductStockSummaryVm(L(r,0),S(r,1),S(r,2),L(r,3)==1,S(r,4),L(r,5),L(r,6),L(r,7)),
+            ("$w", w));
     }
 
     public List<(long Id, string Name)> Warehouses()
@@ -202,20 +236,28 @@ public sealed class DemoDb
          CASE WHEN u.status='IN_STOCK' THEN COALESCE(w.name,'-')
               WHEN u.status IN ('CONSIGNED','INSTALLED','WARRANTY') THEN COALESCE(cw.name,c.name,'-')
               WHEN u.status='TECHNICIAN' THEN COALESCE(e.full_name,'-') ELSE 'NCC' END,
-         u.updated_at,u.product_id
+         u.updated_at,u.product_id,u.warehouse_id
          FROM stock_units u JOIN products p ON p.id=u.product_id
          LEFT JOIN warehouses w ON w.id=u.warehouse_id LEFT JOIN customers c ON c.id=u.customer_id
          LEFT JOIN warehouses cw ON cw.name=c.name AND cw.deleted_at IS NULL
-         LEFT JOIN employees e ON e.id=u.employee_id ORDER BY u.id DESC",
-          r => new StockVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7)));
+         LEFT JOIN employees e ON e.id=u.employee_id
+         WHERE u.deleted_at IS NULL
+         ORDER BY CASE WHEN u.status='IN_STOCK' THEN 0 ELSE 1 END, u.id DESC",
+          r => new StockVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),r.IsDBNull(8) ? null : L(r,8)));
     }
 
-    public int Receive(long productId, long warehouseId, string multiline, long? supplierId = null)
+    public int Receive(long productId, long warehouseId, string multiline, long? supplierId = null, int quantityIfNoImei = 0)
     {
-        var codes = multiline.Replace("\r","").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        var codes = (multiline ?? "").Replace("\r","").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
            .Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        if (codes.Count == 0 && quantityIfNoImei > 0 && quantityIfNoImei <= 500)
+        {
+            var stamp = DateTime.Now.ToString("yyMMddHHmmss");
+            for (int i = 1; i <= quantityIfNoImei; i++)
+                codes.Add($"KHO-{productId}-{stamp}-{i:D3}");
+        }
         if (codes.Count == 0 || codes.Count > 500 || codes.Any(x => x.Length > 64) || codes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != codes.Count)
-            throw new InvalidOperationException("Nhập 1–500 IMEI khác nhau, tối đa 64 ký tự / dòng.");
+            throw new InvalidOperationException("Nhập 1–500 IMEI khác nhau (hoặc nhập Số lượng nhập 1–500), tối đa 64 ký tự / dòng.");
         return Tx((c,t) => {
             if (N(c,t,"SELECT COUNT(*) FROM products WHERE id=$id AND is_serialized=1 AND is_active=1 AND deleted_at IS NULL",("$id",productId)) == 0)
                 throw new InvalidOperationException("Nhập kho theo IMEI chỉ hỗ trợ sản phẩm có serial đang kinh doanh.");
@@ -298,12 +340,38 @@ public sealed class DemoDb
     public List<DeviceVm> Devices()
     {
         using var c = Open();
-        return Query(c, @"SELECT a.id,u.imei,p.sku,c.name,a.plate_no,a.activated_at,a.expires_at,c.id,p.id
+        return Query(c, @"SELECT a.id,u.imei,p.sku,c.name,a.plate_no,a.activated_at,a.expires_at,c.id,p.id,
+          COALESCE(a.vin_no,''),COALESCE(o.code,''),COALESCE(o.contact_name,'')
           FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
+          LEFT JOIN v7_orders o ON o.id=a.v7_order_id
           WHERE a.deleted_at IS NULL
-          ORDER BY a.expires_at", r => new DeviceVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8)));
+          ORDER BY a.expires_at", r => new DeviceVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),S(r,9),S(r,10),S(r,11)));
+    }
+
+    public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null)
+    {
+        string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
+        if (!DateTime.TryParseExact((activatedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var actDate))
+            throw new InvalidOperationException("Ngày kích hoạt không hợp lệ (định dạng dd/MM/yyyy hoặc yyyy-MM-dd).");
+        var months = durationMonths > 0 ? durationMonths : 12;
+        var expDate = actDate.AddMonths(months);
+        Tx((c,t) => {
+            if (N(c,t,"SELECT COUNT(*) FROM activations WHERE id=$id AND deleted_at IS NULL",("$id",activationId)) == 0)
+                throw new InvalidOperationException("Không tìm thấy thiết bị kích hoạt.");
+            var actStr = actDate.ToString("yyyy-MM-dd");
+            var expStr = expDate.ToString("yyyy-MM-dd");
+            Exec(c,t,@"UPDATE activations SET activated_at=$act, expires_at=$exp,
+                plate_no=COALESCE($plate, plate_no), vin_no=COALESCE($vin, vin_no)
+                WHERE id=$id",
+                ("$act", actStr), ("$exp", expStr),
+                ("$plate", plateNo is not null ? plateNo.Trim() : null),
+                ("$vin", vinNo is not null ? vinNo.Trim() : null),
+                ("$id", activationId));
+            Log(c,t,"UPDATE_ACTIVATION","ACTIVATION",activationId,$"Kích hoạt: {actStr} -> Hết hạn: {expStr}");
+            return 0;
+        });
     }
 
     public List<RenewalVm> Renewals()

@@ -86,28 +86,21 @@ public sealed class V6Ops(IWebHostEnvironment environment)
                 JOIN warehouses w ON w.id=q.warehouse_id JOIN warehouse_locations l ON l.id=q.location_id
                 WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
                 GROUP BY p.id,w.id,l.id
+                HAVING COALESCE(SUM(q.delta_qty),0) <> 0
                 UNION ALL
                 SELECT p.id AS pid,
-                       COALESCE(w.id,cw.id,1) AS wid,
-                       COALESCE((SELECT id FROM warehouse_locations wl WHERE wl.warehouse_id=COALESCE(w.id,cw.id,1) AND wl.deleted_at IS NULL ORDER BY CASE WHEN wl.code='MAIN' THEN 0 ELSE 1 END,wl.id LIMIT 1),0) AS lid,
+                       COALESCE(w.id,1) AS wid,
+                       COALESCE((SELECT id FROM warehouse_locations wl WHERE wl.warehouse_id=COALESCE(w.id,1) AND wl.deleted_at IS NULL ORDER BY CASE WHEN wl.code='MAIN' THEN 0 ELSE 1 END,wl.id LIMIT 1),0) AS lid,
                        p.sku AS sku,
                        p.name AS pname,
-                       COALESCE(w.name,cw.name,cu.name,'Kho mặc định') AS wname,
-                       CASE u.status
-                           WHEN 'IN_STOCK' THEN 'Trong kho (IMEI)'
-                           WHEN 'CONSIGNED' THEN 'Ký gửi (IMEI)'
-                           WHEN 'TECHNICIAN' THEN 'Kỹ thuật giữ (IMEI)'
-                           WHEN 'INSTALLED' THEN 'Đã kích hoạt (IMEI)'
-                           WHEN 'WARRANTY' THEN 'Bảo hành (IMEI)'
-                           ELSE u.status END AS lname,
+                       COALESCE(w.name,'Kho mặc định') AS wname,
+                       'Trong kho (IMEI)' AS lname,
                        COUNT(*) AS qty
                 FROM stock_units u
                 JOIN products p ON p.id=u.product_id
                 LEFT JOIN warehouses w ON w.id=u.warehouse_id
-                LEFT JOIN customers cu ON cu.id=u.customer_id
-                LEFT JOIN warehouses cw ON cw.name=cu.name AND cw.deleted_at IS NULL
-                WHERE u.deleted_at IS NULL AND p.deleted_at IS NULL
-                GROUP BY p.id,wid,u.status
+                WHERE u.deleted_at IS NULL AND p.deleted_at IS NULL AND u.status='IN_STOCK'
+                GROUP BY p.id,wid
             )
             ORDER BY wid,sku,lname
             ", r => new QuantityBalance(r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6), r.GetInt64(7)));

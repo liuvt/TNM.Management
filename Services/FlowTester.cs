@@ -359,17 +359,30 @@ public static class FlowTester
 
             Step("6. Đơn hàng & Điều phối V7", "Luồng SO Đối tác (PARTNER): Không trừ kho nội bộ nhưng vẫn kích hoạt thuê bao & công nợ", () =>
             {
+                // Kiểm tra chặn Không trừ tồn kho khi không phải Hãng lắp đặt
+                AssertThrows(() => v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1)],
+                    "55 đường 30/4", "Test", false, "0886287429", "15g00 thứ 3 ( 20/10/2026)", "Seller",
+                    contactName: "Lâm Hằng ( xe Đỗ Văn Hội)", durationMonths: 12, warehouseId: wh1Id,
+                    partner: false, installer: "ĐV lắp đặt", deductStock: false),
+                    "Chặn Không trừ tồn kho khi Đơn vị lắp đặt không phải Hãng");
+
                 var stockBefore = db.Stock().Count(s => s.Status == "IN_STOCK");
-                orderPartnerId = v7Orders.Create(ownerId, customerId, imeiProdId, "KCN Sóng Thần, Bình Dương", "Đối tác lắp hộ", cod: false);
-                v7Orders.Approve(ownerId, orderPartnerId, wh1Id);
-                v7Orders.Dispatch(ownerId, orderPartnerId, partner: true, "Đại lý Đối tác Bình Dương");
-                v7Orders.Report(ownerId, orderPartnerId, "869999999999999", "61C-123.45", "VIN61C12345");
-                v7Orders.Complete(ownerId, orderPartnerId);
+                var summaryBefore = db.ProductStockSummaries().First(s => s.ProductId == imeiProdId).InStockQty;
+                orderPartnerId = v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1)],
+                    "55 đường 30/4", "không thu tiền, khi đến địa chỉ lắp liên hệ sdt: 0886287429", cod: false,
+                    customerPhone: "0886287429", installAt: "15g00 thứ 3 ( 20/10/2026)", saleSource: "HTX Nam Hi",
+                    contactName: "Lâm Hằng ( xe Đỗ Văn Hội)", durationMonths: 12, warehouseId: wh1Id,
+                    partner: true, installer: "Hãng lắp đặt Á Châu", deductStock: false);
+                v7Orders.Report(ownerId, orderPartnerId, "869999999999999", "61C-123.45", "xe Đỗ Văn Hội");
+                v7Orders.Complete(ownerId, orderPartnerId, activatedDate: "2026-10-20");
 
                 var stockAfter = db.Stock().Count(s => s.Status == "IN_STOCK");
-                Assert(stockBefore == stockAfter, "Đơn PARTNER không được trừ tồn kho nội bộ.");
-                Assert(db.Devices().Any(d => d.Imei == "869999999999999" && d.Plate == "61C-123.45"), "Đơn PARTNER vẫn phải tạo thuê bao kích hoạt để theo dõi gia hạn.");
-                return $"Đơn SO7-{orderPartnerId:000000} (PARTNER) hoàn tất · Tồn kho nội bộ giữ nguyên ({stockAfter} thiết bị).";
+                var summaryAfter = db.ProductStockSummaries().First(s => s.ProductId == imeiProdId).InStockQty;
+                Assert(stockBefore == stockAfter && summaryBefore == summaryAfter, "Đơn PARTNER (Không trừ tồn kho) không được trừ tồn kho nội bộ.");
+                var devPartner = db.Devices().FirstOrDefault(d => d.Imei == "869999999999999");
+                Assert(devPartner is not null && devPartner.ActivatedAt == "2026-10-20" && devPartner.ExpiresAt == "2027-10-20",
+                    $"Đơn PARTNER phải kích hoạt đúng Ngày kích hoạt 2026-10-20 -> 2027-10-20 (thực tế: {devPartner?.ActivatedAt} -> {devPartner?.ExpiresAt}).");
+                return $"Đơn SO7-{orderPartnerId:000000} (Hãng lắp - Không trừ kho) hoàn tất · Kích hoạt 2026-10-20 · Tồn kho giữ nguyên ({stockAfter} thiết bị).";
             });
 
             // =========================================================================
