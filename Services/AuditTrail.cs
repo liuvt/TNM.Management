@@ -107,6 +107,7 @@ public sealed class AuditTrail(IWebHostEnvironment env)
         // No credentials or sensitive hashes are persisted in the audit snapshots.
         var stampedJson=$"(SELECT {Json("snap",tracked)} FROM {Q(table)} AS snap WHERE snap.rowid=NEW.rowid)";
         // Excluding metadata-only changes prevents the stamp UPDATE from emitting duplicate events.
+        Exec(c,$"DROP TRIGGER IF EXISTS {Q(safeName+"_insert")};");
         Exec(c,$"""
             CREATE TRIGGER IF NOT EXISTS {Q(safeName+"_insert")}
             AFTER INSERT ON {Q(table)}
@@ -117,6 +118,7 @@ public sealed class AuditTrail(IWebHostEnvironment env)
                 VALUES({tableName},{keysNew},'CREATE',{actor},{username},NULL,{stampedJson});
             END;
             """);
+        Exec(c,$"DROP TRIGGER IF EXISTS {Q(safeName+"_update")};");
         Exec(c,$"""
             CREATE TRIGGER IF NOT EXISTS {Q(safeName+"_update")}
             AFTER UPDATE ON {Q(table)} WHEN {changed}

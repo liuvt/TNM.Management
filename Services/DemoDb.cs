@@ -105,6 +105,14 @@ public sealed class DemoDb
         var custCols = Query(c, "PRAGMA table_info(customers)", r => S(r, 1));
         if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
+        if (!custCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE customers ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+
+        var renCols = Query(c, "PRAGMA table_info(renewals)", r => S(r, 1));
+        if (!renCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+        if (!renCols.Any(x => string.Equals(x, "seller_name", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN seller_name TEXT NOT NULL DEFAULT ''");
 
         var sgCols = Query(c, "PRAGMA table_info(supplier_groups)", r => S(r, 1));
         if (sgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)))
@@ -225,8 +233,23 @@ public sealed class DemoDb
     public List<CustomerVm> Customers()
     {
         using var c = Open();
-        return Query(c, "SELECT c.id,c.code,c.name,COALESCE(g.name,'-'),c.source_name,c.phone,c.address,COALESCE(c.representative_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id DESC",
-          r => new CustomerVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),S(r,7)));
+        return Query(c, @"SELECT c.id,c.code,c.name,COALESCE(g.name,'-'),
+            COALESCE(s.code||' — '||s.full_name, NULLIF(c.source_name,''), ''),
+            c.phone,c.address,COALESCE(c.representative_name,''),c.seller_id
+            FROM customers c
+            LEFT JOIN customer_groups g ON g.id=c.group_id
+            LEFT JOIN v7_sellers s ON s.id=c.seller_id
+            WHERE c.deleted_at IS NULL ORDER BY c.id DESC",
+          r => new CustomerVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),S(r,7),r.IsDBNull(8) ? null : L(r,8)));
+    }
+
+    public List<SellerChoiceVm> SellerChoices()
+    {
+        using var c = Open();
+        return Query(c, @"SELECT id, code, full_name, COALESCE(phone,''), COALESCE(department,'Kinh doanh / Sale'),
+            COALESCE(order_commission_vnd,0), COALESCE(renewal_commission_vnd,0)
+            FROM v7_sellers WHERE is_active=1 AND deleted_at IS NULL ORDER BY id ASC, full_name ASC",
+            r => new SellerChoiceVm(L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), L(r,6)));
     }
 
     public List<StockVm> Stock()
@@ -341,13 +364,17 @@ public sealed class DemoDb
     {
         using var c = Open();
         return Query(c, @"SELECT a.id,u.imei,p.sku,c.name,a.plate_no,a.activated_at,a.expires_at,c.id,p.id,
-          COALESCE(a.vin_no,''),COALESCE(o.code,''),COALESCE(o.contact_name,'')
+          COALESCE(a.vin_no,''),COALESCE(o.code,''),COALESCE(o.contact_name,''),
+          COALESCE(o.seller_record_id, c.seller_id),
+          COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), '')
           FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
           LEFT JOIN v7_orders o ON o.id=a.v7_order_id
+          LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
           WHERE a.deleted_at IS NULL
-          ORDER BY a.expires_at", r => new DeviceVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),S(r,9),S(r,10),S(r,11)));
+          ORDER BY a.expires_at",
+          r => new DeviceVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),S(r,9),S(r,10),S(r,11),r.IsDBNull(12) ? null : L(r,12),S(r,13)));
     }
 
     public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null)
@@ -377,22 +404,60 @@ public sealed class DemoDb
     public List<RenewalVm> Renewals()
     {
         using var c = Open();
-        return Query(c, @"SELECT r.id,u.imei,r.source_type,r.renewed_at,r.new_expiry,r.amount_vnd,r.payment_method
-          FROM renewals r JOIN activations a ON a.id=r.activation_id JOIN stock_units u ON u.id=a.stock_unit_id
+        return Query(c, @"SELECT r.id,u.imei,r.source_type,r.renewed_at,r.new_expiry,r.amount_vnd,r.payment_method,
+          r.seller_id,
+          COALESCE(sl.code||' — '||sl.full_name, NULLIF(r.seller_name,''), '—'),
+          COALESCE(c.name,''),
+          COALESCE(a.plate_no,'')
+          FROM renewals r
+          JOIN activations a ON a.id=r.activation_id
+          JOIN stock_units u ON u.id=a.stock_unit_id
+          LEFT JOIN customers c ON c.id=a.customer_id
+          LEFT JOIN v7_sellers sl ON sl.id=r.seller_id
           WHERE r.deleted_at IS NULL
-          ORDER BY r.id DESC", r => new RenewalVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),L(r,5),S(r,6)));
+          ORDER BY r.id DESC",
+          r => new RenewalVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),L(r,5),S(r,6),r.IsDBNull(7) ? null : L(r,7),S(r,8),S(r,9),S(r,10)));
     }
 
-    public void Renew(long activationId, string source, string paymentMethod)
+    public void Renew(long activationId, string source, string paymentMethod, long? sellerId = null, string? sellerName = null)
     {
         if (!(new[]{"TNM","NCC","HTX","B2C"}).Contains(source) || !(new[]{"CASH","DEBT"}).Contains(paymentMethod))
             throw new InvalidOperationException("Nguồn gia hạn / hình thức thanh toán không hợp lệ.");
         Tx((c,t) => {
-            var device = QueryTx(c,t,@"SELECT a.expires_at,a.customer_id,a.product_id,p.renewal_fee_vnd
+            var device = QueryTx(c,t,@"SELECT a.expires_at,a.customer_id,a.product_id,p.renewal_fee_vnd,
+                COALESCE(o.seller_record_id, c.seller_id, 0),
+                COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), '')
              FROM activations a JOIN products p ON p.id=a.product_id
+             JOIN customers c ON c.id=a.customer_id
+             LEFT JOIN v7_orders o ON o.id=a.v7_order_id
+             LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
              WHERE a.id=$id AND a.status='ACTIVE' AND a.deleted_at IS NULL",
-             r => (Expires:S(r,0),CustomerId:L(r,1),ProductId:L(r,2),DefaultPrice:L(r,3)),("$id",activationId)).SingleOrDefault();
+             r => (Expires:S(r,0),CustomerId:L(r,1),ProductId:L(r,2),DefaultPrice:L(r,3),FallbackSellerId:L(r,4),FallbackSellerName:S(r,5)),("$id",activationId)).SingleOrDefault();
             if(device.CustomerId == 0) throw new InvalidOperationException("Thiết bị chưa kích hoạt hoặc đã khóa.");
+
+            long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : (device.FallbackSellerId > 0 ? device.FallbackSellerId : null);
+            string resolvedSellerName = (sellerName ?? "").Trim();
+            if (resolvedSellerId.HasValue)
+            {
+                var foundLabel = QueryTx(c,t,"SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", r => S(r,0), ("$id",resolvedSellerId.Value)).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(foundLabel)) resolvedSellerName = foundLabel;
+            }
+            else if (!string.IsNullOrWhiteSpace(resolvedSellerName))
+            {
+                var matchedId = N(c,t,"SELECT COALESCE((SELECT id FROM v7_sellers WHERE deleted_at IS NULL AND (code=$s OR full_name=$s OR (code||' — '||full_name)=$s OR $s LIKE '%'||code||'%' OR $s LIKE '%'||full_name||'%') LIMIT 1), 0)", ("$s",resolvedSellerName));
+                if (matchedId > 0)
+                {
+                    resolvedSellerId = matchedId;
+                    var foundLabel = QueryTx(c,t,"SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id", r => S(r,0), ("$id",matchedId)).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(foundLabel)) resolvedSellerName = foundLabel;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(resolvedSellerName) && !string.IsNullOrWhiteSpace(device.FallbackSellerName))
+            {
+                resolvedSellerName = device.FallbackSellerName;
+            }
+
+            // Lấy giá gia hạn cố định snapshot tại thời điểm phát sinh gia hạn
             var price = N(c,t,@"SELECT renewal_price_vnd FROM v7_group_prices
                WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p AND deleted_at IS NULL AND effective_from<=date('now')
                  AND (effective_to IS NULL OR effective_to>=date('now'))
@@ -400,21 +465,22 @@ public sealed class DemoDb
             if(price == 0) price = device.DefaultPrice;
             var old = DateTime.ParseExact(device.Expires,"yyyy-MM-dd",CultureInfo.InvariantCulture);
             var next = (old.Date > DateTime.Today ? old.Date : DateTime.Today).AddYears(1);
-            Exec(c,t,@"INSERT INTO renewals(activation_id,source_type,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
-               VALUES($a,$s,date('now'),$old,$next,$price,$pay)",
-               ("$a",activationId),("$s",source),("$old",device.Expires),("$next",next.ToString("yyyy-MM-dd")),("$price",price),("$pay",paymentMethod));
+            Exec(c,t,@"INSERT INTO renewals(activation_id,seller_id,seller_name,source_type,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
+               VALUES($a,$seller,$sellerName,$s,date('now'),$old,$next,$price,$pay)",
+               ("$a",activationId),("$seller",resolvedSellerId),("$sellerName",resolvedSellerName),("$s",source),("$old",device.Expires),("$next",next.ToString("yyyy-MM-dd")),("$price",price),("$pay",paymentMethod));
             var renewalId = N(c,t,"SELECT last_insert_rowid()");
             Exec(c,t,"UPDATE activations SET expires_at=$new WHERE id=$id",("$new",next.ToString("yyyy-MM-dd")),("$id",activationId));
             var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,due_at,amount_vnd)
-               VALUES($no,'RENEWAL',$c,$r,date('now','+30 days'),$price)",
-               ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$price",price));
+            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · Seller: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
+            Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,due_at,amount_vnd,notes)
+               VALUES($no,'RENEWAL',$c,$r,date('now','+30 days'),$price,$notes)",
+               ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$price",price),("$notes",sellerNote));
             var invoiceId = N(c,t,"SELECT last_insert_rowid()");
-            Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,'Gia hạn dịch vụ 12 tháng',$p,1,$price)",
-               ("$i",invoiceId),("$p",device.ProductId),("$price",price));
+            Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,1,$price)",
+               ("$i",invoiceId),("$desc",sellerNote),("$p",device.ProductId),("$price",price));
             if (paymentMethod == "CASH" && price > 0)
                 InsertPayment(c,t,invoiceId,price,"CASH");
-            Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {next:yyyy-MM-dd}; {price} VND; {source}");
+            Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {next:yyyy-MM-dd}; {price} VND; {source}; Seller: {resolvedSellerName}");
             return 0;
         });
     }
@@ -576,5 +642,84 @@ public sealed class DemoDb
              NULLIF((SELECT COALESCE(SUM(l.unit_cost_snapshot_vnd * l.quantity),0) FROM v7_order_lines l JOIN v7_orders o ON o.id=l.order_id WHERE o.status='COMPLETED' AND o.deleted_at IS NULL AND l.deleted_at IS NULL), 0),
              (SELECT COALESCE(SUM(unit_cost_snapshot_vnd),0) FROM v7_orders WHERE status='COMPLETED' AND deleted_at IS NULL)
            )");
+    }
+
+    public List<CompletedOrderSnapshotVm> CompletedOrderSnapshots()
+    {
+        using var c = Open();
+        return Query(c, @"
+            SELECT o.id, o.code,
+                   COALESCE(substr(o.completed_at,1,19), substr(o.created_at,1,19), ''),
+                   COALESCE(o.activated_at, ''),
+                   COALESCE(cu.code, ''),
+                   CASE WHEN COALESCE(cu.representative_name,'')<>'' THEN cu.name || ' (ĐD: ' || cu.representative_name || ')' ELSE cu.name END,
+                   COALESCE(o.contact_name, ''),
+                   COALESCE(o.seller_record_id, cu.seller_id),
+                   COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(cu.source_name,''), 'Chưa gán Seller'),
+                   COALESCE(
+                     (SELECT group_concat(p2.sku || ' — ' || p2.name || ' (x' || l2.quantity || COALESCE(CASE WHEN l2.imei IS NOT NULL AND l2.imei<>'' THEN ' · IMEI: ' || l2.imei ELSE '' END, '') || ')', '; ')
+                      FROM v7_order_lines l2 JOIN products p2 ON p2.id=l2.product_id WHERE l2.order_id=o.id AND l2.deleted_at IS NULL),
+                     p.sku || ' — ' || p.name
+                   ),
+                   o.quantity,
+                   o.unit_price_vnd,
+                   COALESCE(
+                     NULLIF((SELECT SUM(l3.unit_cost_snapshot_vnd * l3.quantity) FROM v7_order_lines l3 WHERE l3.order_id=o.id AND l3.deleted_at IS NULL), 0),
+                     o.unit_cost_snapshot_vnd,
+                     0
+                   ),
+                   COALESCE(o.installer_fee_vnd, 0),
+                   CASE WHEN o.source='PARTNER' THEN '[Hãng] ' || COALESCE(NULLIF(o.installer,''),'Hãng lắp') ELSE COALESCE(NULLIF(o.installer,''),'ĐV lắp nội bộ') END,
+                   COALESCE(o.deduct_stock, 1),
+                   COALESCE((SELECT i.invoice_no FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), '—'),
+                   COALESCE((SELECT i.status FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), 'OPEN')
+            FROM v7_orders o
+            JOIN customers cu ON cu.id = o.customer_id
+            JOIN products p ON p.id = o.product_id
+            LEFT JOIN v7_sellers sl ON sl.id = COALESCE(o.seller_record_id, cu.seller_id)
+            WHERE o.status = 'COMPLETED' AND o.deleted_at IS NULL
+            ORDER BY o.id DESC",
+            r => new CompletedOrderSnapshotVm(
+                L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
+                r.IsDBNull(7) ? null : L(r,7),
+                S(r,8), S(r,9), L(r,10), L(r,11), L(r,12), L(r,13), S(r,14), L(r,15) == 1, S(r,16), S(r,17)));
+    }
+
+    public List<SellerPeriodStatVm> SellerPeriodStats()
+    {
+        using var c = Open();
+        return Query(c, @"
+            SELECT s.id, s.code, s.full_name, COALESCE(s.phone,''), COALESCE(s.department,'Kinh doanh / Sale'),
+                   COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
+                   (SELECT COUNT(*) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(o.unit_price_vnd),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(o.unit_cost_snapshot_vnd),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(COALESCE(o.installer_fee_vnd,0)),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COUNT(*) FROM renewals r
+                    WHERE r.deleted_at IS NULL
+                      AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(r.amount_vnd),0) FROM renewals r
+                    WHERE r.deleted_at IS NULL
+                      AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(i.amount_vnd),0) FROM invoices i
+                    WHERE i.deleted_at IS NULL AND i.invoice_type='COMMISSION' AND i.status<>'VOID'
+                      AND (i.notes LIKE '%'||s.code||'%' OR i.notes LIKE '%'||s.full_name||'%'))
+            FROM v7_sellers s
+            WHERE s.deleted_at IS NULL
+            ORDER BY s.id ASC",
+            r => new SellerPeriodStatVm(
+                L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), L(r,6),
+                L(r,7), L(r,8), L(r,9), L(r,10), L(r,11), L(r,12), L(r,13), L(r,14)));
     }
 }

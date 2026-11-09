@@ -48,12 +48,16 @@ public record V7Order(
     string ActivatedAt = "",
     long? WarehouseId = null,
     string Notes = "",
-    bool Cod = false)
+    bool Cod = false,
+    long? SellerRecordId = null,
+    long CostSnapshot = 0)
 {
     public string CustomerB2BDisplay => string.IsNullOrWhiteSpace(RepresentativeName) ? Customer : $"{Customer} (ĐD: {RepresentativeName})";
     public string DurationDisplay => DurationMonths == 12 ? "1 năm" : (DurationMonths > 0 && DurationMonths % 12 == 0) ? $"{DurationMonths / 12} năm" : $"{DurationMonths} tháng";
     public string InstallerTypeDisplay => Source == "PARTNER" ? "Hãng lắp đặt" : "ĐV lắp đặt";
     public string StockEffectDisplay => DeductStock ? "Trừ tồn kho" : "Không trừ tồn kho (Hãng)";
+    public long GrossProfitSnapshot => Price - CostSnapshot - InstallerFee;
+    public bool IsImmutable => Status == "COMPLETED";
 }
 
 public sealed class V7Orders(IWebHostEnvironment env)
@@ -70,6 +74,20 @@ public sealed class V7Orders(IWebHostEnvironment env)
     public void Initialize()
     {
         using var c = Open();
+        Run(c, """
+            CREATE TABLE IF NOT EXISTS v7_sellers(
+              id INTEGER PRIMARY KEY,
+              code TEXT NOT NULL UNIQUE,
+              full_name TEXT NOT NULL,
+              phone TEXT NOT NULL DEFAULT '',
+              department TEXT NOT NULL DEFAULT 'Kinh doanh / Sale',
+              order_commission_vnd INTEGER NOT NULL DEFAULT 0 CHECK(order_commission_vnd>=0),
+              renewal_commission_vnd INTEGER NOT NULL DEFAULT 0 CHECK(renewal_commission_vnd>=0),
+              notes TEXT NOT NULL DEFAULT '',
+              is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1))
+            );
+            """);
+
         using var q = Cmd(c, "PRAGMA table_info(v7_orders)");
         using var r = q.ExecuteReader();
         var cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -82,6 +100,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         if (!cols.Contains("sale_source")) Run(c, "ALTER TABLE v7_orders ADD COLUMN sale_source TEXT NOT NULL DEFAULT ''");
         if (!cols.Contains("duration_months")) Run(c, "ALTER TABLE v7_orders ADD COLUMN duration_months INTEGER NOT NULL DEFAULT 12");
         if (!cols.Contains("deduct_stock")) Run(c, "ALTER TABLE v7_orders ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1");
+        if (!cols.Contains("seller_record_id")) Run(c, "ALTER TABLE v7_orders ADD COLUMN seller_record_id INTEGER REFERENCES v7_sellers(id)");
 
         Run(c, """
             CREATE TABLE IF NOT EXISTS v7_order_lines(
@@ -104,6 +123,33 @@ public sealed class V7Orders(IWebHostEnvironment env)
             SELECT o.id,o.product_id,o.quantity,o.unit_price_vnd,o.unit_cost_snapshot_vnd,COALESCE(o.installer_fee_vnd,0),o.imei,COALESCE(o.plate_no,''),COALESCE(o.vin_no,'')
             FROM v7_orders o
             WHERE NOT EXISTS (SELECT 1 FROM v7_order_lines l WHERE l.order_id=o.id);
+            """);
+
+        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định
+        Run(c, """
+            DROP TRIGGER IF EXISTS trg_v7_orders_lock_completed_update;
+            CREATE TRIGGER trg_v7_orders_lock_completed_update
+            BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, plate_no, vin_no, notes, imei, activated_at, completed_at ON v7_orders
+            WHEN OLD.status = 'COMPLETED'
+            BEGIN
+              SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_v7_order_lines_lock_completed_update;
+            CREATE TRIGGER trg_v7_order_lines_lock_completed_update
+            BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd, imei, plate_no, vin_no ON v7_order_lines
+            WHEN (SELECT status FROM v7_orders WHERE id = OLD.order_id) = 'COMPLETED'
+            BEGIN
+              SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Dòng sản phẩm của đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_v7_order_lines_lock_completed_insert;
+            CREATE TRIGGER trg_v7_order_lines_lock_completed_insert
+            BEFORE INSERT ON v7_order_lines
+            WHEN (SELECT status FROM v7_orders WHERE id = NEW.order_id) = 'COMPLETED'
+            BEGIN
+              SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Đơn hàng đã hoàn thành, không thể thêm dòng sản phẩm mới.');
+            END;
             """);
     }
 
@@ -199,17 +245,19 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
         using var q = Cmd(c, @"SELECT o.id,o.code,c.name,
             COALESCE(NULLIF(o.customer_phone,''),c.phone,''),
-            COALESCE(NULLIF(o.sale_source,''),NULLIF(c.source_name,''),u.display_name,''),
+            COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), u.display_name, ''),
             o.product_id,p.name,o.status,o.source,o.imei,w.name,o.installer,
             o.installer_employee_id,COALESCE(o.installer_fee_vnd,0),
             COALESCE(o.install_address,''),COALESCE(o.install_at,''),COALESCE(o.plate_no,''),o.unit_price_vnd,
             COALESCE(c.code,''),COALESCE(cg.name,'-'),COALESCE(c.representative_name,''),
             COALESCE(o.contact_name,''),COALESCE(o.duration_months,12),COALESCE(o.deduct_stock,1),
-            COALESCE(o.activated_at,''),o.warehouse_id,COALESCE(o.notes,''),COALESCE(o.collect_on_delivery,0)
+            COALESCE(o.activated_at,''),o.warehouse_id,COALESCE(o.notes,''),COALESCE(o.collect_on_delivery,0),
+            COALESCE(o.seller_record_id, c.seller_id),COALESCE(o.unit_cost_snapshot_vnd,0)
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
             LEFT JOIN customer_groups cg ON cg.id=c.group_id
             LEFT JOIN warehouses w ON w.id=o.warehouse_id
             LEFT JOIN app_users u ON u.id=o.seller_id
+            LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
             WHERE o.deleted_at IS NULL ORDER BY o.id DESC LIMIT 250");
         using var r = q.ExecuteReader();
         var list = new List<V7Order>();
@@ -249,7 +297,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 r.GetString(24),
                 r.IsDBNull(25) ? null : r.GetInt64(25),
                 r.GetString(26),
-                r.GetInt64(27) == 1));
+                r.GetInt64(27) == 1,
+                r.IsDBNull(28) ? null : r.GetInt64(28),
+                r.GetInt64(29)));
         }
         return list;
     }
@@ -275,6 +325,47 @@ public sealed class V7Orders(IWebHostEnvironment env)
         return text;
     }
 
+    private static (long? SellerRecordId, string SaleSource) ResolveOrderSeller(SqliteConnection c, long customerId, long actor, long? sellerRecordId, string? saleSource)
+    {
+        long? resolvedId = sellerRecordId is > 0 ? sellerRecordId.Value : null;
+        string src = (saleSource ?? "").Trim();
+
+        if (resolvedId.HasValue)
+        {
+            var label = Str(c, "SELECT code || ' — ' || full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", ("$id", resolvedId.Value));
+            if (string.IsNullOrWhiteSpace(label))
+                throw new InvalidOperationException("Nhân viên bán hàng (Seller) đã chọn không tồn tại.");
+            src = label;
+            return (resolvedId, src);
+        }
+
+        if (!string.IsNullOrWhiteSpace(src))
+        {
+            var matched = Scalar(c, "SELECT COALESCE((SELECT id FROM v7_sellers WHERE deleted_at IS NULL AND (code=$s OR full_name=$s OR (code || ' — ' || full_name)=$s OR $s LIKE '%' || code || '%' OR $s LIKE '%' || full_name || '%') LIMIT 1), 0)", ("$s", src));
+            if (matched > 0)
+            {
+                resolvedId = matched;
+                var label = Str(c, "SELECT code || ' — ' || full_name FROM v7_sellers WHERE id=$id", ("$id", matched));
+                if (!string.IsNullOrWhiteSpace(label)) src = label;
+                return (resolvedId, src);
+            }
+        }
+
+        var custSeller = Scalar(c, "SELECT COALESCE(seller_id, 0) FROM customers WHERE id=$id", ("$id", customerId));
+        if (custSeller > 0)
+        {
+            var label = Str(c, "SELECT code || ' — ' || full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", ("$id", custSeller));
+            if (!string.IsNullOrWhiteSpace(label))
+                return (custSeller, string.IsNullOrWhiteSpace(src) ? label : src);
+        }
+
+        if (string.IsNullOrWhiteSpace(src))
+        {
+            src = Str(c, "SELECT COALESCE(NULLIF(source_name,''),(SELECT display_name FROM app_users WHERE id=$u),'') FROM customers WHERE id=$id", ("$id", customerId), ("$u", actor));
+        }
+        return (resolvedId, src);
+    }
+
     public long Create(long actor, long customer, long product, string address, string notes, bool cod, string? customerPhone = null, string? installAt = null, string? saleSource = null) =>
         CreateMulti(actor, customer, [new V7OrderLineDraft(product, 1)], address, notes, cod, customerPhone, installAt, saleSource);
 
@@ -294,7 +385,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
         bool partner = false,
         string? installer = null,
         long? installerEmployeeId = null,
-        bool deductStock = true)
+        bool deductStock = true,
+        long? sellerRecordId = null)
     {
         var validItems = (items ?? []).Where(x => x.ProductId > 0 && x.Quantity > 0).ToList();
         if (customer < 1 || validItems.Count == 0)
@@ -337,14 +429,14 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
             var contact = (contactName ?? "").Trim();
             var phone = !string.IsNullOrWhiteSpace(customerPhone) ? customerPhone.Trim() : Str(c, "SELECT COALESCE(phone,'') FROM customers WHERE id=$id", ("$id", customer));
-            var src = !string.IsNullOrWhiteSpace(saleSource) ? saleSource.Trim() : Str(c, "SELECT COALESCE(NULLIF(source_name,''),(SELECT display_name FROM app_users WHERE id=$u),'') FROM customers WHERE id=$id", ("$id", customer), ("$u", actor));
+            var (resolvedSellerId, src) = ResolveOrderSeller(c, customer, actor, sellerRecordId, saleSource);
             var addr = !string.IsNullOrWhiteSpace(address) ? address.Trim() : Str(c, "SELECT COALESCE(address,'') FROM customers WHERE id=$id", ("$id", customer));
             var when = !string.IsNullOrWhiteSpace(installAt) ? FormatInstallDateTime(installAt) : DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
             var dur = durationMonths > 0 ? durationMonths : 12;
 
-            Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,contact_name,customer_phone,sale_source,duration_months,deduct_stock,source,install_address,install_at,notes,collect_on_delivery)
-                VALUES(lower(hex(randomblob(16))),$c,$s,$p,$qty,$price,$cost,$contact,$phone,$src,$dur,$deduct,$source,$a,$at,$n,$cod)",
-                ("$c", customer), ("$s", actor), ("$p", primaryProduct), ("$qty", totalQty), ("$price", totalPrice), ("$cost", totalCost),
+            Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,seller_record_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,contact_name,customer_phone,sale_source,duration_months,deduct_stock,source,install_address,install_at,notes,collect_on_delivery)
+                VALUES(lower(hex(randomblob(16))),$c,$s,$sellerRec,$p,$qty,$price,$cost,$contact,$phone,$src,$dur,$deduct,$source,$a,$at,$n,$cod)",
+                ("$c", customer), ("$s", actor), ("$sellerRec", resolvedSellerId), ("$p", primaryProduct), ("$qty", totalQty), ("$price", totalPrice), ("$cost", totalCost),
                 ("$contact", contact), ("$phone", phone), ("$src", src), ("$dur", dur), ("$deduct", deductStock ? 1 : 0),
                 ("$source", partner ? "PARTNER" : "INTERNAL"),
                 ("$a", addr), ("$at", when), ("$n", notes ?? ""), ("$cod", cod ? 1 : 0));
@@ -471,16 +563,21 @@ public sealed class V7Orders(IWebHostEnvironment env)
         bool partner,
         string installer,
         long? installerEmployeeId,
-        bool deductStock)
+        bool deductStock,
+        long? sellerRecordId = null,
+        string? saleSource = null)
     {
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
             var st = Status(c, id);
-            if (st is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Không thể sửa đơn đã hoàn tất hoặc đã hủy.");
+            if (st is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Đơn hàng đã hoàn thành hoặc đã hủy (đã khóa cố định giá snapshot), không thể thay đổi.");
             if (!deductStock && !partner)
                 throw new InvalidOperationException("Chỉ cho phép chọn 'Không trừ tồn kho' khi Đơn vị lắp đặt là Hãng lắp đặt.");
             if (!deductStock && string.IsNullOrWhiteSpace(installer) && !(installerEmployeeId is > 0))
                 throw new InvalidOperationException("Khi chọn 'Không trừ tồn kho', bắt buộc phải có tên Hãng lắp đặt.");
+
+            var custId = Scalar(c, "SELECT customer_id FROM v7_orders WHERE id=$id", ("$id", id));
+            var (resolvedSellerId, resolvedSrc) = ResolveOrderSeller(c, custId, actor, sellerRecordId, saleSource);
 
             Run(c, @"UPDATE v7_orders SET
                 contact_name=$contact,
@@ -491,7 +588,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 notes=$notes,
                 collect_on_delivery=$cod,
                 deduct_stock=$deduct,
-                source=$source
+                source=$source,
+                seller_record_id=COALESCE($sellerRec, seller_record_id),
+                sale_source=CASE WHEN $src<>'' THEN $src ELSE sale_source END
                 WHERE id=$id",
                 ("$contact", (contactName ?? "").Trim()),
                 ("$phone", (customerPhone ?? "").Trim()),
@@ -502,6 +601,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 ("$cod", cod ? 1 : 0),
                 ("$deduct", deductStock ? 1 : 0),
                 ("$source", partner ? "PARTNER" : "INTERNAL"),
+                ("$sellerRec", resolvedSellerId),
+                ("$src", resolvedSrc),
                 ("$id", id));
 
             if (warehouseId is > 0 && Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouseId.Value)) > 0)

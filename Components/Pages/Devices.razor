@@ -7,14 +7,44 @@
 <div class="crud-actionbar">
     @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}
     @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Ngày kích hoạt IMEI":"Cập nhật Ngày kích hoạt IMEI")</button>}
+    <a class="btn secondary" href="/catalog/sellers">Quản lý &amp; Thống kê Seller →</a>
 </div>
 
-@if(canRenew){<div class="panel edit-panel" hidden="@(!showRenew)"><div class="panel-head"><div><h2>Gia hạn thiết bị</h2><p>Ghi nhận giao dịch, cập nhật thời hạn và tạo công nợ.</p></div></div>
+@if(canRenew){<div class="panel edit-panel" hidden="@(!showRenew)"><div class="panel-head"><div><h2>Gia hạn thiết bị (Ghi nhận Seller &amp; Giá cố định Snapshot)</h2><p>Chọn thiết bị IMEI và nhân viên bán hàng (Seller) phụ trách gia hạn để thống kê cuối kỳ và tính hoa hồng gia hạn trong tương lai.</p></div></div>
 <div class="form-grid">
-<label>Thiết bị / biển số<select @bind="activationId">@foreach(var x in devices){<option value="@x.ActivationId">@x.Imei — @x.Plate (@x.ExpiresAt)</option>}</select></label>
-<label>Nguồn gia hạn<select @bind="source"><option value="TNM">TNM</option><option value="NCC">Nhà cung cấp</option><option value="HTX">Hợp tác xã</option><option value="B2C">Khách lẻ B2C</option></select></label>
-<label>Thanh toán<select @bind="method"><option value="DEBT">Ghi công nợ</option><option value="CASH">Thanh toán ngay</option></select></label>
-</div><div class="form-actions"><button class="btn" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
+<label>Thiết bị / biển số *
+    <select @bind="activationId" @bind:after="OnRenewDeviceSelected">
+        @foreach(var x in devices)
+        {
+            <option value="@x.ActivationId">@x.Imei — @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hết hạn: @x.ExpiresAt</option>
+        }
+    </select>
+</label>
+<label>Nhân viên Seller gia hạn (Tính hoa hồng) *
+    <select @bind="renewSellerId">
+        <option value="0">— Chọn Seller phụ trách gia hạn —</option>
+        @foreach(var sl in sellerChoices)
+        {
+            <option value="@sl.Id">@sl.Code — @sl.Name @(string.IsNullOrWhiteSpace(sl.Department) ? "" : $"({sl.Department})") [HH gia hạn: @sl.RenewalCommissionVnd.ToString("N0") ₫]</option>
+        }
+    </select>
+</label>
+<label>Nguồn gia hạn
+    <select @bind="source">
+        <option value="TNM">TNM</option>
+        <option value="NCC">Nhà cung cấp</option>
+        <option value="HTX">Hợp tác xã</option>
+        <option value="B2C">Khách lẻ B2C</option>
+    </select>
+</label>
+<label>Thanh toán
+    <select @bind="method">
+        <option value="DEBT">Ghi công nợ</option>
+        <option value="CASH">Thanh toán ngay</option>
+    </select>
+</label>
+</div>
+<div class="form-actions"><button class="btn" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
 </div>}
 
 @if(canRenew){<div class="panel edit-panel" hidden="@(!showEditAct)"><div class="panel-head"><div><h2>Bổ sung / Cập nhật Ngày kích hoạt IMEI &amp; Thông tin phụ</h2><p>Chọn thiết bị IMEI để bổ sung hoặc điều chỉnh Ngày kích hoạt, Thời hạn, Biển số xe và Thông tin phụ.</p></div></div>
@@ -46,7 +76,7 @@
 
 <section class="panel"><div class="panel-head"><div><h2>Danh sách kích hoạt</h2><p>Đặt hạn thực tế sau cùng, không ghi đè lịch sử gia hạn.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-<input class="search-input" @bind="search" @bind:event="oninput" placeholder="Tìm IMEI, biển số, KH..." />
+<input class="search-input" @bind="search" @bind:event="oninput" placeholder="Tìm IMEI, biển số, KH, Seller..." />
 <div class="tabs">
 @if(canActive){<button class="@(filter=="ACTIVE"?"selected":"")" @onclick='() => filter = "ACTIVE"'>Còn hạn</button>}
 @if(canDue10){<button class="@(filter=="DUE10"?"selected":"")" @onclick='() => filter = "DUE10"'>D+10</button>}
@@ -54,12 +84,31 @@
 @if(canDue60){<button class="@(filter=="DUE60"?"selected":"")" @onclick='() => filter = "DUE60"'>D+60</button>}
 @if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => filter = "OVERDUE"'>Quá hạn</button>}
 </div></div></div>
-<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>SKU</th><th>KHÁCH HÀNG / CHỦ XE</th><th>BIỂN SỐ &amp; THÔNG TIN PHỤ</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
-@foreach(var x in devices.Where(Match)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td><div><strong>@x.Customer</strong></div>@if(!string.IsNullOrWhiteSpace(x.ContactName)){<small>Khách lắp: @x.ContactName</small>}</td><td><div>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</div>@if(!string.IsNullOrWhiteSpace(x.VinNo)){<small>@x.VinNo</small>}</td><td><strong>@x.ActivatedAt</strong></td><td>@x.ExpiresAt</td><td><span class="chip @(DaysToExpiry(x)<0?"orange-chip":DaysToExpiry(x)<=30?"purple-chip":"green-chip")">@(DaysToExpiry(x)<0?"Quá hạn":DaysToExpiry(x)<=30?$"Còn {DaysToExpiry(x)} ngày":"Còn hạn")</span></td><td>@if(canRenew){<button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa ngày KH</button>}</td></tr>}
+<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>SKU</th><th>KHÁCH HÀNG / CHỦ XE</th><th>SELLER PHỤ TRÁCH</th><th>BIỂN SỐ &amp; THÔNG TIN PHỤ</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
+@foreach(var x in devices.Where(Match)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td><div><strong>@x.Customer</strong></div>@if(!string.IsNullOrWhiteSpace(x.ContactName)){<small>Khách lắp: @x.ContactName</small>}</td><td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td><div>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</div>@if(!string.IsNullOrWhiteSpace(x.VinNo)){<small>@x.VinNo</small>}</td><td><strong>@x.ActivatedAt</strong></td><td>@x.ExpiresAt</td><td><span class="chip @(DaysToExpiry(x)<0?"orange-chip":DaysToExpiry(x)<=30?"purple-chip":"green-chip")">@(DaysToExpiry(x)<0?"Quá hạn":DaysToExpiry(x)<=30?$"Còn {DaysToExpiry(x)} ngày":"Còn hạn")</span></td><td>@if(canRenew){<div style="display:flex;gap:4px;flex-wrap:wrap"><button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button><button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa ngày KH</button></div>}</td></tr>}
 </tbody></table></div></section>
-@if(canHistory){<section class="panel"><div class="panel-head"><h2>Lịch sử các lần gia hạn</h2></div>
-<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN MỚI</th><th>SỐ TIỀN</th><th>THANH TOÁN</th></tr></thead><tbody>
-@foreach(var x in renewals){<tr><td><strong>@x.Imei</strong></td><td>@x.Source</td><td>@x.StartDate</td><td>@x.EndDate</td><td>@x.Price.ToString("N0") ₫</td><td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td></tr>}
+@if(canHistory){<section class="panel"><div class="panel-head"><div><h2>Lịch sử các lần gia hạn &amp; Thống kê theo Seller</h2><p>Ghi nhận giá cố định Snapshot tại thời điểm gia hạn và nhân viên Seller gia hạn để chi hoa hồng.</p></div>
+<select class="search-input" style="min-width:220px" @bind="historySellerFilter">
+    <option value="">— Tất cả Seller gia hạn —</option>
+    @foreach(var sl in sellerChoices)
+    {
+        <option value="@sl.Name">@sl.Code — @sl.Name</option>
+    }
+</select>
+</div>
+@if(renewals.Count > 0)
+{
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        @foreach(var grp in renewals.GroupBy(r => string.IsNullOrWhiteSpace(r.SellerName) ? "Chưa gán Seller" : r.SellerName))
+        {
+            <div style="padding:8px 12px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;font-size:12.5px">
+                <strong>@grp.Key:</strong> <span class="chip blue-chip">@grp.Count() lượt gia hạn</span> · Doanh thu Snapshot: <strong style="color:#0284c7">@grp.Sum(x => x.Price).ToString("N0") ₫</strong>
+            </div>
+        }
+    </div>
+}
+<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>SELLER GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN MỚI</th><th>SỐ TIỀN (SNAPSHOT)</th><th>THANH TOÁN</th></tr></thead><tbody>
+@foreach(var x in FilteredRenewals){<tr><td><strong>@x.Imei</strong></td><td><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td><td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td>@x.Source</td><td>@x.StartDate</td><td>@x.EndDate</td><td><strong>@x.Price.ToString("N0") ₫</strong></td><td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td></tr>}
 </tbody></table></div></section>}
 @code {
  private bool showRenew, showEditAct;
@@ -68,12 +117,15 @@
   showEditAct = form=="showEditAct" && !showEditAct;
  }
 
- private List<DeviceVm> devices=[];private List<RenewalVm> renewals=[];
- private long activationId=1, editActivationId=1;
+ private List<DeviceVm> devices=[];
+ private List<RenewalVm> renewals=[];
+ private List<SellerChoiceVm> sellerChoices=[];
+ private long activationId=1, editActivationId=1, renewSellerId;
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
- private string source="TNM",method="DEBT",message="",editMessage="",editPlate="",editVin="",search="",filter="ACTIVE";
+ private string source="TNM",method="DEBT",message="",editMessage="",editPlate="",editVin="",search="",filter="ACTIVE",historySellerFilter="";
  private bool canRenew,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60;
+ private IEnumerable<RenewalVm> FilteredRenewals => renewals.Where(r => string.IsNullOrWhiteSpace(historySellerFilter) || r.SellerName.Equals(historySellerFilter, StringComparison.OrdinalIgnoreCase));
  protected override async Task OnInitializedAsync(){
   canRenew=await Gate.CanAsync(Permissions.DevicesRenew);
   canHistory=await Gate.CanAsync(Permissions.DevicesRenewalsView);
@@ -85,9 +137,32 @@
   Reload();filter=canActive?"ACTIVE":canDue10?"DUE10":canDue30?"DUE30":canDue60?"DUE60":"OVERDUE";
  }
  private void Reload(){
+  sellerChoices=Db.SellerChoices();
   devices=Db.Devices();
-  if(devices.Count > 0 && editActivationId == 1) { editActivationId = devices[0].ActivationId; OnEditDeviceSelected(); }
+  if(devices.Count > 0)
+  {
+   if(!devices.Any(x => x.ActivationId == activationId)) activationId = devices[0].ActivationId;
+   OnRenewDeviceSelected();
+   if(!devices.Any(x => x.ActivationId == editActivationId)) { editActivationId = devices[0].ActivationId; OnEditDeviceSelected(); }
+  }
   if(canHistory)renewals=Db.Renewals();
+ }
+ private void OnRenewDeviceSelected(){
+  var d = devices.FirstOrDefault(x => x.ActivationId == activationId);
+  if (d is not null && d.SellerId is > 0)
+  {
+   renewSellerId = d.SellerId.Value;
+  }
+  else if (renewSellerId <= 0 && sellerChoices.Count > 0)
+  {
+   renewSellerId = sellerChoices[0].Id;
+  }
+ }
+ private void OpenRenewFor(DeviceVm d){
+  activationId = d.ActivationId;
+  OnRenewDeviceSelected();
+  showRenew = true;
+  showEditAct = false;
  }
  private void OnEditDeviceSelected(){
   var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
@@ -107,7 +182,7 @@
  private int DaysToExpiry(DeviceVm x)=> (DateTime.Parse(x.ExpiresAt).Date-DateTime.Today).Days;
  private bool Match(DeviceVm x)
  {
-  if (!string.IsNullOrWhiteSpace(search) && !(x.Imei + " " + x.Sku + " " + x.Customer + " " + x.Plate + " " + x.ContactName + " " + x.VinNo).Contains(search, StringComparison.OrdinalIgnoreCase))
+  if (!string.IsNullOrWhiteSpace(search) && !(x.Imei + " " + x.Sku + " " + x.Customer + " " + x.Plate + " " + x.ContactName + " " + x.VinNo + " " + x.SellerName).Contains(search, StringComparison.OrdinalIgnoreCase))
    return false;
   var days=DaysToExpiry(x);
   return filter switch {
@@ -118,6 +193,14 @@
   "OVERDUE"=>canOverdue && days<0,
   _=>false};
  }
- private async Task Renew(){try{Db.ActorId=await Gate.RequireAsync(Permissions.DevicesRenew);Db.Renew(activationId,source,method);Reload();message="Đã gia hạn và ghi nhận hóa đơn.";}catch(Exception ex){message="Lỗi: "+ex.Message;}}
+ private async Task Renew(){
+  try{
+   Db.ActorId=await Gate.RequireAsync(Permissions.DevicesRenew);
+   var pickedSeller = sellerChoices.FirstOrDefault(s => s.Id == renewSellerId);
+   Db.Renew(activationId, source, method, pickedSeller?.Id, pickedSeller?.Name);
+   Reload();
+   message = $"Đã gia hạn 12 tháng, lưu giá cố định Snapshot và ghi nhận Seller gia hạn: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
+  }catch(Exception ex){message="Lỗi: "+ex.Message;}
+ }
  private async Task SaveActivationUpdate(){try{Db.ActorId=await Gate.RequireAsync(Permissions.DevicesRenew);Db.UpdateDeviceActivation(editActivationId, editActivatedDate.ToString("yyyy-MM-dd"), editDurationMonths, editPlate, editVin);Reload();editMessage="Đã cập nhật Ngày kích hoạt IMEI & thông tin phụ.";}catch(Exception ex){editMessage="Lỗi: "+ex.Message;}}
 }

@@ -17,9 +17,28 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public record Area(long Id, string Code, string Name, long Warehouses);
     public record Warehouse(long Id, string Code, string Name, long? AreaId, string Area, string Address, long ImeiCount = 0, long InStockCount = 0, long InstalledCount = 0);
     public record Product(long Id, string Code, string Name, long GroupId, string Group, bool Active);
-    public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "", string RepresentativeName = "")
+    public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "", string RepresentativeName = "", long? SellerId = null)
     {
         public string B2BDisplayName => string.IsNullOrWhiteSpace(RepresentativeName) ? Name : $"{Name} (ĐD: {RepresentativeName})";
+    }
+    public record Seller(
+        long Id,
+        string Code,
+        string Name,
+        string Phone,
+        string Department,
+        long OrderCommissionVnd,
+        long RenewalCommissionVnd,
+        string Notes,
+        long CustomerCount = 0,
+        long TotalOrders = 0,
+        long CompletedOrders = 0,
+        long CompletedDevices = 0,
+        long SalesRevenueVnd = 0,
+        long RenewalCount = 0,
+        long RenewalRevenueVnd = 0)
+    {
+        public long EstimatedCommissionVnd => (CompletedDevices * OrderCommissionVnd) + (RenewalCount * RenewalCommissionVnd);
     }
     public record InstallerRateChip(long ProductId, string Sku, string ProductName, long Rate);
     public record Installer(long Id, string Code, string Name, string Department, string Phone, string RateSummary, List<InstallerRateChip>? RateChips = null);
@@ -47,15 +66,75 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     private T Write<T>(Func<SqliteConnection, T> action) { using var c = Open(); Do(c, "BEGIN IMMEDIATE"); try { var result = action(c); Do(c, "COMMIT"); return result; } catch { Do(c, "ROLLBACK"); throw; } }
     private static string Required(string text, string label, int max = 160) { text = (text ?? "").Trim(); if (text.Length == 0 || text.Length > max) throw new InvalidOperationException($"{label}: bắt buộc, tối đa {max} ký tự."); return text; }
     private static string Code(string value) { value = Required(value, "Mã", 32).ToUpperInvariant(); if (!Regex.IsMatch(value, @"^[A-Z0-9_-]+$")) throw new InvalidOperationException("Mã chỉ gồm A–Z, 0–9, dấu _ và -."); return value; }
-    private static void Exists(SqliteConnection c, string table, long id) { if (id <= 0 || table is not ("supplier_groups" or "product_groups" or "customer_groups" or "warehouse_areas" or "suppliers" or "products" or "customers" or "warehouses" or "employees")) throw new InvalidOperationException("Danh mục không hợp lệ."); if (Num(c, $"SELECT COUNT(*) FROM {table} WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Mục đã chọn không tồn tại."); }
+    private static void Exists(SqliteConnection c, string table, long id) { if (id <= 0 || table is not ("supplier_groups" or "product_groups" or "customer_groups" or "warehouse_areas" or "suppliers" or "products" or "customers" or "warehouses" or "employees" or "v7_sellers")) throw new InvalidOperationException("Danh mục không hợp lệ."); if (Num(c, $"SELECT COUNT(*) FROM {table} WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Mục đã chọn không tồn tại."); }
     private static void Audit(SqliteConnection c, long actor, string operation, string entity, long id, string detail) { Do(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($a,$op,$e,$id,$d)", ("$a", actor), ("$op", operation), ("$e", entity), ("$id", id), ("$d", detail)); }
 
     public void Initialize()
     {
         Write(c => {
+            Do(c, """
+                CREATE TABLE IF NOT EXISTS v7_sellers(
+                  id INTEGER PRIMARY KEY,
+                  code TEXT NOT NULL UNIQUE,
+                  full_name TEXT NOT NULL,
+                  phone TEXT NOT NULL DEFAULT '',
+                  department TEXT NOT NULL DEFAULT 'Kinh doanh / Sale',
+                  order_commission_vnd INTEGER NOT NULL DEFAULT 0 CHECK(order_commission_vnd>=0),
+                  renewal_commission_vnd INTEGER NOT NULL DEFAULT 0 CHECK(renewal_commission_vnd>=0),
+                  notes TEXT NOT NULL DEFAULT '',
+                  is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1))
+                );
+                """);
+
             var custCols = Read(c, "PRAGMA table_info(customers)", r => Txt(r, 1));
             if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
                 Do(c, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
+            if (!custCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE customers ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+
+            var orderCols = Read(c, "PRAGMA table_info(v7_orders)", r => Txt(r, 1));
+            if (!orderCols.Any(x => string.Equals(x, "seller_record_id", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE v7_orders ADD COLUMN seller_record_id INTEGER REFERENCES v7_sellers(id)");
+
+            var renCols = Read(c, "PRAGMA table_info(renewals)", r => Txt(r, 1));
+            if (!renCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE renewals ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+            if (!renCols.Any(x => string.Equals(x, "seller_name", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE renewals ADD COLUMN seller_name TEXT NOT NULL DEFAULT ''");
+
+            if (Num(c, "SELECT COUNT(*) FROM v7_sellers") == 0)
+            {
+                Do(c, """
+                    INSERT INTO v7_sellers(code, full_name, phone, department, order_commission_vnd, renewal_commission_vnd, notes)
+                    VALUES
+                      ('SL001', 'Nguyễn Minh Anh', '0909112233', 'Sale Nội bộ (Kinh doanh)', 100000, 50000, 'Nhân viên kinh doanh khu vực Miền Nam'),
+                      ('SL002', 'Lê Hoàng Nam', '0909223344', 'Sale Đại lý / HTX (B2B)', 100000, 50000, 'Phụ trách khối HTX & Đại lý vận tải'),
+                      ('SL003', 'Trần Thu Hà', '0909334455', 'Sale Nội bộ & Gia hạn', 100000, 50000, 'Chuyên trách bán mới & chăm sóc gia hạn'),
+                      ('SL004', 'Phạm Quốc Tuấn', '0909445566', 'Cộng tác viên Sale (CTV)', 80000, 40000, 'Cộng tác viên phát triển thị trường');
+                    """);
+            }
+
+            // Đồng bộ khách hàng, đơn hàng và gia hạn cũ chưa gắn seller_id
+            Do(c, @"UPDATE customers SET seller_id = COALESCE(
+                (SELECT s.id FROM v7_sellers s WHERE customers.source_name LIKE '%' || s.full_name || '%' OR customers.source_name LIKE '%' || s.code || '%' LIMIT 1),
+                (SELECT s.id FROM v7_sellers s ORDER BY s.id ASC LIMIT 1))
+                WHERE seller_id IS NULL");
+            Do(c, @"UPDATE customers SET source_name = (SELECT s.code || ' — ' || s.full_name FROM v7_sellers s WHERE s.id = customers.seller_id)
+                WHERE seller_id IS NOT NULL AND (source_name IS NULL OR source_name = '')");
+            Do(c, @"UPDATE v7_orders SET seller_record_id = COALESCE(
+                (SELECT s.id FROM v7_sellers s WHERE v7_orders.sale_source LIKE '%' || s.full_name || '%' OR v7_orders.sale_source LIKE '%' || s.code || '%' LIMIT 1),
+                (SELECT c.seller_id FROM customers c WHERE c.id = v7_orders.customer_id),
+                (SELECT s.id FROM v7_sellers s ORDER BY s.id ASC LIMIT 1))
+                WHERE seller_record_id IS NULL AND status <> 'COMPLETED'");
+            Do(c, @"UPDATE renewals SET
+                seller_id = COALESCE(
+                    (SELECT o.seller_record_id FROM activations a JOIN v7_orders o ON o.id = a.v7_order_id WHERE a.id = renewals.activation_id),
+                    (SELECT c.seller_id FROM activations a JOIN customers c ON c.id = a.customer_id WHERE a.id = renewals.activation_id),
+                    (SELECT s.id FROM v7_sellers s ORDER BY s.id ASC LIMIT 1))
+                WHERE seller_id IS NULL");
+            Do(c, @"UPDATE renewals SET seller_name = COALESCE(
+                (SELECT s.code || ' — ' || s.full_name FROM v7_sellers s WHERE s.id = renewals.seller_id), '')
+                WHERE (seller_name IS NULL OR seller_name = '') AND seller_id IS NOT NULL");
 
             Do(c, """
                 CREATE TABLE IF NOT EXISTS v7_installer_product_rates(
@@ -184,6 +263,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public List<Choice> CustomerGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM customer_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<Choice> ProductGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM product_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<Choice> InstallerChoices() { using var c = Open(); return Read(c, "SELECT id,code,full_name FROM employees WHERE is_active=1 AND deleted_at IS NULL ORDER BY full_name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
+    public List<Choice> SellerChoices() { using var c = Open(); return Read(c, "SELECT id,code,full_name FROM v7_sellers WHERE is_active=1 AND deleted_at IS NULL ORDER BY id ASC, full_name ASC", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<SupplierGroup> SupplierGroups() { using var c = Open(); return Read(c, "SELECT g.id,g.code,g.name,COUNT(s.id) FROM supplier_groups g LEFT JOIN suppliers s ON s.group_id=g.id AND s.deleted_at IS NULL WHERE g.deleted_at IS NULL GROUP BY g.id ORDER BY g.name", r => new SupplierGroup(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3))); }
     public List<Supplier> Suppliers() { using var c = Open(); return Read(c, "SELECT s.id,s.code,s.name,s.group_id,COALESCE(g.name,'Chưa phân nhóm'),COALESCE(s.phone,''),COALESCE(s.tax_code,'') FROM suppliers s LEFT JOIN supplier_groups g ON g.id=s.group_id WHERE s.deleted_at IS NULL ORDER BY s.name", r => new Supplier(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6))); }
     public List<Area> Areas() { using var c = Open(); return Read(c, "SELECT a.id,a.code,a.name,COUNT(w.id) FROM warehouse_areas a LEFT JOIN warehouses w ON w.area_id=a.id AND w.deleted_at IS NULL WHERE a.deleted_at IS NULL GROUP BY a.id ORDER BY a.name", r => new Area(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3))); }
@@ -205,7 +285,51 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             r => new Warehouse(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), r.GetInt64(6), r.GetInt64(7), r.GetInt64(8)));
     }
     public List<Product> Products() { using var c = Open(); return Read(c, "SELECT id,sku,name,group_id,group_name,is_active FROM v7_product_master WHERE is_active=1 ORDER BY id DESC", r => new Product(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5) == 1)); }
-    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(c.source_name,''),COALESCE(c.representative_name,'') FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7), Txt(r, 8))); }
+    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(s.code||' — '||s.full_name, NULLIF(c.source_name,''), ''),COALESCE(c.representative_name,''),c.seller_id FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id LEFT JOIN v7_sellers s ON s.id=c.seller_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7), Txt(r, 8), Opt(r, 9))); }
+    public string PeekNextSellerCode()
+    {
+        using var c = Open();
+        var n = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM v7_sellers");
+        while (Num(c, "SELECT COUNT(*) FROM v7_sellers WHERE code=$c", ("$c", $"SL{n:D3}")) > 0)
+        {
+            n++;
+        }
+        return $"SL{n:D3}";
+    }
+
+    public List<Seller> Sellers()
+    {
+        using var c = Open();
+        return Read(c, @"
+            SELECT s.id, s.code, s.full_name, COALESCE(s.phone,''), COALESCE(s.department,'Kinh doanh / Sale'),
+                   COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0), COALESCE(s.notes,''),
+                   (SELECT COUNT(*) FROM customers cu WHERE cu.deleted_at IS NULL AND (cu.seller_id=s.id OR cu.source_name LIKE '%'||s.code||'%' OR cu.source_name LIKE '%'||s.full_name||'%')),
+                   (SELECT COUNT(*) FROM v7_orders o WHERE o.deleted_at IS NULL AND (o.seller_record_id=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COUNT(*) FROM v7_orders o WHERE o.deleted_at IS NULL AND o.status='COMPLETED' AND (o.seller_record_id=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o WHERE o.deleted_at IS NULL AND o.status='COMPLETED' AND (o.seller_record_id=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(o.unit_price_vnd),0) FROM v7_orders o WHERE o.deleted_at IS NULL AND o.status='COMPLETED' AND (o.seller_record_id=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                   (SELECT COUNT(*) FROM renewals r WHERE r.deleted_at IS NULL AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
+                   (SELECT COALESCE(SUM(r.amount_vnd),0) FROM renewals r WHERE r.deleted_at IS NULL AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%'))))
+            FROM v7_sellers s
+            WHERE s.deleted_at IS NULL
+            ORDER BY s.id ASC",
+            r => new Seller(
+                r.GetInt64(0),
+                Txt(r, 1),
+                Txt(r, 2),
+                Txt(r, 3),
+                Txt(r, 4),
+                r.GetInt64(5),
+                r.GetInt64(6),
+                Txt(r, 7),
+                r.GetInt64(8),
+                r.GetInt64(9),
+                r.GetInt64(10),
+                r.GetInt64(11),
+                r.GetInt64(12),
+                r.GetInt64(13),
+                r.GetInt64(14)));
+    }
     public string PeekNextInstallerCode()
     {
         using var c = Open();
@@ -302,12 +426,26 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "WAREHOUSE", wid, code); return wid;
         });
     }
-    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "", string representativeName = "")
+    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "", string representativeName = "", long? sellerId = null)
     {
         name = Required(name, "Tên khách hàng");
         var rep = (representativeName ?? "").Trim();
         return Write(actor, c => {
             Exists(c, "customer_groups", groupId);
+            long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : null;
+            var srcText = (sourceName ?? "").Trim();
+            if (resolvedSellerId.HasValue)
+            {
+                Exists(c, "v7_sellers", resolvedSellerId.Value);
+                var sellerLabel = Convert.ToString(Cell(c, "SELECT code || ' — ' || full_name FROM v7_sellers WHERE id=$id", ("$id", resolvedSellerId.Value))) ?? "";
+                if (!string.IsNullOrWhiteSpace(sellerLabel)) srcText = sellerLabel;
+            }
+            else if (!string.IsNullOrWhiteSpace(srcText))
+            {
+                var matchedSeller = Cell(c, "SELECT id FROM v7_sellers WHERE deleted_at IS NULL AND (code=$s OR full_name=$s OR (code || ' — ' || full_name)=$s OR $s LIKE '%' || code || '%' OR $s LIKE '%' || full_name || '%') LIMIT 1", ("$s", srcText));
+                if (matchedSeller is not null) resolvedSellerId = Convert.ToInt64(matchedSeller);
+            }
+
             long cid;
             string finalCode;
             if (id.HasValue)
@@ -315,19 +453,67 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 Exists(c, "customers", id.Value);
                 var existingCode = Convert.ToString(Cell(c, "SELECT code FROM customers WHERE id=$id", ("$id", id.Value))) ?? "";
                 finalCode = string.IsNullOrWhiteSpace(code) ? existingCode : Code(code);
-                Do(c, "UPDATE customers SET code=$code,name=$name,representative_name=$rep,group_id=$g,phone=$phone,address=$address,source_name=$src WHERE id=$id",
-                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()), ("$id", id.Value));
+                Do(c, "UPDATE customers SET code=$code,name=$name,representative_name=$rep,group_id=$g,phone=$phone,address=$address,source_name=$src,seller_id=$seller WHERE id=$id",
+                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", srcText), ("$seller", resolvedSellerId), ("$id", id.Value));
                 cid = id.Value;
             }
             else
             {
                 finalCode = NextCustomerCode(c);
-                Do(c, "INSERT INTO customers(code,name,representative_name,group_id,phone,address,source_name) VALUES($code,$name,$rep,$g,$phone,$address,$src)",
-                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", (sourceName ?? "").Trim()));
+                Do(c, "INSERT INTO customers(code,name,representative_name,group_id,phone,address,source_name,seller_id) VALUES($code,$name,$rep,$g,$phone,$address,$src,$seller)",
+                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", srcText), ("$seller", resolvedSellerId));
                 cid = Num(c, "SELECT last_insert_rowid()");
             }
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "CUSTOMER", cid, finalCode);
             return cid;
+        });
+    }
+    public long SaveSeller(long actor, long? id, string? code, string name, string phone, string department = "Sale Nội bộ (Kinh doanh)", long orderCommissionVnd = 100000, long renewalCommissionVnd = 50000, string notes = "")
+    {
+        name = Required(name, "Họ tên nhân viên bán hàng (Seller)");
+        department = string.IsNullOrWhiteSpace(department) ? "Sale Nội bộ (Kinh doanh)" : department.Trim();
+        if (orderCommissionVnd < 0 || renewalCommissionVnd < 0)
+            throw new InvalidOperationException("Định mức hoa hồng không được âm.");
+        return Write(actor, c => {
+            long sellerId;
+            if (id.HasValue)
+            {
+                Exists(c, "v7_sellers", id.Value);
+                var existingCode = Convert.ToString(Cell(c, "SELECT code FROM v7_sellers WHERE id=$id", ("$id", id.Value))) ?? "";
+                var finalCode = string.IsNullOrWhiteSpace(code) ? existingCode : Code(code);
+                Do(c, @"UPDATE v7_sellers SET code=$code,full_name=$name,phone=$phone,department=$dept,
+                    order_commission_vnd=$oc,renewal_commission_vnd=$rc,notes=$notes WHERE id=$id",
+                    ("$code", finalCode), ("$name", name), ("$phone", (phone ?? "").Trim()), ("$dept", department),
+                    ("$oc", orderCommissionVnd), ("$rc", renewalCommissionVnd), ("$notes", (notes ?? "").Trim()), ("$id", id.Value));
+                sellerId = id.Value;
+                code = finalCode;
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    var nextNo = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM v7_sellers");
+                    while (Num(c, "SELECT COUNT(*) FROM v7_sellers WHERE code=$c", ("$c", $"SL{nextNo:D3}")) > 0) nextNo++;
+                    code = $"SL{nextNo:D3}";
+                }
+                else
+                {
+                    code = Code(code);
+                    if (Num(c, "SELECT COUNT(*) FROM v7_sellers WHERE code=$c", ("$c", code)) > 0)
+                    {
+                        var nextNo = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM v7_sellers");
+                        while (Num(c, "SELECT COUNT(*) FROM v7_sellers WHERE code=$c", ("$c", $"SL{nextNo:D3}")) > 0) nextNo++;
+                        code = $"SL{nextNo:D3}";
+                    }
+                }
+                Do(c, @"INSERT INTO v7_sellers(code,full_name,phone,department,order_commission_vnd,renewal_commission_vnd,notes)
+                    VALUES($code,$name,$phone,$dept,$oc,$rc,$notes)",
+                    ("$code", code), ("$name", name), ("$phone", (phone ?? "").Trim()), ("$dept", department),
+                    ("$oc", orderCommissionVnd), ("$rc", renewalCommissionVnd), ("$notes", (notes ?? "").Trim()));
+                sellerId = Num(c, "SELECT last_insert_rowid()");
+            }
+            Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "SELLER", sellerId, $"{code} - {name}");
+            return sellerId;
         });
     }
     public long SaveInstaller(long actor, long? id, string code, string name, string phone, string department = "Kỹ thuật", Dictionary<long, long>? productRates = null)
@@ -418,7 +604,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     }
     public void DeleteEntity(long actor, string entity, long id)
     {
-        var table = entity switch { "SUPPLIER" => "suppliers", "WAREHOUSE" => "warehouses", "CUSTOMER" => "customers", "INSTALLER" => "employees", _ => throw new InvalidOperationException("Loại danh mục không hợp lệ.") };
+        var table = entity switch { "SUPPLIER" => "suppliers", "WAREHOUSE" => "warehouses", "CUSTOMER" => "customers", "INSTALLER" => "employees", "SELLER" => "v7_sellers", _ => throw new InvalidOperationException("Loại danh mục không hợp lệ.") };
         try
         {
             Write(actor, c => {

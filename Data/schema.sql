@@ -119,6 +119,18 @@ CREATE TABLE IF NOT EXISTS v7_sku_sequences(
   last_number INTEGER NOT NULL CHECK(last_number>=0)
 );
 
+CREATE TABLE IF NOT EXISTS v7_sellers(
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  full_name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  department TEXT NOT NULL DEFAULT 'Kinh doanh / Sale',
+  order_commission_vnd INTEGER NOT NULL DEFAULT 0 CHECK(order_commission_vnd>=0),
+  renewal_commission_vnd INTEGER NOT NULL DEFAULT 0 CHECK(renewal_commission_vnd>=0),
+  notes TEXT NOT NULL DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1))
+);
+
 CREATE TABLE IF NOT EXISTS customer_groups(
   id INTEGER PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
@@ -131,6 +143,7 @@ CREATE TABLE IF NOT EXISTS customers(
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   representative_name TEXT NOT NULL DEFAULT '',
+  seller_id INTEGER REFERENCES v7_sellers(id),
   source_type TEXT NOT NULL DEFAULT 'SALE' CHECK(source_type IN ('SALE','AGENCY','DIRECT')),
   source_name TEXT NOT NULL DEFAULT '',
   phone TEXT NOT NULL DEFAULT '',
@@ -370,6 +383,7 @@ CREATE TABLE IF NOT EXISTS v7_orders(
   code TEXT UNIQUE NOT NULL,
   customer_id INTEGER NOT NULL REFERENCES customers(id),
   seller_id INTEGER NOT NULL REFERENCES app_users(id),
+  seller_record_id INTEGER REFERENCES v7_sellers(id),
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity>0),
   unit_price_vnd INTEGER NOT NULL DEFAULT 0 CHECK(unit_price_vnd>=0),
@@ -445,6 +459,8 @@ CREATE INDEX IF NOT EXISTS ix_activations_expiry ON activations(expires_at, stat
 CREATE TABLE IF NOT EXISTS renewals(
   id INTEGER PRIMARY KEY,
   activation_id INTEGER NOT NULL REFERENCES activations(id),
+  seller_id INTEGER REFERENCES v7_sellers(id),
+  seller_name TEXT NOT NULL DEFAULT '',
   source_type TEXT NOT NULL CHECK(source_type IN ('NCC','TNM','HTX','B2C')),
   renewed_at TEXT NOT NULL,
   previous_expiry TEXT NOT NULL,
@@ -648,3 +664,25 @@ BEGIN SELECT RAISE(ABORT,'AUDIT_APPEND_ONLY'); END;
 
 CREATE TRIGGER IF NOT EXISTS legacy_audit_no_delete BEFORE DELETE ON audit_logs
 BEGIN SELECT RAISE(ABORT,'AUDIT_APPEND_ONLY'); END;
+
+-- Khóa cố định đơn hàng đã hoàn thành (COMPLETED) & bảo vệ giá snapshot cố định
+CREATE TRIGGER IF NOT EXISTS trg_v7_orders_lock_completed_update
+BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, plate_no, vin_no, notes, imei, activated_at, completed_at ON v7_orders
+WHEN OLD.status = 'COMPLETED'
+BEGIN
+  SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_v7_order_lines_lock_completed_update
+BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd, imei, plate_no, vin_no ON v7_order_lines
+WHEN (SELECT status FROM v7_orders WHERE id = OLD.order_id) = 'COMPLETED'
+BEGIN
+  SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Dòng sản phẩm của đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_v7_order_lines_lock_completed_insert
+BEFORE INSERT ON v7_order_lines
+WHEN (SELECT status FROM v7_orders WHERE id = NEW.order_id) = 'COMPLETED'
+BEGIN
+  SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Đơn hàng đã hoàn thành, không thể thêm dòng sản phẩm mới.');
+END;

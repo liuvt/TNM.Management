@@ -4,14 +4,14 @@ public record DashboardVm(long Products, long Customers, long Stock, long Consig
     long OpenOrders, long Unpaid, long Revenue, long Received, long RenewalRevenue);
 public record ProductVm(long Id, string Sku, string Name, string Group, long Cost, long Renewal,
     long Installation, int WarrantyMonths, bool IsSerialized, long StockInHand = 0, string Kind = "GOODS");
-public record CustomerVm(long Id, string Code, string Name, string Group, string Source, string Phone, string Address = "", string RepresentativeName = "")
+public record CustomerVm(long Id, string Code, string Name, string Group, string Source, string Phone, string Address = "", string RepresentativeName = "", long? SellerId = null)
 {
     public string B2BDisplayName => string.IsNullOrWhiteSpace(RepresentativeName) ? Name : $"{Name} (ĐD: {RepresentativeName})";
 }
 public record StockVm(long Id, string Imei, string Sku, string Product, string Status, string Holder, string UpdatedAt, long ProductId, long? WarehouseId = null);
 public record ProductStockSummaryVm(long ProductId, string Sku, string ProductName, bool IsSerialized, string Kind, long InStockQty, long ConsignedOrTechQty, long InstalledQty);
 public record DeviceVm(long ActivationId, string Imei, string Sku, string Customer, string Plate,
-    string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId, string VinNo = "", string OrderCode = "", string ContactName = "");
+    string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId, string VinNo = "", string OrderCode = "", string ContactName = "", long? SellerId = null, string SellerName = "");
 public record InvoiceLineVm(long Id, long InvoiceId, string Description, string ProductSku, long Quantity, long UnitPrice)
 {
     public long LineTotal => Quantity * UnitPrice;
@@ -25,4 +25,53 @@ public record InvoiceVm(long Id, string Code, string Type, string Customer, long
 }
 public record LedgerVm(long Id, string At, string Type, string Sku, string Imei, string Target, string Actor);
 public record AuditVm(long Id, string At, string Actor, string Action, string Entity, string Details);
-public record RenewalVm(long Id, string Imei, string Source, string StartDate, string EndDate, long Price, string PaymentMethod);
+public record RenewalVm(long Id, string Imei, string Source, string StartDate, string EndDate, long Price, string PaymentMethod, long? SellerId = null, string SellerName = "", string CustomerName = "", string PlateNo = "");
+public record SellerChoiceVm(long Id, string Code, string Name, string Phone, string Department, long OrderCommissionVnd, long RenewalCommissionVnd)
+{
+    public string DisplayLabel => $"{Code} — {Name}";
+}
+public record CompletedOrderSnapshotVm(
+    long OrderId,
+    string OrderCode,
+    string CompletedAt,
+    string ActivatedAt,
+    string CustomerCode,
+    string CustomerName,
+    string ContactName,
+    long? SellerId,
+    string SellerDisplay,
+    string ProductSummary,
+    long TotalQty,
+    long RevenueSnapshotVnd,
+    long CostSnapshotVnd,
+    long InstallerFeeSnapshotVnd,
+    string InstallerDisplay,
+    bool DeductStock,
+    string InvoiceNo,
+    string InvoiceStatus)
+{
+    public long GrossProfitSnapshotVnd => RevenueSnapshotVnd - CostSnapshotVnd - InstallerFeeSnapshotVnd;
+}
+public record SellerPeriodStatVm(
+    long SellerId,
+    string SellerCode,
+    string SellerName,
+    string Phone,
+    string Department,
+    long OrderCommissionRateVnd,
+    long RenewalCommissionRateVnd,
+    long CompletedOrderCount,
+    long CompletedDeviceQty,
+    long OrderRevenueSnapshotVnd,
+    long OrderCostSnapshotVnd,
+    long OrderInstallerFeeSnapshotVnd,
+    long RenewalCount,
+    long RenewalRevenueSnapshotVnd,
+    long InvoicedCommissionVnd)
+{
+    public long OrderGrossProfitVnd => OrderRevenueSnapshotVnd - OrderCostSnapshotVnd - OrderInstallerFeeSnapshotVnd;
+    public long TotalRevenueVnd => OrderRevenueSnapshotVnd + RenewalRevenueSnapshotVnd;
+    public long EstimatedOrderCommissionVnd => CompletedDeviceQty * OrderCommissionRateVnd;
+    public long EstimatedRenewalCommissionVnd => RenewalCount * RenewalCommissionRateVnd;
+    public long TotalEstimatedCommissionVnd => EstimatedOrderCommissionVnd + EstimatedRenewalCommissionVnd;
+}

@@ -52,6 +52,9 @@
     <button type="button" class="btn @(activeTab == "PAYMENTS" ? "" : "secondary")" @onclick='() => SetTab("PAYMENTS")'>
       5. Sổ Phiếu Thu / Chi (@payments.Count)
     </button>
+    <button type="button" class="btn @(activeTab == "SNAPSHOT_STATS" ? "" : "secondary")" @onclick='() => SetTab("SNAPSHOT_STATS")'>
+      6. Thống kê Snapshot Đơn hoàn thành &amp; Seller (@completedSnapshots.Count đơn · @sellerStats.Count Seller)
+    </button>
   </div>
 
   <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -189,10 +192,25 @@
           </select>
         </label>
       }
+      else if (newType == "COMMISSION")
+      {
+        <label>Chọn Seller thụ hưởng hoa hồng *
+          <select @bind="newSellerId" @bind:after="OnNewSellerPicked">
+            <option value="0">— Chọn Seller trong danh sách hoặc nhập bên cạnh —</option>
+            @foreach (var sl in sellerChoices)
+            {
+              <option value="@sl.Id">@sl.Code — @sl.Name [HH Đơn: @Money(sl.OrderCommissionVnd) · HH Gia hạn: @Money(sl.RenewalCommissionVnd)]</option>
+            }
+          </select>
+        </label>
+        <label>Tên người thụ hưởng (Seller / Sale) *
+          <input @bind="newPartnerLabel" placeholder="VD: Nguyễn Minh Anh (SL001)..." />
+        </label>
+      }
       else
       {
-        <label>Người thụ hưởng (Kỹ thuật / Sale / Đối tác) *
-          <input @bind="newPartnerLabel" placeholder="VD: Sale Nguyễn Minh Anh / Kỹ thuật Trần Văn B..." />
+        <label>Người thụ hưởng (Kỹ thuật / Đối tác) *
+          <input @bind="newPartnerLabel" placeholder="VD: Kỹ thuật Trần Văn B..." />
         </label>
       }
 
@@ -356,6 +374,156 @@
     </div>
   </section>
 }
+else if (activeTab == "SNAPSHOT_STATS")
+{
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <div>
+        <h2>6A. Thống kê Cuối kỳ theo Seller (Đơn hoàn thành + Gia hạn thiết bị → Chi hoa hồng)</h2>
+        <p>Tổng hợp số lượng thiết bị lắp đặt hoàn thành, số lượt gia hạn thiết bị và tổng hoa hồng dự kiến chi trả cho từng Seller trong kỳ.</p>
+      </div>
+      <a class="btn secondary" href="/catalog/sellers">Quản lý danh sách Seller →</a>
+    </div>
+
+    <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
+      <div class="stat">
+        <small>Doanh thu bán Snapshot</small>
+        <strong style="color:#0284c7">@Money(completedSnapshots.Sum(x => x.RevenueSnapshotVnd))</strong>
+        <span>@completedSnapshots.Count đơn hoàn thành (Đã khóa 🔒)</span>
+      </div>
+      <div class="stat">
+        <small>Giá vốn Snapshot</small>
+        <strong>@Money(completedSnapshots.Sum(x => x.CostSnapshotVnd))</strong>
+        <span>Giá nhập cố định tại thời điểm xuất</span>
+      </div>
+      <div class="stat">
+        <small>Công lắp Snapshot</small>
+        <strong class="orange">@Money(completedSnapshots.Sum(x => x.InstallerFeeSnapshotVnd))</strong>
+        <span>Định mức công kỹ thuật cố định</span>
+      </div>
+      <div class="stat">
+        <small>Lợi nhuận gộp Snapshot</small>
+        <strong style="color:#15803d">@Money(completedSnapshots.Sum(x => x.GrossProfitSnapshotVnd))</strong>
+        <span>Doanh thu − Giá vốn − Công lắp</span>
+      </div>
+      <div class="stat">
+        <small>Hoa hồng Seller dự kiến</small>
+        <strong style="color:#7c3aed">@Money(sellerStats.Sum(x => x.TotalEstimatedCommissionVnd))</strong>
+        <span>Đơn lắp + Gia hạn (@sellerStats.Sum(x => x.RenewalCount) lượt)</span>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>MÃ SELLER</th>
+            <th>NHÂN VIÊN BÁN HÀNG (SELLER)</th>
+            <th>BỘ PHẬN / KÊNH</th>
+            <th>ĐƠN HOÀN THÀNH</th>
+            <th>DOANH THU BÁN (SNAPSHOT)</th>
+            <th>LỢI NHUẬN GỘP (SNAPSHOT)</th>
+            <th>GIA HẠN THIẾT BỊ</th>
+            <th>DOANH THU GIA HẠN</th>
+            <th>HOA HỒNG DỰ KIẾN</th>
+            <th>THAO TÁC KẾ TOÁN</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var s in sellerStats)
+          {
+            <tr>
+              <td><strong>@s.SellerCode</strong></td>
+              <td><strong>@s.SellerName</strong></td>
+              <td><span class="chip">@(string.IsNullOrWhiteSpace(s.Department) ? "—" : s.Department)</span></td>
+              <td><strong>@s.CompletedOrderCount</strong> đơn (@s.CompletedDeviceQty SP)</td>
+              <td><strong style="color:#0284c7">@Money(s.OrderRevenueSnapshotVnd)</strong></td>
+              <td><strong style="color:#15803d">@Money(s.OrderGrossProfitVnd)</strong></td>
+              <td><span class="chip purple-chip">@s.RenewalCount lượt</span></td>
+              <td><strong>@Money(s.RenewalRevenueSnapshotVnd)</strong></td>
+              <td>
+                <strong style="color:#7c3aed">@Money(s.TotalEstimatedCommissionVnd)</strong>
+                <div><small style="color:#64748b">Đơn: @Money(s.OrderCommissionRateVnd)/SP · GH: @Money(s.RenewalCommissionRateVnd)/lượt</small></div>
+              </td>
+              <td>
+                @if (canPay && canOther)
+                {
+                  <button type="button" class="btn secondary btn-sm" @onclick="() => PrepareSellerCommissionInvoice(s)">
+                    + Lập phiếu Hoa hồng
+                  </button>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>6B. Sổ Chi tiết Đơn hàng Hoàn thành — Giá Cố Định Snapshot (Bất biến 🔒)</h2>
+        <p>Mọi đơn hàng đã hoàn thành đều bị khóa cứng (Immutable) và giữ nguyên đơn giá bán, giá vốn, công lắp đặt tại thời điểm phát sinh dù danh mục sản phẩm có thay đổi giá về sau.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select class="search-input" style="min-width:200px" @bind="snapshotSellerFilter">
+          <option value="">— Tất cả Seller —</option>
+          @foreach (var sl in sellerChoices)
+          {
+            <option value="@sl.Name">@sl.Code — @sl.Name</option>
+          }
+        </select>
+        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm mã đơn, KH, sản phẩm, Seller..." />
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>MÃ ĐƠN (LOCK)</th>
+            <th>KHÁCH HÀNG / CHỦ XE</th>
+            <th>SELLER PHỤ TRÁCH</th>
+            <th>SẢN PHẨM &amp; ĐƠN GIÁ SNAPSHOT</th>
+            <th>SL SP</th>
+            <th>DOANH THU SNAPSHOT</th>
+            <th>GIÁ VỐN SNAPSHOT</th>
+            <th>CÔNG LẮP SNAPSHOT</th>
+            <th>LỢI NHUẬN GỘP</th>
+            <th>NGÀY KÍCH HOẠT</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var o in FilteredSnapshots)
+          {
+            <tr>
+              <td>
+                <strong>@o.OrderCode</strong>
+                <div><span class="chip green-chip">🔒 Cố định</span></div>
+              </td>
+              <td>
+                <div><strong>@o.CustomerName</strong></div>
+                @if (!string.IsNullOrWhiteSpace(o.ContactName))
+                {
+                  <small>Khách lắp: @o.ContactName</small>
+                }
+              </td>
+              <td><span class="chip blue-chip">@o.SellerDisplay</span></td>
+              <td style="max-width:300px;font-size:12px;color:#334155">@o.ProductSummary</td>
+              <td><strong>@o.TotalQty</strong></td>
+              <td><strong style="color:#0284c7">@Money(o.RevenueSnapshotVnd)</strong></td>
+              <td>@Money(o.CostSnapshotVnd)</td>
+              <td>@Money(o.InstallerFeeSnapshotVnd)</td>
+              <td><strong style="color:@(o.GrossProfitSnapshotVnd >= 0 ? "#15803d" : "#dc2626")">@Money(o.GrossProfitSnapshotVnd)</strong></td>
+              <td>@(string.IsNullOrWhiteSpace(o.ActivatedAt) ? o.CompletedAt : o.ActivatedAt)</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}
 else
 {
   <section class="panel">
@@ -448,7 +616,7 @@ else
 @code {
   private string activeTab = "ALL";
   private bool showPay, showCreate;
-  private string search = "", statusFilter = "", message = "";
+  private string search = "", statusFilter = "", snapshotSellerFilter = "", message = "";
   private InvoiceVm? selectedInvoice;
 
   private List<InvoiceVm> invoices = [];
@@ -456,13 +624,16 @@ else
   private List<CustomerVm> customers = [];
   private List<ProductVm> products = [];
   private List<(long Id, string Name)> suppliers = [];
+  private List<SellerChoiceVm> sellerChoices = [];
+  private List<CompletedOrderSnapshotVm> completedSnapshots = [];
+  private List<SellerPeriodStatVm> sellerStats = [];
 
   private long invoiceId, amount = 100_000;
   private string method = "BANK";
 
   // Form lập chứng từ công nợ mới
   private string newType = "COMMISSION", newPartnerLabel = "", newDescription = "";
-  private long newSupplierId, newCustomerId, newProductId, newQty = 1, newUnitPrice = 200_000;
+  private long newSupplierId, newCustomerId, newSellerId, newProductId, newQty = 1, newUnitPrice = 200_000;
   private DateTime newDueDate = DateTime.Today.AddDays(15);
 
   private bool canPay, canExport, canCustomer, canRenewal, canSupplier, canOther;
@@ -471,6 +642,12 @@ else
   private IEnumerable<InvoiceVm> Payables => invoices.Where(x => !x.IsReceivable && x.Status != "VOID");
   private IEnumerable<InvoiceVm> OpenInvoicesForPayment => invoices.Where(x => x.Balance > 0 && x.Status != "VOID");
   private InvoiceVm? SelectedPayInvoice => invoices.FirstOrDefault(x => x.Id == invoiceId);
+
+  private IEnumerable<CompletedOrderSnapshotVm> FilteredSnapshots => completedSnapshots
+    .Where(x => string.IsNullOrWhiteSpace(snapshotSellerFilter) || x.SellerDisplay.Contains(snapshotSellerFilter, StringComparison.OrdinalIgnoreCase))
+    .Where(x => string.IsNullOrWhiteSpace(search) ||
+      (x.OrderCode + " " + x.CustomerName + " " + x.ContactName + " " + x.SellerDisplay + " " + x.ProductSummary)
+        .Contains(search, StringComparison.OrdinalIgnoreCase));
 
   private IEnumerable<InvoiceVm> FilteredInvoices => invoices
     .Where(x => activeTab switch
@@ -504,8 +681,14 @@ else
     customers = Db.Customers();
     products = Db.Products();
     suppliers = Db.Suppliers();
+    sellerChoices = Db.SellerChoices();
     if (suppliers.Count > 0) newSupplierId = suppliers[0].Id;
     if (customers.Count > 0) newCustomerId = customers[0].Id;
+    if (sellerChoices.Count > 0)
+    {
+      newSellerId = sellerChoices[0].Id;
+      newPartnerLabel = $"{sellerChoices[0].Name} ({sellerChoices[0].Code})";
+    }
     newType = canOther ? "COMMISSION" : canSupplier ? "PURCHASE" : "SALE";
     Reload();
   }
@@ -523,6 +706,9 @@ else
 
   private void Reload()
   {
+    sellerChoices = Db.SellerChoices();
+    completedSnapshots = Db.CompletedOrderSnapshots();
+    sellerStats = Db.SellerPeriodStats();
     invoices = Db.Invoices().Where(x => CanSeeType(x.Type)).ToList();
     payments = Db.Payments().Where(x => CanSeeType(x.InvoiceType)).ToList();
     var firstOpen = invoices.FirstOrDefault(x => x.Balance > 0 && x.Status != "VOID");
@@ -535,6 +721,29 @@ else
     {
       selectedInvoice = invoices.FirstOrDefault(x => x.Id == selectedInvoice.Id);
     }
+  }
+
+  private void OnNewSellerPicked()
+  {
+    var sl = sellerChoices.FirstOrDefault(x => x.Id == newSellerId);
+    if (sl is not null)
+    {
+      newPartnerLabel = $"{sl.Name} ({sl.Code})";
+      if (sl.OrderCommissionVnd > 0)
+        newUnitPrice = sl.OrderCommissionVnd;
+    }
+  }
+
+  private void PrepareSellerCommissionInvoice(SellerPeriodStatVm s)
+  {
+    newType = "COMMISSION";
+    newSellerId = s.SellerId;
+    newPartnerLabel = $"{s.SellerName} ({s.SellerCode})";
+    newQty = 1;
+    newUnitPrice = s.TotalEstimatedCommissionVnd > 0 ? s.TotalEstimatedCommissionVnd : Math.Max(100_000, s.OrderCommissionRateVnd);
+    newDescription = $"Chi hoa hồng cuối kỳ cho Seller {s.SellerName} ({s.SellerCode}): {s.CompletedDeviceQty} thiết bị hoàn thành + {s.RenewalCount} lượt gia hạn.";
+    showCreate = true;
+    showPay = false;
   }
 
   private void OnInvoicePicked()

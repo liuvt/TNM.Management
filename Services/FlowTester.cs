@@ -339,7 +339,7 @@ public static class FlowTester
                 // Công lắp: 2 * 135,000 + 1 * 30,000 = 300,000
                 Assert(orderRow.Status == "COMPLETED" && orderRow.Price == 3_420_000 && orderRow.Lines.Count == 3,
                     $"Đơn nhiều SP sai trạng thái, giá hoặc số dòng: {orderRow.Status}, Price={orderRow.Price}, Lines={orderRow.Lines.Count}");
-                Assert(orderRow.CustomerPhone == "0908888999" && orderRow.SaleSource == "Sale Nguyễn Minh Anh" && orderRow.InstallAt == "01/11/2026 09:30:00",
+                Assert(orderRow.CustomerPhone == "0908888999" && orderRow.SaleSource.Contains("Nguyễn Minh Anh") && orderRow.InstallAt == "01/11/2026 09:30:00",
                     "Thiếu thông tin SĐT KH, Nguồn Sale hoặc Thời gian lắp trên đơn hàng.");
                 Assert(orderRow.InstallerEmployeeId == installerId && orderRow.InstallerFee == 300_000,
                     $"Tổng công lắp đặt của nhân sự trên đơn nhiều SP không đúng: {orderRow.InstallerFee}");
@@ -382,27 +382,69 @@ public static class FlowTester
                 var devPartner = db.Devices().FirstOrDefault(d => d.Imei == "869999999999999");
                 Assert(devPartner is not null && devPartner.ActivatedAt == "2026-10-20" && devPartner.ExpiresAt == "2027-10-20",
                     $"Đơn PARTNER phải kích hoạt đúng Ngày kích hoạt 2026-10-20 -> 2027-10-20 (thực tế: {devPartner?.ActivatedAt} -> {devPartner?.ExpiresAt}).");
-                return $"Đơn SO7-{orderPartnerId:000000} (Hãng lắp - Không trừ kho) hoàn tất · Kích hoạt 2026-10-20 · Tồn kho giữ nguyên ({stockAfter} thiết bị).";
+                var allOrdersBeforePriceChange = v7Orders.List();
+                var completedInternalBefore = allOrdersBeforePriceChange.First(o => o.Id == orderInternalId);
+                Assert(completedInternalBefore.IsImmutable && completedInternalBefore.Price == 3_420_000,
+                    "Đơn hoàn thành phải bật cờ IsImmutable và giữ đúng giá Snapshot 3.420.000 ₫.");
+
+                // Kiểm tra khóa bất biến đơn hàng đã hoàn thành (COMPLETED_ORDER_IMMUTABLE) ở cả tầng C# và SQLite Trigger
+                AssertThrows(() => v7Orders.UpdateOrderInfo(ownerId, orderInternalId, "Sửa trái phép", "0900000000", "Địa chỉ mới", "02/11/2026", 24, "Hack", false, wh1Id, false, "Kỹ thuật khác", installerId, true),
+                    "Chặn cập nhật đơn hàng đã COMPLETED");
+                AssertThrows(() => v7Orders.Cancel(ownerId, orderInternalId),
+                    "Chặn hủy đơn hàng đã COMPLETED");
+                AssertThrows(() =>
+                {
+                    using var c = new SqliteConnection($"Data Source={dbPath};Foreign Keys=True");
+                    c.Open();
+                    using var cmd = c.CreateCommand();
+                    cmd.CommandText = "UPDATE v7_orders SET price_vnd = 9999999 WHERE id = $id";
+                    cmd.Parameters.AddWithValue("$id", orderInternalId);
+                    cmd.ExecuteNonQuery();
+                }, "SQLite Trigger trg_v7_orders_lock_completed_update");
+
+                // Thay đổi giá sản phẩm theo thị trường trong tương lai -> Đơn hoàn thành vẫn giữ nguyên giá cố định Snapshot
+                catalog.SetSupplierGroupPrice(ownerId, supGroupId, imeiProdId, 1_350_000, DateTime.Today);
+                catalog.SetCustomerGroupPrice(ownerId, custGroupId, imeiProdId, 2_400_000, 2_600_000, 800_000, DateTime.Today);
+
+                var completedInternalAfter = v7Orders.List().First(o => o.Id == orderInternalId);
+                Assert(completedInternalAfter.Price == 3_420_000 && completedInternalAfter.CostSnapshot == completedInternalBefore.CostSnapshot && completedInternalAfter.GrossProfitSnapshot == completedInternalBefore.GrossProfitSnapshot,
+                    $"Khi giá sản phẩm thay đổi trong tương lai, đơn hoàn thành phải giữ nguyên giá cố định Snapshot (Price={completedInternalAfter.Price}, Cost={completedInternalAfter.CostSnapshot}).");
+
+                return $"Đơn SO7-{orderPartnerId:000000} hoàn tất · Khóa bất biến đơn COMPLETED & Bảo toàn Giá cố định Snapshot khi giá SP thị trường thay đổi.";
             });
 
             // =========================================================================
-            // 7. GIA HẠN THUÊ BAO, CÔNG NỢ & THANH TOÁN
+            // 7. QUẢN LÝ SELLER, GIA HẠN THIẾT BỊ CHỌN SELLER & THỐNG KÊ KẾ TOÁN CUỐI KỲ
             // =========================================================================
-            Step("7. Gia hạn & Công nợ", "Gia hạn thuê bao 12 tháng (Ghi nợ & Tiền mặt) + Hạch toán thu nợ Hóa đơn", () =>
+            Step("7. Gia hạn & Công nợ", "Quản lý Seller, Gia hạn thuê bao 12 tháng gắn Seller + Thống kê Kế toán Snapshot cuối kỳ", () =>
             {
                 db.ActorId = ownerId;
+                var newSellerId = catalog.SaveSeller(ownerId, null, "", "Seller Lê Hoàng Nam", "0918222333", "Phòng Kinh doanh B2B", 150_000, 90_000, "Chuyên HTX & Gia hạn");
+                var sellerList = catalog.Sellers();
+                var createdSeller = sellerList.First(s => s.Id == newSellerId);
+                Assert(createdSeller.Code.StartsWith("SL"), $"Mã Seller tự sinh không hợp lệ: {createdSeller.Code}");
+
                 var dev1 = db.Devices().First(d => d.Imei == "860000000000001");
                 var oldExp = DateTime.Parse(dev1.ExpiresAt);
 
-                // Gia hạn bằng CASH -> Hóa đơn RENEWAL phải tự động PAID
-                db.Renew(dev1.ActivationId, "TNM", "CASH");
+                // Gia hạn bằng CASH & chọn Seller Lê Hoàng Nam -> Hóa đơn RENEWAL lưu giá cố định Snapshot và ghi nhận Seller gia hạn
+                db.Renew(dev1.ActivationId, "TNM", "CASH", createdSeller.Id, createdSeller.Name);
                 var dev1After = db.Devices().First(d => d.ActivationId == dev1.ActivationId);
                 var newExp = DateTime.Parse(dev1After.ExpiresAt);
                 Assert(newExp.Year == oldExp.Year + 1, $"Hạn mới phải cộng thêm 1 năm: {dev1.ExpiresAt} -> {dev1After.ExpiresAt}");
 
+                var latestRenewal = db.Renewals().First(r => r.Imei == "860000000000001");
+                Assert(latestRenewal.SellerId == createdSeller.Id && latestRenewal.SellerName.Contains(createdSeller.Name),
+                    $"Lịch sử gia hạn phải ghi nhận đúng Seller gia hạn: {latestRenewal.SellerName}");
+
                 var renewInv = db.Invoices().First(i => i.Type == "RENEWAL");
-                Assert(renewInv.Status == "PAID" && renewInv.Balance == 0 && renewInv.Total == 500_000,
-                    $"Hóa đơn gia hạn CASH phải PAID ngay: Status={renewInv.Status}, Balance={renewInv.Balance}");
+                Assert(renewInv.Status == "PAID" && renewInv.Balance == 0 && renewInv.Total == latestRenewal.Price,
+                    $"Hóa đơn gia hạn CASH phải PAID ngay với giá Snapshot {latestRenewal.Price:N0} ₫: Status={renewInv.Status}, Balance={renewInv.Balance}");
+
+                var snapshots = db.CompletedOrderSnapshots();
+                var sellerPeriodStats = db.SellerPeriodStats();
+                Assert(snapshots.Count >= 2 && sellerPeriodStats.Any(s => s.SellerId == createdSeller.Id && s.RenewalCount >= 1 && s.TotalEstimatedCommissionVnd >= 90_000),
+                    "Thống kê Kế toán cuối kỳ phải tổng hợp đầy đủ Đơn hàng hoàn thành Snapshot và Hoa hồng gia hạn theo Seller.");
 
                 // Thanh toán 1 phần rồi thanh toán hết cho hóa đơn SALE
                 var saleInv = db.Invoices().First(i => i.Type == "SALE" && i.Status == "OPEN" && i.Total == 3_420_000);

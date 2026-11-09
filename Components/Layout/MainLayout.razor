@@ -48,6 +48,11 @@
                         <NavLink class="nav-child" href="/catalog/customer-groups"><span>Nhóm khách hàng</span></NavLink>
                         <NavLink class="nav-child" href="/catalog/customers"><span>Thông tin khách hàng</span></NavLink>
                     }
+                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.CustomersView) || Accounts.HasPermission(nav.User, Permissions.OrdersView))
+                    {
+                        <div class="nav-group-label"><AppIcon Name="users" /> <span>Seller (NV bán hàng)</span></div>
+                        <NavLink class="nav-child" href="/catalog/sellers"><span>Quản lý &amp; Thống kê Seller</span></NavLink>
+                    }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.PricesView))
                     {
                         <div class="nav-group-label"><AppIcon Name="wrench" /> <span>Người lắp đặt</span></div>

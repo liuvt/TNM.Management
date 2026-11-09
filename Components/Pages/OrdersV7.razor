@@ -17,6 +17,7 @@
         <button type="button" class="btn secondary" @onclick="() => showQuickPaste = !showQuickPaste">
             @(showQuickPaste ? "Đóng · 📋 Dán tin nhắn Seller" : "📋 Dán nhanh tin nhắn Seller")
         </button>
+        <a class="btn secondary" href="/catalog/sellers">Quản lý Seller →</a>
         <a class="btn secondary" href="/inventory">Kiểm tra tồn kho →</a>
         <a class="btn secondary" href="/catalog/installers">Khai báo ĐV lắp đặt →</a>
     </div>
@@ -47,7 +48,7 @@
     <div class="panel-head">
         <div>
             <h2>1. Tạo đơn hàng &amp; Điều sản phẩm ở kho (CSKH)</h2>
-            <p>Nhập thông tin khách lắp đặt từ Seller và chọn Kho điều sản phẩm, Đơn vị lắp đặt hoặc Hãng lắp đặt. Tồn kho chưa bị trừ ở bước tạo đơn.</p>
+            <p>Nhập thông tin khách lắp đặt từ Seller và chọn Kho điều sản phẩm, Đơn vị lắp đặt hoặc Hãng lắp đặt. Đơn giá sản phẩm được chụp cố định (Snapshot) và tồn kho chưa bị trừ ở bước tạo đơn.</p>
         </div>
     </div>
 
@@ -93,10 +94,19 @@
         <label>Địa chỉ lắp đặt *
             <input @bind="address" placeholder="VD: 55 đường 30/4..." />
         </label>
-        <label>Nguồn KH / Tên Seller
-            <input @bind="saleSource" placeholder="VD: Sale Minh Anh / HTX Nam Hi..." />
+        <label>Nhân viên bán hàng (Seller) *
+            <select @bind="createSellerId" @bind:after="OnCreateSellerChanged">
+                <option value="0">— Chọn nhân viên bán hàng (Seller) —</option>
+                @foreach(var sl in sellerChoices)
+                {
+                    <option value="@sl.Id">@sl.Code — @sl.Name</option>
+                }
+            </select>
         </label>
-        <label style="grid-column:span 2">Ghi chú đơn hàng
+        <label>Nguồn KH / Ghi chú Seller
+            <input @bind="saleSource" placeholder="Tự động điền theo Seller hoặc ghi chú thêm..." />
+        </label>
+        <label>Ghi chú đơn hàng
             <input @bind="notes" placeholder="VD: không thu tiền, khi đến địa chỉ lắp liên hệ sdt: 0886287429" />
         </label>
         <label class="checkbox-row">
@@ -339,17 +349,35 @@
 
     @if(SelectedOrder is not null)
     {
+        @if(SelectedOrder.IsImmutable)
+        {
+            <div style="margin-top:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
+                🔒 Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành (COMPLETED): Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn snapshot (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), Seller (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã được khóa cố định, không thể thay đổi.
+            </div>
+        }
         <div style="margin-top:0.85rem;padding:0.75rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px">
-            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> (CSKH có thể cập nhật)</h3>
+            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, Seller &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã khóa cố định)" : "(CSKH có thể cập nhật)")</h3>
             <div class="form-grid">
                 <label>Họ tên khách (Chủ xe / Người liên hệ)
-                    <input @bind="editContactName" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
+                    <input @bind="editContactName" disabled="@SelectedOrder.IsImmutable" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
                 </label>
                 <label>Số điện thoại khách
-                    <input @bind="editCustomerPhone" placeholder="VD: 0886287429" />
+                    <input @bind="editCustomerPhone" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 0886287429" />
+                </label>
+                <label>Nhân viên bán hàng (Seller)
+                    <select @bind="editSellerId" @bind:after="OnEditSellerChanged" disabled="@SelectedOrder.IsImmutable">
+                        <option value="0">— Chọn Seller bán hàng —</option>
+                        @foreach(var sl in sellerChoices)
+                        {
+                            <option value="@sl.Id">@sl.Code — @sl.Name</option>
+                        }
+                    </select>
+                </label>
+                <label>Nguồn KH / Ghi chú Seller
+                    <input @bind="editSaleSource" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi nhận người bán..." />
                 </label>
                 <label>Thời hạn
-                    <select @bind="editDurationMonths">
+                    <select @bind="editDurationMonths" disabled="@SelectedOrder.IsImmutable">
                         <option value="12">1 năm (12 tháng)</option>
                         <option value="24">2 năm (24 tháng)</option>
                         <option value="36">3 năm (36 tháng)</option>
@@ -357,13 +385,13 @@
                     </select>
                 </label>
                 <label>Thời gian lắp đặt
-                    <input @bind="editInstallAt" placeholder="VD: 15g00 thứ 3 ( 20/10/2026)" />
+                    <input @bind="editInstallAt" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 15g00 thứ 3 ( 20/10/2026)" />
                 </label>
                 <label>Địa chỉ lắp đặt
-                    <input @bind="editAddress" placeholder="VD: 55 đường 30/4" />
+                    <input @bind="editAddress" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 55 đường 30/4" />
                 </label>
                 <label>Ghi chú đơn hàng
-                    <input @bind="editNotes" placeholder="Ghi chú..." />
+                    <input @bind="editNotes" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi chú..." />
                 </label>
             </div>
         </div>
@@ -377,7 +405,7 @@
                 <div style="display:flex;align-items:center;gap:0.75rem;background:#eff6ff;padding:0.45rem 0.85rem;border-radius:8px;border:1px solid #bfdbfe">
                     <label style="margin:0;display:flex;align-items:center;gap:0.4rem;font-weight:600;color:#1e3a8a">
                         <span>📅 Ngày kích hoạt IMEI *:</span>
-                        <input type="date" @bind="activationDateInput" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
+                        <input type="date" @bind="activationDateInput" disabled="@SelectedOrder.IsImmutable" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
                     </label>
                     <span class="chip blue-chip">Hết hạn dự kiến: @activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy") (@(editDurationMonths == 12 ? "1 năm" : $"{editDurationMonths} tháng"))</span>
                 </div>
@@ -392,7 +420,7 @@
 
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>#</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
+                    <thead><tr><th>#</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán (Snapshot)</th><th>Công lắp (Snapshot)</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
                     <tbody>
                         @for(int i = 0; i < SelectedOrder.Lines.Count; i++)
                         {
@@ -413,18 +441,18 @@
                                     }
                                 </td>
                                 <td><strong>@ln.Quantity</strong></td>
-                                <td>@ln.UnitPrice.ToString("N0") ₫</td>
+                                <td><strong>@ln.UnitPrice.ToString("N0") ₫</strong></td>
                                 <td>@ln.InstallerFee.ToString("N0") ₫</td>
                                 @if(ln.IsSerialized)
                                 {
                                     <td>
-                                        <input list="in-stock-imeis-list" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @(i + 1)" />
+                                        <input list="in-stock-imeis-list" disabled="@SelectedOrder.IsImmutable" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @(i + 1)" />
                                     </td>
                                     <td>
-                                        <input value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
+                                        <input disabled="@SelectedOrder.IsImmutable" value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
                                     </td>
                                     <td>
-                                        <input value="@rep.VinNo" @oninput="e => SetLineReport(ln.Id, null, null, e.Value?.ToString() ?? string.Empty)" placeholder="Thông tin phụ, số khung, xe Đỗ Văn Hội..." />
+                                        <input disabled="@SelectedOrder.IsImmutable" value="@rep.VinNo" @oninput="e => SetLineReport(ln.Id, null, null, e.Value?.ToString() ?? string.Empty)" placeholder="Thông tin phụ, số khung, xe Đỗ Văn Hội..." />
                                     </td>
                                 }
                                 else
@@ -440,10 +468,10 @@
     }
 
     <div class="form-actions" style="flex-wrap:wrap;gap:0.5rem">
-        <button class="btn secondary" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
-        <button class="btn secondary" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
-        <button class="btn" @onclick="Complete">3. Hoàn thành đơn &amp; Kích hoạt IMEI @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho)")</button>
-        <button class="btn secondary" @onclick="Cancel">Hủy đơn</button>
+        <button class="btn secondary" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
+        <button class="btn secondary" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
+        <button class="btn" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="Complete">3. Hoàn thành đơn &amp; Kích hoạt IMEI @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho)")</button>
+        <button class="btn secondary" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="Cancel">Hủy đơn</button>
     </div>
 </section>
 
@@ -456,7 +484,7 @@
     <div class="panel-head">
         <div>
             <h2>Danh sách đơn hàng lắp đặt (SO)</h2>
-            <p>Theo dõi trạng thái đơn, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt, chế độ Trừ tồn kho và Ngày kích hoạt IMEI.</p>
+            <p>Theo dõi trạng thái đơn, Seller bán hàng, thông tin khách lắp, giá cố định Snapshot, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
         </div>
     </div>
     <div class="table-wrap">
@@ -465,8 +493,9 @@
                 <tr>
                     <th>Mã đơn</th>
                     <th>Đơn vị (HTX/ĐL) &amp; Khách lắp</th>
+                    <th>Seller (Người bán)</th>
                     <th>Sản phẩm &amp; Thời hạn</th>
-                    <th>Tổng tiền</th>
+                    <th>Giá bán (Snapshot)</th>
                     <th>Thời gian &amp; Địa chỉ lắp</th>
                     <th>Trạng thái</th>
                     <th>Kho &amp; Chế độ tồn kho</th>
@@ -478,7 +507,13 @@
                 @foreach(var o in orders)
                 {
                     <tr style="@(o.Id == selected ? "background:#f0f9ff" : "")" @onclick="() => SelectOrderRow(o.Id)">
-                        <td><strong>@o.Code</strong></td>
+                        <td>
+                            <div><strong>@o.Code</strong></div>
+                            @if(o.IsImmutable)
+                            {
+                                <small style="color:#15803d;font-weight:600" title="Đơn đã hoàn thành và khóa cố định giá snapshot">🔒 Khóa Snapshot</small>
+                            }
+                        </td>
                         <td>
                             <div><strong>@o.CustomerB2BDisplay</strong> @(!string.IsNullOrWhiteSpace(o.CustomerCode) ? $"({o.CustomerCode})" : "")</div>
                             @if(!string.IsNullOrWhiteSpace(o.ContactName))
@@ -488,10 +523,26 @@
                             <small>SĐT: @(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</small>
                         </td>
                         <td>
+                            @if(!string.IsNullOrWhiteSpace(o.SaleSource))
+                            {
+                                <span class="chip blue-chip">@o.SaleSource</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                        <td>
                             <div><strong>@o.Product</strong></div>
                             <span class="chip">Thời hạn: @o.DurationDisplay</span>
                         </td>
-                        <td><strong>@o.Price.ToString("N0") ₫</strong></td>
+                        <td>
+                            <div><strong>@o.Price.ToString("N0") ₫</strong></div>
+                            @if(o.CostSnapshot > 0)
+                            {
+                                <small style="color:#64748b">Giá vốn: @o.CostSnapshot.ToString("N0") ₫</small>
+                            }
+                        </td>
                         <td>
                             <div><strong>@(string.IsNullOrWhiteSpace(o.InstallAt) ? "—" : o.InstallAt)</strong></div>
                             <small>@(string.IsNullOrWhiteSpace(o.InstallAddress) ? "—" : o.InstallAddress)</small>
@@ -551,6 +602,7 @@
     private List<StockVm> inStockUnits = [];
     private List<WarehousePick> warehouses = [];
     private List<InputCatalog.Installer> installers = [];
+    private List<InputCatalog.Choice> sellerChoices = [];
     private List<(long Id, string Name)> suppliers = [];
     private readonly List<V7OrderLineDraft> draftLines = [];
     private readonly Dictionary<long, LineReportInput> lineReports = [];
@@ -559,17 +611,17 @@
     private string sellerRawText = "";
 
     // Create form state
-    private long customer, product, draftQty = 1, durationMonths = 12, createWarehouse, createInstallerEmpId;
+    private long customer, product, draftQty = 1, durationMonths = 12, createWarehouse, createInstallerEmpId, createSellerId;
     private bool cod, createNoDeductStock;
     private string contactName = "", customerPhone = "", saleSource = "", address = "", notes = "";
     private string installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
     private string createSource = "INTERNAL", createInstallerName = "";
 
     // Edit / Process form state
-    private long selected, warehouse, installerEmployeeId, editDurationMonths = 12;
+    private long selected, warehouse, installerEmployeeId, editDurationMonths = 12, editSellerId;
     private bool noDeductStock, editCod;
     private string installer = "", source = "INTERNAL", message = "";
-    private string editContactName = "", editCustomerPhone = "", editInstallAt = "", editAddress = "", editNotes = "";
+    private string editContactName = "", editCustomerPhone = "", editInstallAt = "", editAddress = "", editNotes = "", editSaleSource = "";
     private DateTime activationDateInput = DateTime.Today;
 
     private CustomerVm? SelectedCustomer => customers.FirstOrDefault(x => x.Id == customer);
@@ -580,11 +632,17 @@
         customers = Db.Customers();
         warehouses = Ops.AllWarehouses();
         installers = Catalog.Installers();
+        sellerChoices = Catalog.SellerChoices();
         suppliers = Db.Suppliers();
         if (warehouses.Count > 0)
         {
             createWarehouse = warehouses[0].Id;
             warehouse = warehouses[0].Id;
+        }
+        if (sellerChoices.Count > 0)
+        {
+            createSellerId = sellerChoices[0].Id;
+            saleSource = sellerChoices[0].Name;
         }
         installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
         Refresh();
@@ -592,6 +650,7 @@
 
     private void Refresh()
     {
+        sellerChoices = Catalog.SellerChoices();
         products = Db.Products();
         inStockUnits = Db.Stock().Where(s => s.Status == "IN_STOCK").ToList();
         orders = Orders.List();
@@ -665,6 +724,8 @@
                 if (matchedCust is not null)
                 {
                     customer = matchedCust.Id;
+                    if (matchedCust.SellerId is > 0)
+                        createSellerId = matchedCust.SellerId.Value;
                     if (string.IsNullOrWhiteSpace(saleSource))
                         saleSource = !string.IsNullOrWhiteSpace(matchedCust.Source) ? matchedCust.Source : matchedCust.Name;
                 }
@@ -684,8 +745,35 @@
         if (c is not null)
         {
             if (string.IsNullOrWhiteSpace(customerPhone)) customerPhone = c.Phone;
-            if (string.IsNullOrWhiteSpace(saleSource)) saleSource = c.Source;
+            if (c.SellerId is > 0)
+            {
+                createSellerId = c.SellerId.Value;
+                var sl = sellerChoices.FirstOrDefault(s => s.Id == c.SellerId.Value);
+                saleSource = sl is not null ? sl.Name : c.Source;
+            }
+            else if (string.IsNullOrWhiteSpace(saleSource))
+            {
+                saleSource = c.Source;
+            }
             if (string.IsNullOrWhiteSpace(address) && !string.IsNullOrWhiteSpace(c.Address)) address = c.Address;
+        }
+    }
+
+    private void OnCreateSellerChanged()
+    {
+        var sl = sellerChoices.FirstOrDefault(x => x.Id == createSellerId);
+        if (sl is not null)
+        {
+            saleSource = sl.Name;
+        }
+    }
+
+    private void OnEditSellerChanged()
+    {
+        var sl = sellerChoices.FirstOrDefault(x => x.Id == editSellerId);
+        if (sl is not null)
+        {
+            editSaleSource = sl.Name;
         }
     }
 
@@ -806,6 +894,8 @@
             installer = o.Installer ?? "";
             source = o.Source;
             noDeductStock = !o.DeductStock;
+            editSellerId = o.SellerRecordId ?? 0;
+            editSaleSource = o.SaleSource;
             editContactName = o.ContactName;
             editCustomerPhone = o.CustomerPhone;
             editDurationMonths = o.DurationMonths > 0 ? o.DurationMonths : 12;
@@ -918,13 +1008,14 @@
             isPartner,
             createInstallerName,
             createInstallerEmpId > 0 ? createInstallerEmpId : null,
-            deduct);
+            deduct,
+            createSellerId > 0 ? createSellerId : null);
         draftLines.Clear();
         product = 0;
         draftQty = 1;
         selected = createdId;
         OnOrderSelected();
-        return $"Đã tạo đơn SO7-{createdId:000000} (chưa trừ tồn kho). Khi ĐV lắp đặt gửi IMEI về, hãy nhập IMEI, chọn Ngày kích hoạt và bấm '3. Hoàn thành đơn & Kích hoạt IMEI'.";
+        return $"Đã tạo đơn SO7-{createdId:000000} (chưa trừ tồn kho, đã chụp giá cố định Snapshot). Khi ĐV lắp đặt gửi IMEI về, hãy nhập IMEI, chọn Ngày kích hoạt và bấm '3. Hoàn thành đơn & Kích hoạt IMEI'.";
     });
 
     private Task SaveOrderAndDispatch() => Act(actor =>
@@ -944,7 +1035,9 @@
             source == "PARTNER",
             installer,
             installerEmployeeId > 0 ? installerEmployeeId : null,
-            !noDeductStock);
+            !noDeductStock,
+            editSellerId > 0 ? editSellerId : null,
+            editSaleSource);
         return $"Đã cập nhật thông tin & điều phối đơn SO7-{selected:000000} (Tồn kho chỉ trừ khi bấm Hoàn thành đơn).";
     });
 
@@ -986,7 +1079,9 @@
             source == "PARTNER",
             effInstaller,
             installerEmployeeId > 0 ? installerEmployeeId : null,
-            !noDeductStock);
+            !noDeductStock,
+            editSellerId > 0 ? editSellerId : null,
+            editSaleSource);
 
         if (o.Lines.Any(x => x.IsSerialized))
         {
