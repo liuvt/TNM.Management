@@ -89,7 +89,7 @@ public sealed class DemoDb
     private void Log(SqliteConnection c, SqliteTransaction tx, string action, string entity,
         long entityId, string message) => Exec(c, tx,
         "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,$a,$e,$id,$d)",
-        ("$actor",ActorId),("$a",action),("$e",entity),("$id",entityId),("$d",message));
+        ("$actor",ActorId > 0 ? ActorId : null),("$a",action),("$e",entity),("$id",entityId),("$d",message));
 
     public void Initialize()
     {
@@ -638,16 +638,329 @@ public sealed class DemoDb
         using var c = Open();
         return N(c, null, @"SELECT
          (SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE invoice_type IN ('SALE','RENEWAL') AND status!='VOID' AND deleted_at IS NULL)
-         - COALESCE(
-             NULLIF((SELECT COALESCE(SUM(l.unit_cost_snapshot_vnd * l.quantity),0) FROM v7_order_lines l JOIN v7_orders o ON o.id=l.order_id WHERE o.status='COMPLETED' AND o.deleted_at IS NULL AND l.deleted_at IS NULL), 0),
-             (SELECT COALESCE(SUM(unit_cost_snapshot_vnd),0) FROM v7_orders WHERE status='COMPLETED' AND deleted_at IS NULL)
+         - (
+             COALESCE(
+               NULLIF((SELECT COALESCE(SUM(l.unit_cost_snapshot_vnd * l.quantity),0) FROM v7_order_lines l JOIN v7_orders o ON o.id=l.order_id WHERE o.status='COMPLETED' AND o.deleted_at IS NULL AND l.deleted_at IS NULL), 0),
+               (SELECT COALESCE(SUM(unit_cost_snapshot_vnd),0) FROM v7_orders WHERE status='COMPLETED' AND deleted_at IS NULL),
+               0
+             )
+             + COALESCE(
+               (SELECT SUM(il.quantity * COALESCE(p.base_cost_vnd, 0))
+                FROM invoices i
+                JOIN invoice_lines il ON il.invoice_id=i.id
+                LEFT JOIN products p ON p.id=il.product_id
+                WHERE i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status!='VOID' AND i.deleted_at IS NULL AND il.deleted_at IS NULL),
+               0
+             )
            )");
+    }
+
+    public (int PurchaseCreated, int SaleCreated, int RenewalCreated, int ServiceCreated) ReconcileAccountingData()
+    {
+        return Tx((c, t) =>
+        {
+            int purchaseCreated = 0, saleCreated = 0, renewalCreated = 0, serviceCreated = 0;
+
+            // 1A. Đối soát đơn mua hàng PO đã nhận (RECEIVED) nhưng chưa có chứng từ PURCHASE
+            var missingPos = QueryTx(c, t, @"
+                SELECT po.id, po.po_no, po.supplier_id
+                FROM purchase_orders po
+                WHERE po.status='RECEIVED' AND po.deleted_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoices i
+                      WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                        AND i.supplier_id=po.supplier_id
+                        AND i.notes LIKE '%'||po.po_no||'%'
+                        AND i.deleted_at IS NULL AND i.status<>'VOID'
+                  )",
+                r => (Id: L(r, 0), PoNo: S(r, 1), SupId: L(r, 2)));
+
+            foreach (var po in missingPos)
+            {
+                var poLines = QueryTx(c, t, @"
+                    SELECT l.product_id, l.quantity, l.unit_cost_vnd, p.sku||' · '||p.name
+                    FROM purchase_order_lines l JOIN products p ON p.id=l.product_id
+                    WHERE l.po_id=$po AND l.deleted_at IS NULL",
+                    r => (ProdId: L(r, 0), Qty: L(r, 1), Cost: L(r, 2), Label: S(r, 3)),
+                    ("$po", po.Id));
+                var totalCost = poLines.Sum(x => x.Qty * x.Cost);
+                if (totalCost <= 0) continue;
+                var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                    ("$no", invNo), ("$sup", po.SupId), ("$amt", totalCost), ("$note", $"Nhập hàng theo {po.PoNo}"));
+                var invId = N(c, t, "SELECT last_insert_rowid()");
+                foreach (var ln in poLines)
+                {
+                    Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                        VALUES($i,$d,$p,$q,$c)",
+                        ("$i", invId), ("$d", $"Nhập kho {po.PoNo}: {ln.Label}"), ("$p", ln.ProdId), ("$q", ln.Qty), ("$c", ln.Cost));
+                }
+                purchaseCreated++;
+            }
+
+            // 1B. Đối soát tồn kho / thiết bị IMEI (stock_units) & lô nhập kho số lượng (quantity_movements) chưa có chứng từ PURCHASE
+            var pendingPurchaseBySup = new Dictionary<long, List<(long ProductId, string Label, long Qty, long UnitCost)>>();
+
+            var stockBySupProd = QueryTx(c, t, @"
+                SELECT u.supplier_id, u.product_id, p.sku||' — '||p.name, COUNT(*) AS stock_qty,
+                       COALESCE(
+                           NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.supplier_group_id=s.group_id AND gp.product_id=u.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           NULLIF((SELECT gp2.unit_cost_vnd FROM v7_supplier_group_prices gp2 WHERE gp2.product_id=u.product_id AND gp2.deleted_at IS NULL ORDER BY gp2.effective_from DESC, gp2.id DESC LIMIT 1), 0),
+                           p.base_cost_vnd,
+                           0
+                       ) AS unit_cost
+                FROM stock_units u
+                JOIN suppliers s ON s.id=u.supplier_id
+                JOIN products p ON p.id=u.product_id
+                WHERE u.deleted_at IS NULL AND s.deleted_at IS NULL AND u.supplier_id IS NOT NULL
+                GROUP BY u.supplier_id, u.product_id",
+                r => (SupId: L(r, 0), ProdId: L(r, 1), Label: S(r, 2), StockQty: L(r, 3), UnitCost: L(r, 4)));
+
+            foreach (var prodGroup in stockBySupProd.GroupBy(x => x.ProdId))
+            {
+                var totalStockForProd = prodGroup.Sum(x => x.StockQty);
+                var totalInvoicedForProd = N(c, t, @"
+                    SELECT COALESCE(SUM(il.quantity), 0)
+                    FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
+                    WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                      AND il.product_id=$prod
+                      AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
+                    ("$prod", prodGroup.Key));
+                var remainingForProd = totalStockForProd - totalInvoicedForProd;
+                if (remainingForProd <= 0) continue;
+
+                foreach (var row in prodGroup)
+                {
+                    if (remainingForProd <= 0) break;
+                    var supInvoicedQty = N(c, t, @"
+                        SELECT COALESCE(SUM(il.quantity), 0)
+                        FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
+                        WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                          AND i.supplier_id=$sup AND il.product_id=$prod
+                          AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
+                        ("$sup", row.SupId), ("$prod", row.ProdId));
+                    var missingQty = Math.Min(remainingForProd, row.StockQty - supInvoicedQty);
+                    if (missingQty > 0 && row.UnitCost > 0)
+                    {
+                        if (!pendingPurchaseBySup.TryGetValue(row.SupId, out var list))
+                        {
+                            list = [];
+                            pendingPurchaseBySup[row.SupId] = list;
+                        }
+                        list.Add((row.ProdId, $"Nhập thiết bị IMEI ({row.Label})", missingQty, row.UnitCost));
+                        remainingForProd -= missingQty;
+                    }
+                }
+            }
+
+            var qtyReceipts = QueryTx(c, t, @"
+                SELECT q.product_id, p.sku||' — '||p.name, SUM(q.delta_qty) AS total_in_qty,
+                       COALESCE(
+                           (SELECT s.id FROM suppliers s JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=q.product_id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, s.id LIMIT 1),
+                           (SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1),
+                           0
+                       ) AS resolved_sup_id,
+                       COALESCE(
+                           NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=q.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           p.base_cost_vnd,
+                           0
+                       ) AS unit_cost
+                FROM quantity_movements q
+                JOIN products p ON p.id=q.product_id
+                WHERE q.deleted_at IS NULL AND p.is_serialized=0 AND q.delta_qty > 0
+                  AND q.movement_type IN ('OPENING','RECEIVE','PURCHASE_RECEIVE')
+                GROUP BY q.product_id",
+                r => (ProdId: L(r, 0), Label: S(r, 1), InQty: L(r, 2), SupId: L(r, 3), UnitCost: L(r, 4)));
+
+            foreach (var row in qtyReceipts)
+            {
+                if (row.SupId <= 0 || row.UnitCost <= 0) continue;
+                var invoicedQty = N(c, t, @"
+                    SELECT COALESCE(SUM(il.quantity), 0)
+                    FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
+                    WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                      AND il.product_id=$prod
+                      AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
+                    ("$prod", row.ProdId));
+                var missingQty = row.InQty - invoicedQty;
+                if (missingQty > 0)
+                {
+                    if (!pendingPurchaseBySup.TryGetValue(row.SupId, out var list))
+                    {
+                        list = [];
+                        pendingPurchaseBySup[row.SupId] = list;
+                    }
+                    list.Add((row.ProdId, $"Nhập kho hàng hóa ({row.Label})", missingQty, row.UnitCost));
+                }
+            }
+
+            foreach (var (supId, lines) in pendingPurchaseBySup)
+            {
+                var totalAmt = lines.Sum(x => x.Qty * x.UnitCost);
+                if (totalAmt <= 0) continue;
+                var supCode = QueryTx(c, t, "SELECT code||' — '||name FROM suppliers WHERE id=$id", r => S(r, 0), ("$id", supId)).FirstOrDefault() ?? $"NCC#{supId}";
+                var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                var note = $"Công nợ nhập hàng / tồn kho NCC ({supCode} · {lines.Sum(x => x.Qty):N0} SP)";
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                    ("$no", invNo), ("$sup", supId), ("$amt", totalAmt), ("$note", note));
+                var invId = N(c, t, "SELECT last_insert_rowid()");
+                foreach (var ln in lines)
+                {
+                    Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                        VALUES($i,$d,$p,$q,$c)",
+                        ("$i", invId), ("$d", ln.Label), ("$p", ln.ProductId), ("$q", ln.Qty), ("$c", ln.UnitCost));
+                }
+                purchaseCreated++;
+            }
+
+            // 2A. Đối soát đơn hàng đã hoàn thành (v7_orders COMPLETED) nhưng chưa có chứng từ SALE / SERVICE
+            var completedOrders = QueryTx(c, t, @"
+                SELECT o.id, o.code, o.customer_id, o.unit_price_vnd, COALESCE(o.installer_fee_vnd,0), COALESCE(o.installer,'')
+                FROM v7_orders o
+                WHERE o.status='COMPLETED' AND o.deleted_at IS NULL",
+                r => (Id: L(r, 0), Code: S(r, 1), CustId: L(r, 2), TotalPrice: L(r, 3), Fee: L(r, 4), Installer: S(r, 5)));
+
+            foreach (var ord in completedOrders)
+            {
+                if (ord.TotalPrice > 0 && N(c, t, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND invoice_type='SALE' AND deleted_at IS NULL AND status<>'VOID'", ("$o", ord.Id)) == 0)
+                {
+                    var invNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                    Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,due_at,amount_vnd,notes)
+                        VALUES($no,'SALE',$c,$o,date('now','+30 days'),$amt,$note)",
+                        ("$no", invNo), ("$c", ord.CustId), ("$o", ord.Id), ("$amt", ord.TotalPrice), ("$note", $"Đơn hàng lắp đặt {ord.Code}"));
+                    var invId = N(c, t, "SELECT last_insert_rowid()");
+                    var ordLines = QueryTx(c, t, @"
+                        SELECT l.product_id, p.name, SUM(l.quantity), l.unit_price_vnd
+                        FROM v7_order_lines l JOIN products p ON p.id=l.product_id
+                        WHERE l.order_id=$o AND l.deleted_at IS NULL
+                        GROUP BY l.product_id, p.name, l.unit_price_vnd",
+                        r => (ProdId: L(r, 0), Name: S(r, 1), Qty: L(r, 2), Price: L(r, 3)),
+                        ("$o", ord.Id));
+                    foreach (var ln in ordLines)
+                    {
+                        Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                            VALUES($i,$d,$p,$q,$u)",
+                            ("$i", invId), ("$d", $"Thiết bị & lắp đặt: {ln.Name}"), ("$p", ln.ProdId), ("$q", ln.Qty), ("$u", ln.Price));
+                    }
+                    saleCreated++;
+                }
+
+                if (ord.Fee > 0 && N(c, t, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND invoice_type='SERVICE' AND deleted_at IS NULL AND status<>'VOID'", ("$o", ord.Id)) == 0)
+                {
+                    var srvNo = "CL-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                    var partnerLabel = !string.IsNullOrWhiteSpace(ord.Installer) ? ord.Installer : "Nhân sự lắp đặt";
+                    Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,v7_order_id,due_at,amount_vnd,notes)
+                        VALUES($no,'SERVICE',$o,date('now','+15 days'),$fee,$note)",
+                        ("$no", srvNo), ("$o", ord.Id), ("$fee", ord.Fee), ("$note", $"{partnerLabel} — Công lắp đặt đơn {ord.Code}"));
+                    var srvInvId = N(c, t, "SELECT last_insert_rowid()");
+                    Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,quantity,unit_price_vnd)
+                        VALUES($i,$d,1,$fee)",
+                        ("$i", srvInvId), ("$d", $"Công lắp đặt đơn {ord.Code}"), ("$fee", ord.Fee));
+                    serviceCreated++;
+                }
+            }
+
+            // 2B. Đối soát thiết bị đang hoạt động của Khách hàng / HTX (activations không gắn v7_order_id) chưa có chứng từ SALE
+            var pendingSaleByCust = new Dictionary<long, List<(long ProductId, string Label, long Qty, long UnitPrice)>>();
+            var actByCustProd = QueryTx(c, t, @"
+                SELECT a.customer_id, a.product_id, p.sku||' — '||p.name, COUNT(*) AS act_qty,
+                       COALESCE(
+                           NULLIF((SELECT gp.installed_price_vnd FROM v7_group_prices gp WHERE gp.group_id=cu.group_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           NULLIF((SELECT gp.standard_price_vnd FROM v7_group_prices gp WHERE gp.group_id=cu.group_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           NULLIF((SELECT gp2.installed_price_vnd FROM v7_group_prices gp2 WHERE gp2.product_id=a.product_id AND gp2.deleted_at IS NULL ORDER BY gp2.effective_from DESC, gp2.id DESC LIMIT 1), 0),
+                           p.base_cost_vnd,
+                           0
+                       ) AS unit_price
+                FROM activations a
+                JOIN customers cu ON cu.id=a.customer_id
+                JOIN products p ON p.id=a.product_id
+                WHERE a.deleted_at IS NULL AND cu.deleted_at IS NULL AND a.v7_order_id IS NULL
+                GROUP BY a.customer_id, a.product_id",
+                r => (CustId: L(r, 0), ProdId: L(r, 1), Label: S(r, 2), ActQty: L(r, 3), UnitPrice: L(r, 4)));
+
+            foreach (var row in actByCustProd)
+            {
+                var invoicedQty = N(c, t, @"
+                    SELECT COALESCE(SUM(il.quantity), 0)
+                    FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
+                    WHERE i.invoice_type='SALE' AND i.v7_order_id IS NULL
+                      AND i.customer_id=$cust AND il.product_id=$prod
+                      AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
+                    ("$cust", row.CustId), ("$prod", row.ProdId));
+                var missingQty = row.ActQty - invoicedQty;
+                if (missingQty > 0 && row.UnitPrice > 0)
+                {
+                    if (!pendingSaleByCust.TryGetValue(row.CustId, out var list))
+                    {
+                        list = [];
+                        pendingSaleByCust[row.CustId] = list;
+                    }
+                    list.Add((row.ProdId, $"Thiết bị đang hoạt động ({row.Label})", missingQty, row.UnitPrice));
+                }
+            }
+
+            foreach (var (custId, lines) in pendingSaleByCust)
+            {
+                var totalAmt = lines.Sum(x => x.Qty * x.UnitPrice);
+                if (totalAmt <= 0) continue;
+                var custLabel = QueryTx(c, t, "SELECT code||' — '||name FROM customers WHERE id=$id", r => S(r, 0), ("$id", custId)).FirstOrDefault() ?? $"KH#{custId}";
+                var invNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                var note = $"Công nợ thiết bị lắp đặt đang hoạt động ({lines.Sum(x => x.Qty):N0} thiết bị) — {custLabel}";
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,due_at,amount_vnd,notes)
+                    VALUES($no,'SALE',$c,date('now','+30 days'),$amt,$note)",
+                    ("$no", invNo), ("$c", custId), ("$amt", totalAmt), ("$note", note));
+                var invId = N(c, t, "SELECT last_insert_rowid()");
+                foreach (var ln in lines)
+                {
+                    Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                        VALUES($i,$d,$p,$q,$u)",
+                        ("$i", invId), ("$d", ln.Label), ("$p", ln.ProductId), ("$q", ln.Qty), ("$u", ln.UnitPrice));
+                }
+                saleCreated++;
+            }
+
+            // 3. Đối soát lịch sử gia hạn (renewals) chưa có chứng từ RENEWAL
+            var missingRenewals = QueryTx(c, t, @"
+                SELECT r.id, a.customer_id, a.product_id, r.amount_vnd, r.payment_method, COALESCE(r.seller_name,'')
+                FROM renewals r
+                JOIN activations a ON a.id=r.activation_id
+                WHERE r.deleted_at IS NULL AND r.amount_vnd > 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoices i
+                      WHERE i.renewal_id=r.id AND i.invoice_type='RENEWAL' AND i.deleted_at IS NULL AND i.status<>'VOID'
+                  )",
+                r => (Id: L(r, 0), CustId: L(r, 1), ProdId: L(r, 2), Price: L(r, 3), PayMethod: S(r, 4), SellerName: S(r, 5)));
+
+            foreach (var ren in missingRenewals)
+            {
+                var invNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                var note = !string.IsNullOrWhiteSpace(ren.SellerName) ? $"Gia hạn 12 tháng · Seller: {ren.SellerName}" : "Gia hạn dịch vụ 12 tháng";
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,due_at,amount_vnd,notes)
+                    VALUES($no,'RENEWAL',$c,$r,date('now','+30 days'),$amt,$note)",
+                    ("$no", invNo), ("$c", ren.CustId), ("$r", ren.Id), ("$amt", ren.Price), ("$note", note));
+                var invId = N(c, t, "SELECT last_insert_rowid()");
+                Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                    VALUES($i,$d,$p,1,$amt)",
+                    ("$i", invId), ("$d", note), ("$p", ren.ProdId), ("$amt", ren.Price));
+                if (ren.PayMethod == "CASH")
+                    InsertPayment(c, t, invId, ren.Price, "CASH");
+                renewalCreated++;
+            }
+
+            if (purchaseCreated + saleCreated + renewalCreated + serviceCreated > 0)
+            {
+                Log(c, t, "RECONCILE", "FINANCE", 0, $"Đồng bộ kế toán: +{purchaseCreated} HĐ Nhập, +{saleCreated} HĐ Khách, +{renewalCreated} HĐ Gia hạn, +{serviceCreated} HĐ Kỹ thuật");
+            }
+            return (purchaseCreated, saleCreated, renewalCreated, serviceCreated);
+        });
     }
 
     public List<CompletedOrderSnapshotVm> CompletedOrderSnapshots()
     {
         using var c = Open();
-        return Query(c, @"
+        var orders = Query(c, @"
             SELECT o.id, o.code,
                    COALESCE(substr(o.completed_at,1,19), substr(o.created_at,1,19), ''),
                    COALESCE(o.activated_at, ''),
@@ -672,17 +985,54 @@ public sealed class DemoDb
                    CASE WHEN o.source='PARTNER' THEN '[Hãng] ' || COALESCE(NULLIF(o.installer,''),'Hãng lắp') ELSE COALESCE(NULLIF(o.installer,''),'ĐV lắp nội bộ') END,
                    COALESCE(o.deduct_stock, 1),
                    COALESCE((SELECT i.invoice_no FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), '—'),
-                   COALESCE((SELECT i.status FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), 'OPEN')
+                   COALESCE((SELECT i.status FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), 'OPEN'),
+                   o.status
             FROM v7_orders o
             JOIN customers cu ON cu.id = o.customer_id
             JOIN products p ON p.id = o.product_id
             LEFT JOIN v7_sellers sl ON sl.id = COALESCE(o.seller_record_id, cu.seller_id)
-            WHERE o.status = 'COMPLETED' AND o.deleted_at IS NULL
-            ORDER BY o.id DESC",
+            WHERE o.status <> 'CANCELLED' AND o.deleted_at IS NULL
+            ORDER BY CASE WHEN o.status='COMPLETED' THEN 0 ELSE 1 END, o.id DESC",
             r => new CompletedOrderSnapshotVm(
                 L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
                 r.IsDBNull(7) ? null : L(r,7),
-                S(r,8), S(r,9), L(r,10), L(r,11), L(r,12), L(r,13), S(r,14), L(r,15) == 1, S(r,16), S(r,17)));
+                S(r,8), S(r,9), L(r,10), L(r,11), L(r,12), L(r,13), S(r,14), L(r,15) == 1, S(r,16), S(r,17), S(r,18)));
+
+        // Bổ sung các chứng từ SALE thiết bị đang hoạt động của Khách hàng/HTX (không qua v7_orders) để Kế toán thống kê đầy đủ Snapshot
+        var actBatches = Query(c, @"
+            SELECT i.id, i.invoice_no,
+                   COALESCE(substr(i.issued_at,1,19), ''),
+                   COALESCE((SELECT MAX(a.activated_at) FROM activations a WHERE a.customer_id=i.customer_id AND a.v7_order_id IS NULL AND a.deleted_at IS NULL), ''),
+                   COALESCE(cu.code, ''),
+                   CASE WHEN COALESCE(cu.representative_name,'')<>'' THEN cu.name || ' (ĐD: ' || cu.representative_name || ')' ELSE cu.name END,
+                   '',
+                   cu.seller_id,
+                   COALESCE(sl.code||' — '||sl.full_name, NULLIF(cu.source_name,''), 'Chưa gán Seller'),
+                   COALESCE(
+                     (SELECT group_concat(COALESCE(p2.sku||' — ','') || il.description || ' (x' || il.quantity || ' · ' || il.unit_price_vnd || ' ₫)', '; ')
+                      FROM invoice_lines il LEFT JOIN products p2 ON p2.id=il.product_id WHERE il.invoice_id=i.id AND il.deleted_at IS NULL),
+                     i.notes
+                   ),
+                   COALESCE((SELECT SUM(il2.quantity) FROM invoice_lines il2 WHERE il2.invoice_id=i.id AND il2.deleted_at IS NULL), 1),
+                   i.amount_vnd,
+                   COALESCE((SELECT SUM(il3.quantity * COALESCE(p3.base_cost_vnd, 0)) FROM invoice_lines il3 LEFT JOIN products p3 ON p3.id=il3.product_id WHERE il3.invoice_id=i.id AND il3.deleted_at IS NULL), 0),
+                   0,
+                   'Thiết bị đã kích hoạt',
+                   1,
+                   i.invoice_no,
+                   i.status
+            FROM invoices i
+            JOIN customers cu ON cu.id = i.customer_id
+            LEFT JOIN v7_sellers sl ON sl.id = cu.seller_id
+            WHERE i.invoice_type = 'SALE' AND i.v7_order_id IS NULL AND i.status <> 'VOID' AND i.deleted_at IS NULL
+            ORDER BY i.id DESC",
+            r => new CompletedOrderSnapshotVm(
+                -L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
+                r.IsDBNull(7) ? null : L(r,7),
+                S(r,8), S(r,9), L(r,10), L(r,11), L(r,12), L(r,13), S(r,14), L(r,15) == 1, S(r,16), S(r,17), "ACTIVATION_BATCH"));
+
+        orders.AddRange(actBatches);
+        return orders;
     }
 
     public List<SellerPeriodStatVm> SellerPeriodStats()
@@ -693,16 +1043,24 @@ public sealed class DemoDb
                    COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
                    (SELECT COUNT(*) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
                     WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
-                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
+                   + (SELECT COUNT(*) FROM invoices i JOIN customers cu ON cu.id=i.customer_id
+                      WHERE i.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id),
                    (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
                     WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
-                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
+                   + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN customers cu ON cu.id=i.customer_id
+                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id),
                    (SELECT COALESCE(SUM(o.unit_price_vnd),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
                     WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
-                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
+                   + (SELECT COALESCE(SUM(i.amount_vnd),0) FROM invoices i JOIN customers cu ON cu.id=i.customer_id
+                      WHERE i.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id),
                    (SELECT COALESCE(SUM(o.unit_cost_snapshot_vnd),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
                     WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
-                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
+                   + (SELECT COALESCE(SUM(il.quantity * COALESCE(p.base_cost_vnd,0)),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id LEFT JOIN products p ON p.id=il.product_id JOIN customers cu ON cu.id=i.customer_id
+                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id),
                    (SELECT COALESCE(SUM(COALESCE(o.installer_fee_vnd,0)),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
                     WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),

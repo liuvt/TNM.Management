@@ -138,7 +138,38 @@ public sealed class V6Ops(IWebHostEnvironment environment)
         Audit(c, user, "QTY_" + type, "PRODUCT", product, $"Kho {warehouse}, vị trí {location}, số lượng {delta}. {note}");
     }
     public void MoveQuantity(long user, long product, long warehouse, long location, long qty, bool incoming, string note)
-    { if (qty <= 0) throw new InvalidOperationException("Số lượng phải lớn hơn 0."); Transact(user, c => { RecordMovement(c, user, product, warehouse, location, incoming ? qty : -qty, incoming ? "RECEIVE" : "ISSUE", note); return 0; }); }
+    {
+        if (qty <= 0) throw new InvalidOperationException("Số lượng phải lớn hơn 0.");
+        Transact(user, c => {
+            RecordMovement(c, user, product, warehouse, location, incoming ? qty : -qty, incoming ? "RECEIVE" : "ISSUE", note);
+            if (incoming)
+            {
+                var unitCost = Scalar(c, @"SELECT COALESCE(
+                    (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
+                    NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
+                    0)", ("$p", product));
+                var supId = Scalar(c, @"SELECT COALESCE(
+                    (SELECT s.id FROM suppliers s JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$p AND s.deleted_at IS NULL AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, s.id LIMIT 1),
+                    (SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1),
+                    0)", ("$p", product));
+                if (supId > 0 && unitCost * qty > 0)
+                {
+                    var prodLabel = Read(c, "SELECT sku||' · '||name FROM products WHERE id=$p", r => Text(r, 0), ("$p", product)).FirstOrDefault() ?? $"SP #{product}";
+                    var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                    var totalCost = unitCost * qty;
+                    var invNote = string.IsNullOrWhiteSpace(note) ? $"Nhập kho số lượng ({qty} × {prodLabel})" : $"Nhập kho số lượng: {prodLabel} ({note})";
+                    Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
+                        VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                        ("$no", invNo), ("$sup", supId), ("$amt", totalCost), ("$note", invNote));
+                    var invId = InsertId(c);
+                    Execute(c, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                        VALUES($i,$d,$p,$q,$c)",
+                        ("$i", invId), ("$d", invNote), ("$p", product), ("$q", qty), ("$c", unitCost));
+                }
+            }
+            return 0;
+        });
+    }
     public void TransferQuantity(long user, long product, long fromWarehouse, long fromLocation, long toWarehouse, long toLocation, long qty, string note)
     {
         if (qty <= 0 || (fromWarehouse == toWarehouse && fromLocation == toLocation)) throw new InvalidOperationException("Số lượng hoặc vị trí chuyển không hợp lệ.");

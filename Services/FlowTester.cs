@@ -148,9 +148,20 @@ public static class FlowTester
                 Assert(rights.Contains(Permissions.PurchaseCreate), "Quyền ALLOW riêng (purchase.create) chưa có hiệu lực.");
                 Assert(!rights.Contains(Permissions.InventoryReceive), "Quyền DENY riêng (inventory.receive) chưa chặn được quyền Role.");
 
+                // Kiểm tra role ACCOUNTANT có đủ 4 quyền xem phân mục công nợ
+                var accRoleId = roles.First(r => r.Code == "ACCOUNTANT").Id;
+                auth.CreateUser(ownerId, "ke_toan_test", "Kế toán Test", "KeToanPass2026", [accRoleId], new Dictionary<string, string>());
+                var accUserId = auth.AllUsers().First(u => u.Username == "ke_toan_test").Id;
+                var accRights = auth.AllowedPermissions(accUserId);
+                Assert(accRights.Contains(Permissions.FinanceCustomerView) &&
+                       accRights.Contains(Permissions.FinanceSupplierView) &&
+                       accRights.Contains(Permissions.FinanceRenewView) &&
+                       accRights.Contains(Permissions.FinanceOtherView),
+                    "Vai trò ACCOUNTANT phải có đầy đủ 4 quyền xem phân mục công nợ.");
+
                 // Kiểm tra chống khóa/sửa Owner
                 AssertThrows(() => auth.UpdateUser(staffUserId, ownerId, "Hack", false, "", [whRoleId]), "Chặn sửa tài khoản Owner");
-                return $"Tạo User #{staffUserId} (nv_kho_test) · Override ALLOW/DENY & Bảo vệ Owner hoạt động đúng.";
+                return $"Tạo User #{staffUserId} (nv_kho_test) & Kế toán #{accUserId} · Override ALLOW/DENY & Bảo vệ Owner hoạt động đúng.";
             });
 
             // =========================================================================
@@ -466,7 +477,36 @@ public static class FlowTester
                 Assert(db.Invoices().First(i => i.Id == commId).Status == "PAID", "Công nợ hoa hồng Sale sau khi chi trả phải chuyển sang PAID.");
                 Assert(db.Payments().Count >= 5, "Sổ phiếu thu/chi phải ghi nhận đầy đủ các giao dịch PT (IN) và PC (OUT).");
 
-                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Tất toán HĐ Khách ({saleInvPaid.Code}), Công Kỹ thuật ({srvInv.Code}) & Hoa hồng Sale.";
+                // Kiểm tra tính bất biến / chống trùng lặp (idempotent) của ReconcileAccountingData & tự động đồng bộ dữ liệu import khi ActorId = 0
+                db.ActorId = 0;
+                var (recPur, recSale, recRen, recSrv) = db.ReconcileAccountingData();
+                Assert(recPur == 0 && recSale == 0 && recRen == 0 && recSrv == 0,
+                    $"ReconcileAccountingData phải chống trùng lặp tuyệt đối khi dữ liệu đã có đủ chứng từ (thực tế: {recPur},{recSale},{recRen},{recSrv}).");
+
+                using (var c = new SqliteConnection($"Data Source={dbPath};Foreign Keys=True"))
+                {
+                    c.Open();
+                    AuditRuntime.Attach(c, () => 0);
+                    using var cmd = c.CreateCommand();
+                    cmd.CommandText = @"
+                        INSERT INTO stock_units(product_id,imei,status,customer_id,supplier_id) VALUES($p,'868888888888888','INSTALLED',$c,$sup);
+                        INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,activated_at,expires_at)
+                        VALUES(last_insert_rowid(),$c,$p,'51F-777.77','2026-11-01','2027-11-01');";
+                    cmd.Parameters.AddWithValue("$p", imeiProdId);
+                    cmd.Parameters.AddWithValue("$c", customerId);
+                    cmd.Parameters.AddWithValue("$sup", supplierId);
+                    cmd.ExecuteNonQuery();
+                }
+
+                var (impPur, impSale, impRen, impSrv) = db.ReconcileAccountingData();
+                Assert(impPur == 1 && impSale == 1 && impRen == 0 && impSrv == 0,
+                    $"ReconcileAccountingData khi ActorId=0 phải tự động sinh 1 PURCHASE & 1 SALE cho thiết bị import chưa có chứng từ (thực tế: {impPur},{impSale},{impRen},{impSrv}).");
+                var (impPur2, impSale2, impRen2, impSrv2) = db.ReconcileAccountingData();
+                Assert(impPur2 == 0 && impSale2 == 0 && impRen2 == 0 && impSrv2 == 0,
+                    "Gọi ReconcileAccountingData lần 2 phải trả về (0,0,0,0).");
+                db.ActorId = ownerId;
+
+                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Tất toán HĐ Khách ({saleInvPaid.Code}), Công Kỹ thuật ({srvInv.Code}) & Hoa hồng Sale · Đồng bộ Kế toán chuẩn.";
             });
 
             // =========================================================================
@@ -496,7 +536,7 @@ public static class FlowTester
 
                 var dash = db.Dashboard();
                 var profit = db.ApproxGrossProfit();
-                Assert(dash.Active == 3 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
+                Assert(dash.Active == 4 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
 
                 return $"Đã ghi {eventCount} sự kiện Audit JSON · Chặn xóa cứng thành công · Dashboard & 4 luồng CSV hoạt động chuẩn.";
             });

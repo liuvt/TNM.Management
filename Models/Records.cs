@@ -48,9 +48,11 @@ public record CompletedOrderSnapshotVm(
     string InstallerDisplay,
     bool DeductStock,
     string InvoiceNo,
-    string InvoiceStatus)
+    string InvoiceStatus,
+    string OrderStatus = "COMPLETED")
 {
     public long GrossProfitSnapshotVnd => RevenueSnapshotVnd - CostSnapshotVnd - InstallerFeeSnapshotVnd;
+    public bool IsLocked => OrderStatus is "COMPLETED" or "ACTIVATION_BATCH";
 }
 public record SellerPeriodStatVm(
     long SellerId,

@@ -62,7 +62,7 @@ public sealed class AuthRepository
             var roleId = Convert.ToInt64(Scalar(c,"SELECT id FROM roles WHERE code=$r",("$r",role.Key)) ?? 0);
             if (roleId == 0) continue;
             var initialized = Convert.ToInt64(Scalar(c,"SELECT count(*) FROM role_defaults_initialized WHERE role_id=$id",("$id",roleId))) != 0;
-            if (!initialized || role.Key == "ADMIN")
+            if (!initialized || role.Key is "ADMIN" or "ACCOUNTANT" or "MANAGER" or "CSKH")
             {
                 foreach (var permission in role.Value)
                     Exec(c,"INSERT OR IGNORE INTO role_permissions(role_id,permission_key) VALUES($r,$p)",

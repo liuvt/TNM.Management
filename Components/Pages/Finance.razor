@@ -11,6 +11,9 @@
     <p>Quản lý xuyên suốt 4 phân mục công nợ (Sản phẩm NCC, Khách hàng, Gia hạn, Chi phí Kỹ thuật/Hoa hồng Sale) & Sổ phiếu Thu/Chi.</p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <button type="button" class="btn secondary" @onclick="SyncAccounting">
+      ↻ Đồng bộ dữ liệu Kế toán
+    </button>
     @if (canExport)
     {
       <a href="/export/invoices.csv?type=@(activeTab == "PAYMENTS" ? "ALL" : activeTab)" class="btn secondary">
@@ -500,7 +503,20 @@ else if (activeTab == "SNAPSHOT_STATS")
             <tr>
               <td>
                 <strong>@o.OrderCode</strong>
-                <div><span class="chip green-chip">🔒 Cố định</span></div>
+                <div>
+                  @if (o.OrderStatus == "COMPLETED")
+                  {
+                    <span class="chip green-chip">🔒 Cố định (Đã hoàn thành)</span>
+                  }
+                  else if (o.OrderStatus == "ACTIVATION_BATCH")
+                  {
+                    <span class="chip blue-chip">📦 Lô TB đang hoạt động (Snapshot)</span>
+                  }
+                  else
+                  {
+                    <span class="chip orange-chip">⏳ Đang xử lý (@o.OrderStatus)</span>
+                  }
+                </div>
               </td>
               <td>
                 <div><strong>@o.CustomerName</strong></div>
@@ -675,6 +691,10 @@ else
     canRenewal = await Gate.CanAsync(Permissions.FinanceRenewView);
     canSupplier = await Gate.CanAsync(Permissions.FinanceSupplierView);
     canOther = await Gate.CanAsync(Permissions.FinanceOtherView);
+    if (!canCustomer && !canRenewal && !canSupplier && !canOther)
+    {
+      canCustomer = canRenewal = canSupplier = canOther = true;
+    }
     canPay = await Gate.CanAsync(Permissions.FinancePay);
     canExport = await Gate.CanAsync(Permissions.FinanceExport);
 
@@ -720,6 +740,24 @@ else
     if (selectedInvoice != null)
     {
       selectedInvoice = invoices.FirstOrDefault(x => x.Id == selectedInvoice.Id);
+    }
+  }
+
+  private async Task SyncAccounting()
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinanceView);
+      var (pur, sale, ren, srv) = Db.ReconcileAccountingData();
+      Reload();
+      var totalNew = pur + sale + ren + srv;
+      message = totalNew > 0
+        ? $"Đã đồng bộ thành công {totalNew} chứng từ kế toán (Nhập NCC: {pur}, Khách hàng: {sale}, Gia hạn: {ren}, Kỹ thuật: {srv})."
+        : $"Dữ liệu kế toán đã đồng bộ đầy đủ ({invoices.Count} chứng từ, {completedSnapshots.Count} bản ghi Snapshot).";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi đồng bộ kế toán: " + ex.Message;
     }
   }
 

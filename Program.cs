@@ -123,6 +123,10 @@ using (var scope = app.Services.CreateScope())
     var repository = scope.ServiceProvider.GetRequiredService<AuthRepository>();
     repository.Initialize();
     scope.ServiceProvider.GetRequiredService<AuditTrail>().Initialize();
+    if (!offlineRecovery)
+    {
+        scope.ServiceProvider.GetRequiredService<DemoDb>().ReconcileAccountingData();
+    }
     if (offlineRecovery)
     {
         if (ownerResetDefault)
