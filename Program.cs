@@ -291,6 +291,9 @@ app.MapGet("/export/invoices.csv", (DemoDb db, AuthRepository repository, HttpCo
     var suffix = string.IsNullOrWhiteSpace(type) || type == "ALL" ? "all" : type.ToLowerInvariant();
     return Results.File(CsvExports.Invoices(db,types,type), "text/csv; charset=utf-8", $"tnm-cong-no-{suffix}.csv");
 }).RequireAuthorization(Permissions.FinanceExport,Permissions.FinanceView);
+app.MapGet("/export/cashbook.csv", (DemoDb db) =>
+    Results.File(CsvExports.CashBook(db), "text/csv; charset=utf-8", "tnm-so-quy-thu-chi-ton.csv"))
+    .RequireAuthorization(Permissions.FinanceExport, Permissions.FinanceView);
 app.MapGet("/export/product-catalog.csv", (ProductMaster master,V6Ops ops,HttpContext http) =>
     ops.IsWarehouseRestricted(AuthRepository.PrincipalId(http.User)) ? (IResult)Results.Forbid()
     : Results.File(CsvExports.ProductCatalog(master),"text/csv; charset=utf-8","tnm-danh-muc-san-pham.csv"))

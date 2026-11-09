@@ -475,7 +475,17 @@ public static class FlowTester
                 var commId = db.CreateCustomInvoice("COMMISSION", null, null, "Sale Nguyễn Minh Anh", "Hoa hồng đơn SO7-000001", imeiProdId, 2, 100_000, DateTime.Today.AddDays(10).ToString("yyyy-MM-dd"));
                 db.PayInvoice(commId, 200_000, "BANK");
                 Assert(db.Invoices().First(i => i.Id == commId).Status == "PAID", "Công nợ hoa hồng Sale sau khi chi trả phải chuyển sang PAID.");
-                Assert(db.Payments().Count >= 5, "Sổ phiếu thu/chi phải ghi nhận đầy đủ các giao dịch PT (IN) và PC (OUT).");
+
+                // Kiểm tra chi trả công nợ Nhà cung cấp (Nhập hàng) vào Sổ quỹ & kiểm tra Sổ quỹ (Thu/Chi/Tồn: Tiền mặt & Ngân hàng)
+                var purInv = db.Invoices().First(i => i.Type == "PURCHASE" && i.Balance > 0);
+                db.PayInvoice(purInv.Id, 1_000_000, "CASH");
+                var cb = db.CashBookSummary();
+                var pDebts = db.PartnerDebtSummaries();
+                Assert(cb.TotalInVnd > 0 && cb.TotalOutVnd >= 1_500_000 && cb.SupplierPaidVnd >= 1_000_000 && cb.TotalBalanceVnd == cb.TotalInVnd - cb.TotalOutVnd && cb.CashBalanceVnd == cb.CashInVnd - cb.CashOutVnd && cb.BankBalanceVnd == cb.BankInVnd - cb.BankOutVnd,
+                    "Sổ quỹ phải tính đúng Khoản Thu, Khoản Chi (Nhập hàng NCC & Chi khác) và Tồn quỹ Tiền mặt / Ngân hàng.");
+                Assert(pDebts.Any(d => d.CategoryCode == "SUPPLIER") && pDebts.Any(d => d.CategoryCode == "CUSTOMER") && pDebts.Any(d => d.CategoryCode == "SELLER"),
+                    "Báo cáo Tổng hợp Công nợ phải bao gồm đủ 3 nhóm: Nhà cung cấp, Khách hàng và Sell.");
+                Assert(db.Payments().Count >= 6, "Sổ phiếu thu/chi phải ghi nhận đầy đủ các giao dịch PT (IN) và PC (OUT).");
 
                 // Kiểm tra tính bất biến / chống trùng lặp (idempotent) của ReconcileAccountingData & tự động đồng bộ dữ liệu import khi ActorId = 0
                 db.ActorId = 0;

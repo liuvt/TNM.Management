@@ -3,8 +3,88 @@
 @inject DemoDb Db
 @inject PermissionGate Gate
 <PageTitle>Báo cáo · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">HOẠT ĐỘNG / TRUY VẾT</div><h1>Báo cáo & nhật ký hệ thống</h1><p>Truy vết IMEI, phiếu xuất nhập kho, người tác động và lịch sử dữ liệu.</p></div>
-<div class="button-group">@if(canInventoryExport){<a class="btn secondary" href="/export/inventory.csv">↓ Báo cáo kho CSV</a>}@if(canFinanceExport){<a class="btn secondary" href="/export/invoices.csv">↓ Công nợ CSV</a>}</div></div>
+<div class="page-head"><div><div class="eyebrow">BÁO CÁO KẾ TOÁN, KHO &amp; TRUY VẾT</div><h1>Báo cáo Kế toán, Kho &amp; Nhật ký hệ thống</h1><p>Tổng hợp báo cáo Công nợ (Nhà cung cấp, Khách hàng, Sell), Sổ quỹ (Thu / Chi / Tồn: Tiền mặt &amp; Ngân hàng), sổ xuất nhập kho và lịch sử dữ liệu.</p></div>
+<div class="button-group">
+    <a class="btn" href="/finance">Báo cáo Công nợ &amp; Sổ quỹ →</a>
+    @if(canInventoryExport){<a class="btn secondary" href="/export/inventory.csv">↓ Báo cáo kho CSV</a>}
+    @if(canFinanceExport){<a class="btn secondary" href="/export/invoices.csv">↓ Báo cáo Công nợ CSV</a><a class="btn secondary" href="/export/cashbook.csv">↓ Sổ quỹ (Thu/Chi/Tồn) CSV</a>}
+</div></div>
+
+@if(canFinanceView)
+{
+<div class="two-column" style="margin-bottom:16px">
+    <section class="panel" style="margin-bottom:0">
+        <div class="panel-head">
+            <div>
+                <h2>1. Báo cáo Công nợ (Nhà cung cấp · Khách hàng · Sell)</h2>
+                <p>Tổng hợp công nợ phải trả Nhà cung cấp, phải thu Khách hàng và hoa hồng Sell.</p>
+            </div>
+            <a class="btn secondary btn-sm" href="/finance">Chi tiết →</a>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>NHÓM CÔNG NỢ</th><th>PHÁT SINH</th><th>ĐÃ THANH TOÁN</th><th>CÒN NỢ</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>1. Nhà cung cấp (Nhập hàng)</strong></td>
+                        <td>@Money(supTotal)</td>
+                        <td>@Money(supPaid)</td>
+                        <td><strong class="orange">@Money(supTotal - supPaid)</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>2. Khách hàng (Thu khách / Công nợ)</strong></td>
+                        <td>@Money(custTotal)</td>
+                        <td><strong style="color:#15803d">@Money(custPaid)</strong></td>
+                        <td><strong style="color:#0284c7">@Money(custTotal - custPaid)</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>3. Sell (Hoa hồng) &amp; Kỹ thuật</strong></td>
+                        <td>@Money(sellTechTotal)</td>
+                        <td>@Money(sellTechPaid)</td>
+                        <td><strong style="color:#7c3aed">@Money(Math.Max(0, sellTechTotal - sellTechPaid))</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel" style="margin-bottom:0">
+        <div class="panel-head">
+            <div>
+                <h2>2. Sổ quỹ: Khoản Thu / Chi / Tồn (Tiền mặt &amp; Ngân hàng)</h2>
+                <p>Khoản thu (Thu khách / công nợ) · Khoản chi (Nhập hàng / chi trả) · Tồn quỹ.</p>
+            </div>
+            <a class="btn secondary btn-sm" href="/finance">Mở Sổ quỹ →</a>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>SỔ QUỸ</th><th>KHOẢN THU (+)</th><th>KHOẢN CHI (−)</th><th>TỒN QUỸ (THU − CHI)</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><span class="chip green-chip">Tiền mặt (CASH)</span></td>
+                        <td><strong style="color:#15803d">+@Money(cashBook.CashInVnd)</strong></td>
+                        <td><strong style="color:#dc2626">-@Money(cashBook.CashOutVnd)</strong></td>
+                        <td><strong>@Money(cashBook.CashBalanceVnd)</strong></td>
+                    </tr>
+                    <tr>
+                        <td><span class="chip blue-chip">Ngân hàng (BANK)</span></td>
+                        <td><strong style="color:#15803d">+@Money(cashBook.BankInVnd)</strong></td>
+                        <td><strong style="color:#dc2626">-@Money(cashBook.BankOutVnd)</strong></td>
+                        <td><strong>@Money(cashBook.BankBalanceVnd)</strong></td>
+                    </tr>
+                    <tr style="background:#f8fafc;font-weight:700">
+                        <td><strong>TỔNG SỔ QUỸ</strong></td>
+                        <td><strong style="color:#15803d">+@Money(cashBook.TotalInVnd)</strong></td>
+                        <td><strong style="color:#dc2626">-@Money(cashBook.TotalOutVnd)</strong></td>
+                        <td><strong style="color:#0f766e">@Money(cashBook.TotalBalanceVnd)</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+}
+
 @if(canLedger){<section class="panel"><div class="panel-head"><div><h2>Sổ nhập / xuất / điều chuyển</h2><p>Giao dịch phát sinh được lưu kể cả sau khi IMEI thay đổi vị trí.</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="IMEI / SKU / người tác động..." /></div>
 <div class="table-wrap"><table><thead><tr><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ</th><th>SKU</th><th>IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
 @foreach(var r in ledger.Where(x=>(x.Imei+x.Sku+x.Target+x.Actor).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td>#@r.Id</td><td>@r.At</td><td><span class="chip">@r.Type</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td class="wrap-cell">@r.Target</td><td>@r.Actor</td></tr>}
@@ -14,13 +94,28 @@
 @foreach(var a in audit){<tr><td>#@a.Id</td><td>@a.At</td><td>@a.Actor</td><td><span class="chip">@a.Action</span></td><td>@a.Entity</td><td class="wrap-cell">@a.Details</td></tr>}
 </tbody></table></div></section>}
 @code {
- private bool canInventoryExport,canFinanceExport,canLedger,canAudit;
+ private bool canInventoryExport,canFinanceExport,canFinanceView,canLedger,canAudit;
  private List<LedgerVm> ledger=[];private List<AuditVm> audit=[];private string search="";
+ private CashBookSummaryVm cashBook = new(0,0,0,0,0,0,0,0,0,0,0,0);
+ private long supTotal, supPaid, custTotal, custPaid, sellTechTotal, sellTechPaid;
  protected override async Task OnInitializedAsync(){
  canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView);
  canAudit=await Gate.CanAsync(Permissions.ReportsAuditView);
  canInventoryExport=await Gate.CanAsync(Permissions.InventoryLedgerExport);
  canFinanceExport=await Gate.CanAsync(Permissions.FinanceExport);
+ canFinanceView=await Gate.CanAsync(Permissions.FinanceView);
+ if(canFinanceView){
+   cashBook = Db.CashBookSummary();
+   var invs = Db.Invoices().Where(x => x.Status != "VOID").ToList();
+   var sellers = Db.SellerPeriodStats();
+   supTotal = invs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").Sum(x => x.Total);
+   supPaid = invs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").Sum(x => x.Paid);
+   custTotal = invs.Where(x => x.IsReceivable).Sum(x => x.Total);
+   custPaid = invs.Where(x => x.IsReceivable).Sum(x => x.Paid);
+   sellTechTotal = invs.Where(x => x.Type == "SERVICE").Sum(x => x.Total) + Math.Max(invs.Where(x => x.Type == "COMMISSION").Sum(x => x.Total), sellers.Sum(x => x.TotalEstimatedCommissionVnd));
+   sellTechPaid = invs.Where(x => x.Type is "SERVICE" or "COMMISSION").Sum(x => x.Paid);
+ }
  if(canLedger)ledger=Db.Ledger();if(canAudit)audit=Db.Audits();
  }
+ private static string Money(long v) => v.ToString("N0") + " ₫";
 }

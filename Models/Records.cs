@@ -16,7 +16,30 @@ public record InvoiceLineVm(long Id, long InvoiceId, string Description, string 
 {
     public long LineTotal => Quantity * UnitPrice;
 }
-public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt);
+public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0);
+public record CashBookSummaryVm(
+    long TotalInVnd,
+    long TotalOutVnd,
+    long TotalBalanceVnd,
+    long CashInVnd,
+    long CashOutVnd,
+    long CashBalanceVnd,
+    long BankInVnd,
+    long BankOutVnd,
+    long BankBalanceVnd,
+    long CustomerReceivedVnd,
+    long SupplierPaidVnd,
+    long OtherPaidVnd);
+public record PartnerDebtSummaryVm(
+    string CategoryCode,
+    string CategoryLabel,
+    string PartnerCode,
+    string PartnerName,
+    string SubInfo,
+    long InvoiceCount,
+    long TotalIncurredVnd,
+    long TotalPaidVnd,
+    long RemainingDebtVnd);
 public record InvoiceVm(long Id, string Code, string Type, string Customer, long Total, long Paid,
     string Status, string CreatedAt, string DueAt, string Notes = "", string RefCode = "", List<InvoiceLineVm>? Lines = null)
 {

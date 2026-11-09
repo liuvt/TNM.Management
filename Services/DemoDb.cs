@@ -523,24 +523,184 @@ public sealed class DemoDb
     public List<PaymentRowVm> Payments()
     {
         using var c = Open();
-        return Query(c, @"SELECT p.id,p.payment_no,p.direction,p.method,pa.allocated_vnd,i.invoice_no,i.invoice_type,
+        var raw = Query(c, @"SELECT p.id,p.payment_no,p.direction,p.method,COALESCE(pa.allocated_vnd, p.amount_vnd),COALESCE(i.invoice_no,'—'),COALESCE(i.invoice_type, CASE WHEN p.direction='IN' THEN 'SALE' ELSE 'PURCHASE' END),
           CASE
             WHEN c.id IS NOT NULL THEN c.name
             WHEN s.id IS NOT NULL THEN s.name
             WHEN COALESCE(o.installer,'')<>'' THEN o.installer
             WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes, ' — ') > 0 THEN SUBSTR(i.notes, 1, INSTR(i.notes, ' — ') - 1) ELSE i.notes END
+            WHEN COALESCE(p.notes,'')<>'' THEN CASE WHEN INSTR(p.notes, ' — ') > 0 THEN SUBSTR(p.notes, 1, INSTR(p.notes, ' — ') - 1) ELSE p.notes END
             ELSE '-'
           END,
-          p.paid_at
-          FROM payment_allocations pa
-          JOIN payments p ON p.id=pa.payment_id
-          JOIN invoices i ON i.id=pa.invoice_id
+          p.paid_at,
+          COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,''))
+          FROM payments p
+          LEFT JOIN payment_allocations pa ON pa.payment_id=p.id AND pa.deleted_at IS NULL
+          LEFT JOIN invoices i ON i.id=pa.invoice_id AND i.deleted_at IS NULL
           LEFT JOIN customers c ON c.id=i.customer_id
           LEFT JOIN suppliers s ON s.id=i.supplier_id
           LEFT JOIN v7_orders o ON o.id=i.v7_order_id
-          WHERE pa.deleted_at IS NULL AND p.deleted_at IS NULL AND i.deleted_at IS NULL
-          ORDER BY p.id DESC, pa.id DESC LIMIT 300",
-          r => new PaymentRowVm(L(r,0),S(r,1),S(r,2),S(r,3),L(r,4),S(r,5),S(r,6),S(r,7),S(r,8)));
+          WHERE p.deleted_at IS NULL
+          ORDER BY p.paid_at ASC, p.id ASC, COALESCE(pa.id,0) ASC",
+          r => (Id: L(r,0), No: S(r,1), Dir: S(r,2), Method: S(r,3), Amt: L(r,4), InvNo: S(r,5), InvType: S(r,6), Partner: S(r,7), PaidAt: S(r,8), Notes: S(r,9)));
+
+        long runningCash = 0, runningBank = 0, runningTotal = 0;
+        var result = new List<PaymentRowVm>(raw.Count);
+        foreach (var row in raw)
+        {
+            var signed = row.Dir == "IN" ? row.Amt : -row.Amt;
+            runningTotal += signed;
+            if (row.Method == "CASH") runningCash += signed;
+            else runningBank += signed;
+            var methodBal = row.Method == "CASH" ? runningCash : runningBank;
+            result.Add(new PaymentRowVm(row.Id, row.No, row.Dir, row.Method, row.Amt, row.InvNo, row.InvType, row.Partner, row.PaidAt, row.Notes, methodBal, runningTotal));
+        }
+        result.Reverse();
+        return result;
+    }
+
+    public CashBookSummaryVm CashBookSummary()
+    {
+        var rows = Payments();
+        var cashIn = rows.Where(x => x.Method == "CASH" && x.Direction == "IN").Sum(x => x.Amount);
+        var cashOut = rows.Where(x => x.Method == "CASH" && x.Direction == "OUT").Sum(x => x.Amount);
+        var bankIn = rows.Where(x => x.Method == "BANK" && x.Direction == "IN").Sum(x => x.Amount);
+        var bankOut = rows.Where(x => x.Method == "BANK" && x.Direction == "OUT").Sum(x => x.Amount);
+        var totalIn = cashIn + bankIn;
+        var totalOut = cashOut + bankOut;
+        var custIn = rows.Where(x => x.Direction == "IN").Sum(x => x.Amount);
+        var supOut = rows.Where(x => x.Direction == "OUT" && x.InvoiceType is "PURCHASE" or "SUPPLIER").Sum(x => x.Amount);
+        var otherOut = rows.Where(x => x.Direction == "OUT" && x.InvoiceType is not ("PURCHASE" or "SUPPLIER")).Sum(x => x.Amount);
+        return new CashBookSummaryVm(
+            totalIn,
+            totalOut,
+            totalIn - totalOut,
+            cashIn,
+            cashOut,
+            cashIn - cashOut,
+            bankIn,
+            bankOut,
+            bankIn - bankOut,
+            custIn,
+            supOut,
+            otherOut);
+    }
+
+    public List<PartnerDebtSummaryVm> PartnerDebtSummaries()
+    {
+        var invs = Invoices().Where(x => x.Status != "VOID").ToList();
+        var sellers = SellerPeriodStats();
+        var list = new List<PartnerDebtSummaryVm>();
+
+        // 1. Công nợ Nhà cung cấp (Nhập hàng)
+        foreach (var g in invs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").GroupBy(x => x.Customer))
+        {
+            list.Add(new PartnerDebtSummaryVm(
+                "SUPPLIER",
+                "1. Công nợ Nhà cung cấp (Nhập hàng)",
+                "NCC",
+                g.Key,
+                "Nhập hàng & thiết bị từ NCC",
+                g.Count(),
+                g.Sum(x => x.Total),
+                g.Sum(x => x.Paid),
+                g.Sum(x => x.Balance)));
+        }
+
+        // 2. Công nợ Khách hàng (Đơn lắp đặt & Gia hạn)
+        foreach (var g in invs.Where(x => x.Type is "SALE" or "RENEWAL").GroupBy(x => x.Customer))
+        {
+            var saleCount = g.Count(x => x.Type == "SALE");
+            var renCount = g.Count(x => x.Type == "RENEWAL");
+            list.Add(new PartnerDebtSummaryVm(
+                "CUSTOMER",
+                "2. Công nợ Khách hàng (Đơn lắp & Gia hạn)",
+                "KH",
+                g.Key,
+                $"Đơn lắp: {saleCount} · Gia hạn: {renCount}",
+                g.Count(),
+                g.Sum(x => x.Total),
+                g.Sum(x => x.Paid),
+                g.Sum(x => x.Balance)));
+        }
+
+        // 3. Công nợ Sell / Nhân viên bán hàng (Hoa hồng phát sinh vs Đã thanh toán)
+        var commInvoices = invs.Where(x => x.Type == "COMMISSION").ToList();
+        foreach (var s in sellers)
+        {
+            var matchedComm = commInvoices.Where(i =>
+                i.Customer.Contains(s.SellerCode, StringComparison.OrdinalIgnoreCase) ||
+                i.Customer.Contains(s.SellerName, StringComparison.OrdinalIgnoreCase) ||
+                i.Notes.Contains(s.SellerCode, StringComparison.OrdinalIgnoreCase) ||
+                i.Notes.Contains(s.SellerName, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            var invoicedAmt = matchedComm.Sum(x => x.Total);
+            var paidAmt = matchedComm.Sum(x => x.Paid);
+            var totalIncurred = Math.Max(s.TotalEstimatedCommissionVnd, invoicedAmt);
+            var remaining = Math.Max(0, totalIncurred - paidAmt);
+
+            if (totalIncurred > 0 || matchedComm.Count > 0 || s.CompletedOrderCount > 0 || s.RenewalCount > 0)
+            {
+                list.Add(new PartnerDebtSummaryVm(
+                    "SELLER",
+                    "3. Công nợ Sell / Hoa hồng NV bán hàng",
+                    s.SellerCode,
+                    $"{s.SellerName} ({s.SellerCode})",
+                    $"{s.Department} · Bán mới: {s.CompletedDeviceQty} TB · Gia hạn: {s.RenewalCount} lượt",
+                    matchedComm.Count,
+                    totalIncurred,
+                    paidAmt,
+                    remaining));
+            }
+        }
+
+        // 4. Công nợ Kỹ thuật lắp đặt (Phụ cấp / Công lắp)
+        foreach (var g in invs.Where(x => x.Type == "SERVICE").GroupBy(x => x.Customer))
+        {
+            list.Add(new PartnerDebtSummaryVm(
+                "TECH",
+                "4. Công nợ Kỹ thuật lắp đặt",
+                "KT",
+                g.Key,
+                "Phụ cấp & công lắp đặt thiết bị",
+                g.Count(),
+                g.Sum(x => x.Total),
+                g.Sum(x => x.Paid),
+                g.Sum(x => x.Balance)));
+        }
+
+        return list;
+    }
+
+    public long RecordDirectCashBookEntry(string direction, string method, string category, long amount, string partnerName, string note, long? invoiceId = null)
+    {
+        if (direction is not ("IN" or "OUT"))
+            throw new InvalidOperationException("Loại phiếu Sổ quỹ phải là Thu (IN) hoặc Chi (OUT).");
+        if (method is not ("CASH" or "BANK"))
+            throw new InvalidOperationException("Quỹ thanh toán phải là Tiền mặt (CASH) hoặc Ngân hàng (BANK).");
+        if (amount <= 0)
+            throw new InvalidOperationException("Số tiền phải lớn hơn 0.");
+
+        if (invoiceId is > 0)
+        {
+            PayInvoice(invoiceId.Value, amount, method);
+            return invoiceId.Value;
+        }
+
+        return Tx((c, t) =>
+        {
+            var prefix = direction == "IN" ? "PT-" : "PC-";
+            var no = prefix + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+            var catLabel = direction == "IN"
+                ? "Thu khách / Thu công nợ"
+                : category == "PURCHASE" ? "Chi nhập hàng NCC" : "Chi thanh toán công nợ / chi phí";
+            var fullNote = $"{catLabel}: {(string.IsNullOrWhiteSpace(partnerName) ? "Đối tác" : partnerName.Trim())} — {(string.IsNullOrWhiteSpace(note) ? catLabel : note.Trim())}";
+            Exec(c, t, "INSERT INTO payments(payment_no,direction,method,amount_vnd,notes) VALUES($n,$d,$m,$a,$note)",
+                ("$n", no), ("$d", direction), ("$m", method), ("$a", amount), ("$note", fullNote));
+            var pid = N(c, t, "SELECT last_insert_rowid()");
+            Log(c, t, "CASHBOOK", "PAYMENT", pid, $"{no} ({direction}/{method}): {amount:N0} VND - {fullNote}");
+            return pid;
+        });
     }
 
     public long CreateCustomInvoice(string invoiceType, long? customerId, long? supplierId, string partnerLabel, string description, long? productId, long quantity, long unitPriceVnd, string dueAt)

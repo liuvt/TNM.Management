@@ -76,4 +76,43 @@ public static class CsvExports
         }
         return Encode(rows);
     }
+
+    public static byte[] CashBook(DemoDb db)
+    {
+        var summary = db.CashBookSummary();
+        var rows = new List<IEnumerable<string>>
+        {
+            new[] { "BÁO CÁO SỔ QUỸ (THU / CHI / TỒN) — TIỀN MẶT & NGÂN HÀNG" },
+            new[] { "Chỉ tiêu", "Tổng Thu (IN)", "Tổng Chi (OUT)", "Tồn quỹ hiện tại (Thu - Chi)" },
+            new[] { "1. Quỹ Tiền mặt (CASH)", summary.CashInVnd.ToString(), summary.CashOutVnd.ToString(), summary.CashBalanceVnd.ToString() },
+            new[] { "2. Quỹ Ngân hàng (BANK)", summary.BankInVnd.ToString(), summary.BankOutVnd.ToString(), summary.BankBalanceVnd.ToString() },
+            new[] { "TỔNG CỘNG SỔ QUỸ", summary.TotalInVnd.ToString(), summary.TotalOutVnd.ToString(), summary.TotalBalanceVnd.ToString() },
+            Array.Empty<string>(),
+            new[] { "Số phiếu", "Loại giao dịch", "Hạng mục Thu/Chi", "Quỹ (Tiền mặt / Ngân hàng)", "Chứng từ công nợ", "Đối tác / Khách hàng / NCC / Sell", "Số tiền Thu (+)", "Số tiền Chi (-)", "Tồn quỹ sau GD", "Ngày giao dịch", "Diễn giải" }
+        };
+
+        foreach (var p in db.Payments())
+        {
+            var itemCat = p.Direction == "IN"
+                ? "Khoản thu: Thu khách / Công nợ"
+                : p.InvoiceType is "PURCHASE" or "SUPPLIER"
+                    ? "Khoản chi: Nhập hàng NCC"
+                    : "Khoản chi: Hoa hồng Sell / Kỹ thuật";
+            rows.Add(new[]
+            {
+                p.PaymentNo,
+                p.Direction == "IN" ? "Phiếu Thu (IN)" : "Phiếu Chi (OUT)",
+                itemCat,
+                p.Method == "CASH" ? "Tiền mặt (CASH)" : "Ngân hàng (BANK)",
+                p.InvoiceNo,
+                p.Partner,
+                p.Direction == "IN" ? p.Amount.ToString() : "0",
+                p.Direction == "OUT" ? p.Amount.ToString() : "0",
+                p.BalanceAfterTotalVnd.ToString(),
+                p.PaidAt,
+                p.Notes
+            });
+        }
+        return Encode(rows);
+    }
 }
