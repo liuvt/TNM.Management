@@ -56,7 +56,7 @@
       5. Sổ Phiếu Thu / Chi (@payments.Count)
     </button>
     <button type="button" class="btn @(activeTab == "SNAPSHOT_STATS" ? "" : "secondary")" @onclick='() => SetTab("SNAPSHOT_STATS")'>
-      6. Thống kê Snapshot Đơn hoàn thành &amp; Seller (@completedSnapshots.Count đơn · @sellerStats.Count Seller)
+      6. Thống kê Đơn hàng &amp; Hoa hồng Seller (@completedSnapshots.Count đơn · @sellerStats.Count Seller)
     </button>
   </div>
 
@@ -390,22 +390,22 @@ else if (activeTab == "SNAPSHOT_STATS")
 
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
       <div class="stat">
-        <small>Doanh thu bán Snapshot</small>
+        <small>Doanh thu đơn hàng</small>
         <strong style="color:#0284c7">@Money(completedSnapshots.Sum(x => x.RevenueSnapshotVnd))</strong>
-        <span>@completedSnapshots.Count đơn hoàn thành (Đã khóa 🔒)</span>
+        <span>@completedSnapshots.Count đơn / lô thiết bị</span>
       </div>
       <div class="stat">
-        <small>Giá vốn Snapshot</small>
+        <small>Tổng giá vốn</small>
         <strong>@Money(completedSnapshots.Sum(x => x.CostSnapshotVnd))</strong>
-        <span>Giá nhập cố định tại thời điểm xuất</span>
+        <span>Giá nhập thực tế khi xuất kho</span>
       </div>
       <div class="stat">
-        <small>Công lắp Snapshot</small>
+        <small>Tổng công lắp đặt</small>
         <strong class="orange">@Money(completedSnapshots.Sum(x => x.InstallerFeeSnapshotVnd))</strong>
-        <span>Định mức công kỹ thuật cố định</span>
+        <span>Định mức chi phí kỹ thuật lắp đặt</span>
       </div>
       <div class="stat">
-        <small>Lợi nhuận gộp Snapshot</small>
+        <small>Lợi nhuận gộp</small>
         <strong style="color:#15803d">@Money(completedSnapshots.Sum(x => x.GrossProfitSnapshotVnd))</strong>
         <span>Doanh thu − Giá vốn − Công lắp</span>
       </div>
@@ -424,8 +424,8 @@ else if (activeTab == "SNAPSHOT_STATS")
             <th>NHÂN VIÊN BÁN HÀNG (SELLER)</th>
             <th>BỘ PHẬN / KÊNH</th>
             <th>ĐƠN HOÀN THÀNH</th>
-            <th>DOANH THU BÁN (SNAPSHOT)</th>
-            <th>LỢI NHUẬN GỘP (SNAPSHOT)</th>
+            <th>DOANH THU BÁN HÀNG</th>
+            <th>LỢI NHUẬN GỘP</th>
             <th>GIA HẠN THIẾT BỊ</th>
             <th>DOANH THU GIA HẠN</th>
             <th>HOA HỒNG DỰ KIẾN</th>
@@ -466,8 +466,8 @@ else if (activeTab == "SNAPSHOT_STATS")
   <section class="panel">
     <div class="panel-head">
       <div>
-        <h2>6B. Sổ Chi tiết Đơn hàng Hoàn thành — Giá Cố Định Snapshot (Bất biến 🔒)</h2>
-        <p>Mọi đơn hàng đã hoàn thành đều bị khóa cứng (Immutable) và giữ nguyên đơn giá bán, giá vốn, công lắp đặt tại thời điểm phát sinh dù danh mục sản phẩm có thay đổi giá về sau.</p>
+        <h2>6B. Sổ Chi tiết Đơn hàng &amp; Lô Thiết bị Khách hàng</h2>
+        <p>Tổng hợp chi tiết doanh thu, giá vốn, chi phí lắp đặt và lợi nhuận gộp của từng đơn hàng hoàn thành và lô thiết bị khách hàng.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <select class="search-input" style="min-width:200px" @bind="snapshotSellerFilter">
@@ -485,14 +485,14 @@ else if (activeTab == "SNAPSHOT_STATS")
       <table>
         <thead>
           <tr>
-            <th>MÃ ĐƠN (LOCK)</th>
+            <th>MÃ ĐƠN / CHỨNG TỪ</th>
             <th>KHÁCH HÀNG / CHỦ XE</th>
             <th>SELLER PHỤ TRÁCH</th>
-            <th>SẢN PHẨM &amp; ĐƠN GIÁ SNAPSHOT</th>
+            <th>SẢN PHẨM &amp; ĐƠN GIÁ</th>
             <th>SL SP</th>
-            <th>DOANH THU SNAPSHOT</th>
-            <th>GIÁ VỐN SNAPSHOT</th>
-            <th>CÔNG LẮP SNAPSHOT</th>
+            <th>DOANH THU</th>
+            <th>GIÁ VỐN</th>
+            <th>CÔNG LẮP</th>
             <th>LỢI NHUẬN GỘP</th>
             <th>NGÀY KÍCH HOẠT</th>
           </tr>
@@ -506,15 +506,15 @@ else if (activeTab == "SNAPSHOT_STATS")
                 <div>
                   @if (o.OrderStatus == "COMPLETED")
                   {
-                    <span class="chip green-chip">🔒 Cố định (Đã hoàn thành)</span>
+                    <span class="chip green-chip">Đã hoàn thành</span>
                   }
                   else if (o.OrderStatus == "ACTIVATION_BATCH")
                   {
-                    <span class="chip blue-chip">📦 Lô TB đang hoạt động (Snapshot)</span>
+                    <span class="chip blue-chip">Đang hoạt động</span>
                   }
                   else
                   {
-                    <span class="chip orange-chip">⏳ Đang xử lý (@o.OrderStatus)</span>
+                    <span class="chip orange-chip">Đang xử lý (@o.OrderStatus)</span>
                   }
                 </div>
               </td>
@@ -759,7 +759,7 @@ else
       var totalNew = pur + sale + ren + srv;
       message = totalNew > 0
         ? $"Đã đồng bộ thành công {totalNew} chứng từ kế toán (Nhập NCC: {pur}, Khách hàng: {sale}, Gia hạn: {ren}, Kỹ thuật: {srv})."
-        : $"Dữ liệu kế toán đã đồng bộ đầy đủ ({invoices.Count} chứng từ, {completedSnapshots.Count} bản ghi Snapshot).";
+        : $"Dữ liệu kế toán đã đồng bộ đầy đủ ({invoices.Count} chứng từ, {completedSnapshots.Count} đơn hàng / lô thiết bị).";
     }
     catch (Exception ex)
     {

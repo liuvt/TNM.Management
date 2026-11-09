@@ -1,17 +1,97 @@
 @attribute [Authorize(Policy = Permissions.ArchitectureView)]
 @page "/architecture"
-<PageTitle>Kiến trúc · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">SYSTEM DESIGN / MVP</div><h1>Kiến trúc TNM.Management</h1><p>Thiết kế mô-đun theo workbook; database chuẩn hóa và giao diện theo vai trò.</p></div></div>
-<div class="two-column">
-<section class="panel"><div class="panel-head"><h2>Các phân hệ</h2></div>
-<div class="step-list"><div><b>01</b><span><strong>Danh mục</strong><small>Sản phẩm, khách hàng, nhóm, bảng giá</small></span></div><div><b>02</b><span><strong>Kho / IMEI</strong><small>Nhập, xuất, ký gửi, kỹ thuật, kiểm kê</small></span></div><div><b>03</b><span><strong>Đơn hàng</strong><small>Điều phối, lắp đặt, kích hoạt</small></span></div><div><b>04</b><span><strong>Thiết bị</strong><small>Vòng đời thuê bao, bảo hành, gia hạn</small></span></div><div><b>05</b><span><strong>Tài chính</strong><small>Hóa đơn, phân bổ thanh toán, công nợ</small></span></div><div><b>06</b><span><strong>Điều hành</strong><small>Dashboard, báo cáo, KPI</small></span></div></div>
-</section>
-<section class="panel"><div class="panel-head"><h2>Quy tắc dữ liệu chính</h2></div>
- <p><strong>IMEI duy nhất:</strong> lưu tại <code>stock_units</code>; cấm hai vị trí quản lý cùng lúc.</p>
- <p><strong>Đơn đã hủy:</strong> sử dụng trạng thái <code>CANCELLED</code>, không xóa.</p>
- <p><strong>Gia hạn:</strong> lịch sử <code>renewals</code> tồn tại độc lập với ngày hết hạn hiện tại.</p>
- <p><strong>Công nợ:</strong> số tiền còn lại = hóa đơn − tổng phân bổ thanh toán.</p>
- <p><strong>Audit:</strong> lưu hành động và thời điểm xử lý. Dự án demo hiện không có cơ chế xác thực thật.</p>
- <div class="panel-note">Sơ đồ ERD hoàn chỉnh, từ điển 33 bảng và kiến trúc triển khai nằm trong thư mục <code>docs/</code> của source.</div>
-</section>
+<PageTitle>Kiến trúc &amp; Luồng dữ liệu · TNM</PageTitle>
+<div class="page-head">
+    <div>
+        <div class="eyebrow">SYSTEM DESIGN / DATA FLOW &amp; WORKFLOW</div>
+        <h1>Kiến trúc &amp; Luồng dữ liệu TNM.Management</h1>
+        <p>Tổng quan 6 phân hệ nghiệp vụ, luồng đi dữ liệu từ đầu đến cuối, sơ đồ thực thể (ERD) và quy tắc kiểm soát kho – kế toán – bảo mật.</p>
+    </div>
 </div>
+<div class="two-column" style="margin-bottom:16px">
+    <section class="panel">
+        <div class="panel-head"><h2>6 Phân hệ nghiệp vụ cốt lõi</h2></div>
+        <div class="step-list">
+            <div><b>01</b><span><strong>Danh mục &amp; Chính sách giá</strong><small>Nhóm NCC/NCC, Nhóm SP/SP (IMEI &amp; Số lượng), Nhóm KH/KH, Seller, Kỹ thuật &amp; Định mức công lắp, Khu vực &amp; Kho</small></span></div>
+            <div><b>02</b><span><strong>Nhập kho, Tồn kho IMEI &amp; Bảo hành RMA</strong><small>Đơn mua PO, Nhập/Xuất số lượng, Kiểm kê, Kho thiết bị IMEI (Tại kho / Ký gửi / Kỹ thuật), Bảo hành 3 bước</small></span></div>
+            <div><b>03</b><span><strong>Đơn hàng &amp; Điều phối lắp đặt (SO)</strong><small>Nhận đơn từ Seller → CSKH điều kho &amp; chọn ĐV lắp đặt | Hãng lắp đặt → Cập nhật IMEI &amp; Biển số → Kích hoạt &amp; Hoàn thành</small></span></div>
+            <div><b>04</b><span><strong>Thiết bị đang hoạt động &amp; Gia hạn thuê bao</strong><small>Theo dõi hạn thuê bao (Còn hạn, D+10/30/60, Quá hạn), gia hạn 12 tháng gắn Seller phụ trách</small></span></div>
+            <div><b>05</b><span><strong>Kế toán Công nợ, Sổ Thu/Chi &amp; Hoa hồng</strong><small>4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng Seller), Phiếu Thu/Chi &amp; Thống kê cuối kỳ</small></span></div>
+            <div><b>06</b><span><strong>Phân quyền RBAC, Phạm vi Kho &amp; Kiểm toán</strong><small>6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, chống xóa cứng &amp; lưu vết 100% thay đổi</small></span></div>
+        </div>
+    </section>
+    <section class="panel">
+        <div class="panel-head"><h2>Quy tắc toàn vẹn dữ liệu &amp; Nghiệp vụ</h2></div>
+        <p><strong>1. Quản lý IMEI duy nhất:</strong> Mỗi thiết bị <code>stock_units</code> chỉ ở 1 trạng thái tại 1 thời điểm (<code>IN_STOCK</code>, <code>CONSIGNED</code>, <code>TECHNICIAN</code>, <code>INSTALLED</code>, <code>WARRANTY</code>).</p>
+        <p><strong>2. Trừ tồn kho đúng thời điểm:</strong> Tạo đơn và điều phối chưa trừ kho. Tồn kho chỉ giảm khi đơn hàng chuyển sang <code>COMPLETED</code> (cho phép chọn <em>Không trừ tồn kho</em> khi đơn vị lắp đặt là <em>Hãng lắp đặt</em>).</p>
+        <p><strong>3. Bảo toàn đơn giá lịch sử:</strong> Đơn hàng đã hoàn thành giữ nguyên đơn giá bán, giá vốn, công lắp đặt và thông tin Seller tại thời điểm phát sinh dù bảng giá danh mục thay đổi về sau.</p>
+        <p><strong>4. Đồng bộ Kế toán tự động:</strong> Nhập kho sinh Công nợ NCC (<code>PURCHASE</code>); Hoàn thành đơn lắp đặt sinh Công nợ Khách hàng (<code>SALE</code>) và Công kỹ thuật (<code>SERVICE</code>); Gia hạn sinh Công nợ Gia hạn (<code>RENEWAL</code>).</p>
+        <p><strong>5. Kiểm toán &amp; Xóa mềm (Soft Delete):</strong> Cấm xóa vật lý bản ghi nghiệp vụ; mọi thao tác Thêm/Sửa/Xóa mềm đều tự động ghi nhận giá trị Trước/Sau vào <code>activity_events</code>.</p>
+    </section>
+</div>
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2>Luồng đi dữ liệu xuyên suốt (End-to-End Workflow)</h2>
+            <p>Chu trình khép kín từ Khai báo Danh mục → Nhập kho → Đơn hàng lắp đặt → Kích hoạt thuê bao → Gia hạn → Kế toán &amp; Hoa hồng cuối kỳ.</p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Giai đoạn</th>
+                    <th>Điểm đầu vào (UI / Tác nhân)</th>
+                    <th>Xử lý nghiệp vụ &amp; Dịch vụ C#</th>
+                    <th>Bảng dữ liệu SQLite cập nhật</th>
+                    <th>Kết quả đầu ra / Kế toán</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>B1. Danh mục &amp; Giá</strong></td>
+                    <td class="wrap-cell">Admin / Quản lý khai báo tại <code>/catalog/*</code></td>
+                    <td class="wrap-cell"><code>InputCatalog</code> thiết lập Sản phẩm, KH, NCC, Seller, Kỹ thuật, Kho và Bảng giá</td>
+                    <td class="wrap-cell"><code>products</code>, <code>customers</code>, <code>suppliers</code>, <code>v7_sellers</code>, <code>employees</code>, <code>v7_group_prices</code>, <code>v7_installer_product_rates</code></td>
+                    <td class="wrap-cell">Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn</td>
+                </tr>
+                <tr>
+                    <td><strong>B2. Nhập kho &amp; Kho IMEI</strong></td>
+                    <td class="wrap-cell">Thủ kho nhập PO / nhập IMEI / nhập số lượng tại <code>/inventory</code>, <code>/warehouse-ops</code></td>
+                    <td class="wrap-cell"><code>DemoDb.AddStock</code>, <code>V6Ops.ReceivePurchase</code>, <code>V6Ops.MoveQuantity</code></td>
+                    <td class="wrap-cell"><code>stock_units</code>, <code>inventory_transactions</code>, <code>purchase_orders</code>, <code>quantity_movements</code></td>
+                    <td class="wrap-cell">Tăng tồn kho + Tự động sinh <strong>Công nợ Sản phẩm (<code>PURCHASE</code>)</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>B3. Tạo đơn &amp; Điều phối</strong></td>
+                    <td class="wrap-cell">Seller gửi thông tin → CSKH tạo đơn tại <code>/sales-orders</code></td>
+                    <td class="wrap-cell"><code>V7Orders.CreateMulti</code>, <code>Approve</code>, <code>Dispatch</code>, <code>ReportLines</code></td>
+                    <td class="wrap-cell"><code>v7_orders</code> (<code>PENDING</code> → <code>DISPATCHED</code> → <code>REPORTED</code>), <code>v7_order_lines</code></td>
+                    <td class="wrap-cell">Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho</td>
+                </tr>
+                <tr>
+                    <td><strong>B4. Hoàn thành &amp; Kích hoạt</strong></td>
+                    <td class="wrap-cell">ĐV lắp đặt báo IMEI &amp; biển số → CSKH chọn Ngày kích hoạt &amp; bấm Hoàn thành</td>
+                    <td class="wrap-cell"><code>V7Orders.Complete</code> kiểm tra tồn kho, xuất IMEI/số lượng, kích hoạt thuê bao</td>
+                    <td class="wrap-cell"><code>v7_orders</code> (<code>COMPLETED</code>), <code>stock_units</code> (<code>INSTALLED</code>), <code>v7_stock_effects</code>, <code>activations</code></td>
+                    <td class="wrap-cell">Trừ tồn kho + Sinh <strong>Công nợ KH (<code>SALE</code>)</strong> &amp; <strong>Công kỹ thuật (<code>SERVICE</code>)</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>B5. Theo dõi &amp; Gia hạn TB</strong></td>
+                    <td class="wrap-cell">CSKH gia hạn thiết bị 12 tháng &amp; chọn Seller tại <code>/devices</code></td>
+                    <td class="wrap-cell"><code>DemoDb.Renew</code> cộng thêm 12 tháng vào hạn thuê bao và lưu người gia hạn</td>
+                    <td class="wrap-cell"><code>renewals</code>, <code>activations.expires_at</code>, <code>invoices</code>, <code>payments</code></td>
+                    <td class="wrap-cell">Sinh <strong>Công nợ Gia hạn (<code>RENEWAL</code>)</strong> + Cộng chỉ tiêu hoa hồng Seller</td>
+                </tr>
+                <tr>
+                    <td><strong>B6. Quyết toán &amp; Hoa hồng</strong></td>
+                    <td class="wrap-cell">Kế toán thu/chi công nợ &amp; đối soát cuối kỳ tại <code>/finance</code></td>
+                    <td class="wrap-cell"><code>DemoDb.PayInvoice</code>, <code>CreateCustomInvoice</code>, <code>SellerPeriodStats</code></td>
+                    <td class="wrap-cell"><code>invoices</code> (<code>OPEN</code> → <code>PARTIAL</code> → <code>PAID</code>), <code>payments</code>, <code>payment_allocations</code></td>
+                    <td class="wrap-cell">Sổ Phiếu Thu (<code>PT-</code>) / Phiếu Chi (<code>PC-</code>), Báo cáo Lợi nhuận gộp &amp; Hoa hồng Seller</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>

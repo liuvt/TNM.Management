@@ -71,7 +71,7 @@ else
                 <span>Phụ trách @sellers.Sum(x => x.CustomerCount) khách hàng / đơn vị</span>
             </div>
             <div class="stat">
-                <small>Đơn hàng hoàn thành (Snapshot)</small>
+                <small>Đơn hàng hoàn thành</small>
                 <strong style="color:#0284c7">@sellers.Sum(x => x.CompletedOrders) đơn · @sellers.Sum(x => x.CompletedDevices) TB</strong>
                 <span>Doanh thu bán mới: @Money(sellers.Sum(x => x.SalesRevenueVnd))</span>
             </div>
@@ -406,7 +406,7 @@ else
                         <th>SĐT &amp; Bộ phận</th>
                         <th>KH phụ trách</th>
                         <th>Đơn hoàn thành (SL lắp)</th>
-                        <th>Doanh thu bán mới (Snapshot)</th>
+                        <th>Doanh thu bán mới</th>
                         <th>Gia hạn thiết bị (Doanh thu)</th>
                         <th>Định mức &amp; Hoa hồng dự kiến</th>
                         @if(canUpdate || canAudit){<th>Thao tác</th>}

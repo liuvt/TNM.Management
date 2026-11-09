@@ -48,7 +48,7 @@
     <div class="panel-head">
         <div>
             <h2>1. Tạo đơn hàng &amp; Điều sản phẩm ở kho (CSKH)</h2>
-            <p>Nhập thông tin khách lắp đặt từ Seller và chọn Kho điều sản phẩm, Đơn vị lắp đặt hoặc Hãng lắp đặt. Đơn giá sản phẩm được chụp cố định (Snapshot) và tồn kho chưa bị trừ ở bước tạo đơn.</p>
+            <p>Nhập thông tin khách lắp đặt từ Seller và chọn Kho điều sản phẩm, Đơn vị lắp đặt hoặc Hãng lắp đặt. Tồn kho chỉ bị trừ sau khi đơn hàng lắp đặt hoàn thành.</p>
         </div>
     </div>
 
@@ -352,11 +352,11 @@
         @if(SelectedOrder.IsImmutable)
         {
             <div style="margin-top:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
-                🔒 Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành (COMPLETED): Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn snapshot (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), Seller (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã được khóa cố định, không thể thay đổi.
+                Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), Seller (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã chốt.
             </div>
         }
         <div style="margin-top:0.85rem;padding:0.75rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px">
-            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, Seller &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã khóa cố định)" : "(CSKH có thể cập nhật)")</h3>
+            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, Seller &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
             <div class="form-grid">
                 <label>Họ tên khách (Chủ xe / Người liên hệ)
                     <input @bind="editContactName" disabled="@SelectedOrder.IsImmutable" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
@@ -420,7 +420,7 @@
 
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>#</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán (Snapshot)</th><th>Công lắp (Snapshot)</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
+                    <thead><tr><th>#</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
                     <tbody>
                         @for(int i = 0; i < SelectedOrder.Lines.Count; i++)
                         {
@@ -484,7 +484,7 @@
     <div class="panel-head">
         <div>
             <h2>Danh sách đơn hàng lắp đặt (SO)</h2>
-            <p>Theo dõi trạng thái đơn, Seller bán hàng, thông tin khách lắp, giá cố định Snapshot, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
+            <p>Theo dõi trạng thái đơn, Seller bán hàng, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
         </div>
     </div>
     <div class="table-wrap">
@@ -495,7 +495,7 @@
                     <th>Đơn vị (HTX/ĐL) &amp; Khách lắp</th>
                     <th>Seller (Người bán)</th>
                     <th>Sản phẩm &amp; Thời hạn</th>
-                    <th>Giá bán (Snapshot)</th>
+                    <th>Giá bán</th>
                     <th>Thời gian &amp; Địa chỉ lắp</th>
                     <th>Trạng thái</th>
                     <th>Kho &amp; Chế độ tồn kho</th>
@@ -511,7 +511,7 @@
                             <div><strong>@o.Code</strong></div>
                             @if(o.IsImmutable)
                             {
-                                <small style="color:#15803d;font-weight:600" title="Đơn đã hoàn thành và khóa cố định giá snapshot">🔒 Khóa Snapshot</small>
+                                <small style="color:#15803d;font-weight:600">Đã hoàn thành</small>
                             }
                         </td>
                         <td class="wrap-cell">
@@ -1015,7 +1015,7 @@
         draftQty = 1;
         selected = createdId;
         OnOrderSelected();
-        return $"Đã tạo đơn SO7-{createdId:000000} (chưa trừ tồn kho, đã chụp giá cố định Snapshot). Khi ĐV lắp đặt gửi IMEI về, hãy nhập IMEI, chọn Ngày kích hoạt và bấm '3. Hoàn thành đơn & Kích hoạt IMEI'.";
+        return $"Đã tạo đơn SO7-{createdId:000000} (chưa trừ tồn kho). Khi ĐV lắp đặt gửi IMEI về, hãy nhập IMEI, chọn Ngày kích hoạt và bấm '3. Hoàn thành đơn & Kích hoạt IMEI'.";
     });
 
     private Task SaveOrderAndDispatch() => Act(actor =>

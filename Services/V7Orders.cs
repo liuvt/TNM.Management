@@ -570,7 +570,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
             var st = Status(c, id);
-            if (st is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Đơn hàng đã hoàn thành hoặc đã hủy (đã khóa cố định giá snapshot), không thể thay đổi.");
+            if (st is "COMPLETED" or "CANCELLED") throw new InvalidOperationException("Đơn hàng đã hoàn thành hoặc đã hủy, không thể thay đổi.");
             if (!deductStock && !partner)
                 throw new InvalidOperationException("Chỉ cho phép chọn 'Không trừ tồn kho' khi Đơn vị lắp đặt là Hãng lắp đặt.");
             if (!deductStock && string.IsNullOrWhiteSpace(installer) && !(installerEmployeeId is > 0))
