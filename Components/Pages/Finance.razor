@@ -783,7 +783,7 @@ else if (activeTab == "SNAPSHOT_STATS")
                 }
               </td>
               <td><span class="chip blue-chip">@o.SellerDisplay</span></td>
-              <td class="wrap-cell" style="max-width:300px;font-size:12px;color:#334155">@o.ProductSummary</td>
+              <td class="wrap-cell" style="max-width:300px;white-space:normal;word-break:break-word;overflow-wrap:anywhere;overflow:hidden;font-size:12px;color:#334155">@o.ProductSummary</td>
               <td><strong>@o.TotalQty</strong></td>
               <td><strong style="color:#0284c7">@Money(o.RevenueSnapshotVnd)</strong></td>
               <td>@Money(o.CostSnapshotVnd)</td>
@@ -900,23 +900,26 @@ else
               <td>
                 <span class="chip @(x.IsReceivable ? "blue-chip" : x.Type is "PURCHASE" or "SUPPLIER" ? "orange-chip" : "purple-chip")">@TypeLabel(x.Type)</span>
               </td>
-              <td class="wrap-cell"><strong>@x.Customer</strong></td>
-              <td class="wrap-cell" style="max-width:320px;font-size:12px;color:#475569">
+              <td class="wrap-cell" style="max-width:260px;white-space:normal;word-break:break-word;overflow-wrap:anywhere;overflow:hidden"><strong>@x.Customer</strong></td>
+              <td class="wrap-cell" style="max-width:300px;white-space:normal;word-break:break-word;overflow-wrap:anywhere;overflow:hidden;font-size:12px;color:#475569">
                 @if (!string.IsNullOrWhiteSpace(x.RefCode))
                 {
                   <div><strong>Mã gốc:</strong> @x.RefCode</div>
                 }
                 @if (!string.IsNullOrWhiteSpace(x.Notes))
                 {
-                  <div>@x.Notes</div>
+                  <div style="white-space:normal;word-break:break-word">@x.Notes</div>
                 }
                 @if (x.Lines is { Count: > 0 })
                 {
-                  <div style="color:#64748b;margin-top:2px">
-                    @string.Join(", ", x.Lines.Take(2).Select(l => $"{l.Description} (×{l.Quantity})"))
+                  <div style="color:#64748b;margin-top:2px;white-space:normal;word-break:break-word">
+                    @foreach (var l in x.Lines.Take(2))
+                    {
+                      <div>• @l.Description (×@l.Quantity)</div>
+                    }
                     @if (x.Lines.Count > 2)
                     {
-                      <span> … <strong>(+@(x.Lines.Count - 2) mục — bấm Chi tiết)</strong></span>
+                      <div style="color:#0284c7;font-weight:600">+@(x.Lines.Count - 2) mục khác (bấm Chi tiết)</div>
                     }
                   </div>
                 }
