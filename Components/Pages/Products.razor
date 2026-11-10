@@ -23,12 +23,12 @@
 {
     <section class="panel edit-panel catalog-editor" id="catalog-editor">
         <div class="panel-head">
-            <div><h2>@(editingId.HasValue?"Cập nhật sản phẩm":"Tạo sản phẩm mới")</h2><p>Mã SKU được hệ thống cấp tự động, không cho nhập hoặc đổi mã.</p></div>
+            <div><h2>@(editingId.HasValue?"Cập nhật sản phẩm":"Tạo sản phẩm mới")</h2><p>Nhập mã sản phẩm riêng hoặc để trống để hệ thống tự cấp mã DX.</p></div>
             <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Đóng</button>
         </div>
         <div class="form-grid">
             <label>Mã sản phẩm
-                <input value="@(editingId.HasValue?editingSku:"DX tự động khi lưu (bắt đầu DX00001)")" disabled />
+                <input @bind="editingSku" placeholder="Để trống = tự cấp DX00001 (hoặc nhập mã riêng: SP000012, CASTMA10W40...)" maxlength="40" />
             </label>
             <label>Nhóm sản phẩm *
                 <select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var x in groups){<option value="@x.Id">@x.Name</option>}</select>
@@ -199,7 +199,7 @@
         try
         {
             var actor=await Gate.RequireAsync(editingId.HasValue?Permissions.ProductsUpdate:Permissions.ProductsCreate);
-            var sku=Master.Save(actor,new ProductMaster.ProductDraft(editingId,groupId,name,kind,unit,imei&&kind=="GOODS",warrantyMonths));
+            var sku=Master.Save(actor,new ProductMaster.ProductDraft(editingId,groupId,name,kind,unit,imei&&kind=="GOODS",warrantyMonths,editingSku));
             showEditor=false;Reload();selected.Clear();message="Đã lưu sản phẩm "+sku+". Những nghiệp vụ phía sau dùng chung ID sản phẩm.";
         }
         catch(Exception ex){message="Lỗi: "+ex.Message;}

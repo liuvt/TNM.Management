@@ -10,7 +10,7 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
     public sealed record ProductRow(long Id, string Sku, string Name, long GroupId, string GroupName,
         string Kind, string Unit, bool UsesImei, int WarrantyMonths, bool IsActive, long StockInHand = 0);
     public sealed record GroupRow(long Id, string Code, string Name);
-    public sealed record ProductDraft(long? Id, long GroupId, string Name, string Kind, string Unit, bool UsesImei, int WarrantyMonths);
+    public sealed record ProductDraft(long? Id, long GroupId, string Name, string Kind, string Unit, bool UsesImei, int WarrantyMonths, string? CustomSku = null);
     private readonly string path = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-local.db");
 
     private SqliteConnection Open()
@@ -97,7 +97,9 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
             long id; string sku;
             if (newProduct)
             {
-                sku = InputCatalog.NextSku(c);
+                sku = string.IsNullOrWhiteSpace(d.CustomSku) ? InputCatalog.NextSku(c) : d.CustomSku.Trim();
+                if (Count(c, "SELECT COUNT(*) FROM products WHERE sku=$sku AND deleted_at IS NULL", ("$sku", sku)) > 0)
+                    throw new InvalidOperationException($"Mã sản phẩm '{sku}' đã tồn tại.");
                 Execute(c, """
                     INSERT INTO products(group_id,sku,name,warranty_months,is_serialized,is_active)
                     VALUES($group,$sku,$name,$warranty,$imei,1)
@@ -115,7 +117,13 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
                     """, ("$id", id));
                 using var r = q.ExecuteReader();
                 if (!r.Read()) throw new InvalidOperationException("Không tìm thấy sản phẩm còn hoạt động.");
-                sku = r.GetString(0); var oldImei = r.GetInt64(1) == 1; var oldKind = r.GetString(2); r.Close();
+                var oldSku = r.GetString(0); var oldImei = r.GetInt64(1) == 1; var oldKind = r.GetString(2); r.Close();
+                sku = string.IsNullOrWhiteSpace(d.CustomSku) ? oldSku : d.CustomSku.Trim();
+                if (!string.Equals(sku, oldSku, StringComparison.OrdinalIgnoreCase) &&
+                    Count(c, "SELECT COUNT(*) FROM products WHERE sku=$sku AND id<>$id AND deleted_at IS NULL", ("$sku", sku), ("$id", id)) > 0)
+                {
+                    throw new InvalidOperationException($"Mã sản phẩm '{sku}' đã tồn tại.");
+                }
                 if (oldImei != d.UsesImei || oldKind != d.Kind)
                 {
                     var inUse = Count(c, "SELECT COUNT(*) FROM stock_units WHERE product_id=$id", ("$id", id)) +
@@ -125,9 +133,9 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
                     if (inUse > 0) throw new InvalidOperationException("Sản phẩm đã phát sinh giao dịch; không thể đổi loại hàng hoặc IMEI.");
                 }
                 Execute(c, """
-                    UPDATE products SET group_id=$group,name=$name,warranty_months=$warranty,is_serialized=$imei
+                    UPDATE products SET sku=$sku,group_id=$group,name=$name,warranty_months=$warranty,is_serialized=$imei
                     WHERE id=$id
-                    """, ("$group", d.GroupId), ("$name", d.Name.Trim()), ("$warranty", d.WarrantyMonths),
+                    """, ("$sku", sku), ("$group", d.GroupId), ("$name", d.Name.Trim()), ("$warranty", d.WarrantyMonths),
                     ("$imei", d.UsesImei ? 1 : 0), ("$id", id));
             }
             Execute(c, """

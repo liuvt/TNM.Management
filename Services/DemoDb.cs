@@ -96,6 +96,7 @@ public sealed class DemoDb
         using var c = Open();
         Exec(c, null, "PRAGMA journal_mode=WAL;");
         Exec(c, null, File.ReadAllText(Path.Combine(_contentRoot, "Data", "schema.sql")));
+        Exec(c, null, "DROP TRIGGER IF EXISTS v7_product_sku_immutable;");
         if (N(c, null, "SELECT count(*) FROM app_users") == 0)
         {
             var demo = Environment.GetEnvironmentVariable("TNM_SEED_DEMO") == "1";

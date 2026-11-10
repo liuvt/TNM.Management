@@ -596,11 +596,8 @@ AFTER INSERT ON roles
 BEGIN INSERT OR IGNORE INTO user_roles(user_id, role_id)
   SELECT id, NEW.id FROM app_users WHERE is_owner=1; END;
 
--- Bảo vệ mã SKU bất biến và nhóm khách hàng bắt buộc
-CREATE TRIGGER IF NOT EXISTS v7_product_sku_immutable
-BEFORE UPDATE OF sku ON products
-WHEN NEW.sku<>OLD.sku
-BEGIN SELECT RAISE(ABORT,'SKU_IMMUTABLE'); END;
+-- Cho phép cập nhật mã SKU sản phẩm (hoặc tự sinh DX00001 nếu không nhập)
+DROP TRIGGER IF EXISTS v7_product_sku_immutable;
 
 CREATE TRIGGER IF NOT EXISTS v7_customer_group_required_insert
 BEFORE INSERT ON customers

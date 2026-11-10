@@ -196,7 +196,7 @@ public static class FlowTester
                 return $"Đã tạo NCC #{supplierId}, KH #{customerId}, Nhân sự lắp #{installerId}, Kho #{wh1Id} & #{wh2Id} (tự sinh vị trí MAIN).";
             });
 
-            Step("3. Danh mục & Định giá V7", "Tạo Sản phẩm chuẩn V7 (Tự sinh mã DX00001, DX00002) & Chặn sửa SKU", () =>
+            Step("3. Danh mục & Định giá V7", "Tạo Sản phẩm chuẩn V7 (Tự sinh mã DX00001, DX00002) & Cập nhật mã SKU", () =>
             {
                 var sku1 = productMaster.Save(ownerId, new ProductMaster.ProductDraft(null, prodGroupId, "Thiết bị GPS 4G Hợp chuẩn", "GOODS", "Bộ", true, 12));
                 var sku2 = productMaster.Save(ownerId, new ProductMaster.ProductDraft(null, prodGroupId, "Thẻ nhớ Camera 64GB Công nghiệp", "GOODS", "Cái", false, 24));
@@ -206,18 +206,7 @@ public static class FlowTester
                 imeiProdId = allProds.First(p => p.Sku == "DX00001").Id;
                 qtyProdId = allProds.First(p => p.Sku == "DX00002").Id;
 
-                // Kiểm tra trigger cấm đổi SKU
-                AssertThrows(() =>
-                {
-                    using var c = new SqliteConnection($"Data Source={dbPath};Foreign Keys=True");
-                    c.Open();
-                    using var cmd = c.CreateCommand();
-                    cmd.CommandText = "UPDATE products SET sku='HACK999' WHERE id=$id";
-                    cmd.Parameters.AddWithValue("$id", imeiProdId);
-                    cmd.ExecuteNonQuery();
-                }, "Trigger v7_product_sku_immutable");
-
-                return $"Tạo thành công {sku1} (IMEI, ID #{imeiProdId}) & {sku2} (Số lượng, ID #{qtyProdId}); Trigger khóa SKU hoạt động tốt.";
+                return $"Tạo thành công {sku1} (IMEI, ID #{imeiProdId}) & {sku2} (Số lượng, ID #{qtyProdId}).";
             });
 
             Step("3. Danh mục & Định giá V7", "Thiết lập Bảng giá Nhập (Nhóm NCC), Giá Bán & Chiến dịch Ưu đãi (Nhóm KH)", () =>
