@@ -929,9 +929,10 @@ public sealed class DemoDb
                        ) AS unit_cost
                 FROM quantity_movements q
                 JOIN products p ON p.id=q.product_id
-                WHERE q.deleted_at IS NULL AND p.is_serialized=0 AND q.delta_qty > 0
-                  AND q.movement_type IN ('OPENING','RECEIVE','PURCHASE_RECEIVE')
-                GROUP BY q.product_id",
+                WHERE q.deleted_at IS NULL AND p.is_serialized=0
+                  AND (q.movement_type IN ('OPENING','ADJUST') OR (q.movement_type IN ('RECEIVE','PURCHASE_RECEIVE') AND q.delta_qty > 0))
+                GROUP BY q.product_id
+                HAVING SUM(q.delta_qty) > 0",
                 r => (ProdId: L(r, 0), Label: S(r, 1), InQty: L(r, 2), SupId: L(r, 3), UnitCost: L(r, 4)));
 
             foreach (var row in qtyReceipts)
