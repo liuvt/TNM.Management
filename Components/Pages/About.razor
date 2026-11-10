@@ -6,11 +6,17 @@
 </div>
 <section class="panel" style="max-width:760px">
   <h2>TNM.Management</h2>
-  <div class="table-wrap"><table><tbody>
-    <tr><th>Phiên bản nghiệp vụ</th><td>V7</td></tr>
-    <tr><th>Nền tảng</th><td>.NET 9 · Blazor Interactive Server</td></tr>
-    <tr><th>Cơ sở dữ liệu</th><td>SQLite</td></tr>
-    <tr><th>Danh mục dùng chung</th><td>Nhóm NCC, NCC, nhóm sản phẩm, sản phẩm, khu vực, kho, nhóm khách hàng, khách hàng, bảng giá và chương trình</td></tr>
-  </tbody></table></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>STT</th><th>HẠNG MỤC</th><th>THÔNG TIN</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1</strong></td><th>Phiên bản nghiệp vụ</th><td>V7</td></tr>
+      <tr><td><strong>2</strong></td><th>Nền tảng</th><td>.NET 9 · Blazor Interactive Server</td></tr>
+      <tr><td><strong>3</strong></td><th>Cơ sở dữ liệu</th><td>SQLite</td></tr>
+      <tr><td><strong>4</strong></td><th>Danh mục dùng chung</th><td class="wrap-cell">Nhóm NCC, NCC, nhóm sản phẩm, sản phẩm, khu vực, kho, nhóm khách hàng, khách hàng, bảng giá và chương trình</td></tr>
+    </tbody></table></div>
+  <TablePager Pager="pager" TotalCount="4" />
   <p class="panel-note">Tên bảng dữ liệu và dịch vụ nội bộ vẫn giữ nguyên để bảo toàn migration và liên kết chứng từ hiện có.</p>
 </section>
+@code {
+  private readonly PagerState pager = new();
+}

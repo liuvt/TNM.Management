@@ -51,7 +51,7 @@
 
 <section class="panel">
     <div class="panel-head">
-        <div><h2>Danh sách sản phẩm</h2><p>@Filtered.Count() sản phẩm phù hợp · Trang @CurrentPage / @PageCount. Tối đa 50 dòng/trang.</p></div>
+        <div><h2>Danh sách sản phẩm</h2><p>@Filtered.Count() sản phẩm phù hợp · Trang @CurrentPage / @PageCount (@prodPager.PageSize dòng/trang).</p></div>
         <div class="button-group">
             <input class="search-input" @bind="query" @bind:event="oninput" @onkeydown="OnSearchKeyDown" placeholder="Tìm mã hoặc tên sản phẩm" />
             <button type="button" class="btn secondary" @onclick="ApplySearch">Tìm kiếm</button>
@@ -59,16 +59,18 @@
             <select class="search-input" @bind="groupFilter" @bind:after="ResetPage"><option value="0">Tất cả nhóm</option>@foreach(var g in groups){<option value="@g.Id">@g.Name</option>}</select>
             <select class="search-input" @bind="statusFilter" @bind:after="ResetPage"><option value="ACTIVE">Đang kinh doanh</option><option value="INACTIVE">Ngừng kinh doanh</option><option value="ALL">Tất cả</option></select>
             @if(canExport){<button type="button" class="btn secondary" @onclick="ExportCsv">@(selected.Count>0?$"Xuất đã chọn ({selected.Count})":"Xuất dữ liệu")</button>}
-            <label class="catalog-page-size">Số dòng<select @bind="pageSize" @bind:after="ResetPage"><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>
+            <label class="catalog-page-size">Số dòng<select @bind="prodPager.PageSize" @bind:after="ResetPage"><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>
         </div>
     </div>
     <p class="catalog-table-summary">@(selected.Count>0?$"Đã chọn {selected.Count} sản phẩm để xuất":"Chưa chọn dòng: xuất toàn bộ sản phẩm theo bộ lọc")</p>
+    @{ var pagedProducts = prodPager.Slice(Filtered, out var totalFiltered); }
     <div class="table-wrap"><table>
-        <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>IMEI</th><th>TỒN KHO</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
+        <thead><tr><th>STT</th><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>IMEI</th><th>TỒN KHO</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
         <tbody>
-            @foreach(var p in PageRows)
+            @foreach(var (stt, p) in pagedProducts)
             {
                 <tr @key="p.Id">
+                    <td><strong>@stt</strong></td>
                     <td><input type="checkbox" aria-label="@($"Chọn {p.Sku}")" checked="@selected.Contains(p.Id)" @onchange="e => ToggleRow(p.Id,e.Value is bool b && b)" /></td>
                     <td><strong>@p.Sku</strong></td><td class="name-cell">@p.Name</td><td>@p.GroupName</td>
                     <td>@KindName(p.Kind)</td><td>@p.Unit</td><td>@(p.UsesImei?"Có":"Không")</td>
@@ -116,15 +118,7 @@
         </tbody>
     </table></div>
     @if(!Filtered.Any()) { <p class="panel-note">Chưa có sản phẩm phù hợp. Hãy tạo sản phẩm mới và chọn nhóm tương ứng.</p> }
-    <div class="catalog-pagination"><span>Hiển thị @(Filtered.Count()==0?0:(CurrentPage-1)*pageSize+1)–@Math.Min(Filtered.Count(),CurrentPage*pageSize) / @Filtered.Count()</span>
-        <div class="button-group">
-            <button class="btn secondary btn-sm" disabled="@(CurrentPage==1)" @onclick="() => GoPage(1)">Đầu</button>
-            <button class="btn secondary btn-sm" disabled="@(CurrentPage==1)" @onclick="() => GoPage(CurrentPage-1)">Trước</button>
-            <span class="catalog-page-label">@CurrentPage / @PageCount</span>
-            <button class="btn secondary btn-sm" disabled="@(CurrentPage==PageCount)" @onclick="() => GoPage(CurrentPage+1)">Sau</button>
-            <button class="btn secondary btn-sm" disabled="@(CurrentPage==PageCount)" @onclick="() => GoPage(PageCount)">Cuối</button>
-        </div>
-    </div>
+    <TablePager Pager="prodPager" TotalCount="totalFiltered" />
 </section>
 
 @code {
@@ -132,7 +126,7 @@
     private List<ProductMaster.GroupRow> groups=[];
     private bool canCreate,canUpdate,canExport,canAudit,showEditor,scrollEditorPending;
     private readonly HashSet<long> selected=[];
-    private int page=1,pageSize=50;
+    private readonly PagerState prodPager = new();
     private string query="",search="",statusFilter="ACTIVE",message="",name="",kind="GOODS",unit="Cái",editingSku="";
     private long groupFilter,groupId;
     private int warrantyMonths=12;
@@ -142,15 +136,14 @@
         (statusFilter=="ALL"||(statusFilter=="ACTIVE"?p.IsActive:!p.IsActive)) &&
         (groupFilter==0||p.GroupId==groupFilter) &&
         (string.IsNullOrWhiteSpace(search)||(p.Sku+" "+p.Name).Contains(search,StringComparison.OrdinalIgnoreCase)));
-    private void ApplySearch(){search=query.Trim();page=1;}
-    private void ClearSearch(){query=search="";page=1;}
+    private void ApplySearch(){search=query.Trim();prodPager.Reset();}
+    private void ClearSearch(){query=search="";prodPager.Reset();}
     private void OnSearchKeyDown(KeyboardEventArgs e){if(e.Key=="Enter")ApplySearch();}
-    private int PageCount=>Math.Max(1,(Filtered.Count()+pageSize-1)/pageSize);
-    private int CurrentPage=>Math.Clamp(page,1,PageCount);
-    private List<ProductMaster.ProductRow> PageRows=>Filtered.Skip((CurrentPage-1)*pageSize).Take(Math.Min(50,pageSize)).ToList();
+    private int PageCount=>prodPager.PageCount(Filtered.Count());
+    private int CurrentPage=>prodPager.CurrentPage(Filtered.Count());
+    private List<ProductMaster.ProductRow> PageRows=>Filtered.Skip((CurrentPage-1)*prodPager.PageSize).Take(Math.Min(100,prodPager.PageSize)).ToList();
     private bool PageAllSelected=>PageRows.Count>0&&PageRows.All(p=>selected.Contains(p.Id));
-    private void ResetPage()=>page=1;
-    private void GoPage(int target)=>page=Math.Clamp(target,1,PageCount);
+    private void ResetPage()=>prodPager.Reset();
     private void ToggleRow(long id,bool check){if(check)selected.Add(id);else selected.Remove(id);}
     private void TogglePage(ChangeEventArgs e){var check=e.Value is bool b&&b;foreach(var p in PageRows){if(check)selected.Add(p.Id);else selected.Remove(p.Id);}}
     private async Task ExportCsv()

@@ -20,15 +20,24 @@
 <div class="form-actions"><button class="btn" @onclick="SetLine">Lưu số kiểm</button><span class="feedback">@lineMessage</span></div></section>}
 </div>
 <section class="panel"><div class="panel-head"><h2>Phiên kiểm kê</h2></div>
-<div class="table-wrap"><table><thead><tr><th>Mã</th><th>Kho</th><th>Vị trí</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
-@foreach(var x in counts){<tr><td>@x.Code</td><td>@x.Warehouse</td><td>@x.Location</td><td>@x.Created</td><td>@x.Status</td><td><button class="btn btn-sm" @onclick="()=>SelectCount(x.Id)">Chi tiết</button>
+@{ var pagedCounts = countPager.Slice(counts, out var totalCounts); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>Mã</th><th>Kho</th><th>Vị trí</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
+@foreach(var (stt, x) in pagedCounts){<tr><td><strong>@stt</strong></td><td>@x.Code</td><td>@x.Warehouse</td><td>@x.Location</td><td>@x.Created</td><td>@x.Status</td><td><button class="btn btn-sm" @onclick="()=>SelectCount(x.Id)">Chi tiết</button>
 @if(x.Status=="DRAFT"&&canApprove){<button class="btn btn-sm" @onclick="()=>Approve(x.Id)">Duyệt điều chỉnh</button>}</td></tr>}
-</tbody></table></div><p class="feedback">@approveMessage</p></section>
-@if(selectedCount>0){<section class="panel"><div class="panel-head"><h2>Chi tiết phiên #@selectedCount</h2></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
-@foreach(var line in countLines){<tr><td>@line.Sku</td><td>@line.Product</td><td>@line.Book</td><td>@line.Counted</td><td>@(line.Counted-line.Book)</td></tr>}
-</tbody></table></div></section>}
+</tbody></table></div>
+<TablePager Pager="countPager" TotalCount="totalCounts" />
+<p class="feedback">@approveMessage</p></section>
+@if(selectedCount>0){<section class="panel"><div class="panel-head"><h2>Chi tiết phiên #@selectedCount</h2></div>
+@{ var pagedLines = linePager.Slice(countLines, out var totalLines); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>SKU</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
+@foreach(var (stt, line) in pagedLines){<tr><td><strong>@stt</strong></td><td>@line.Sku</td><td class="wrap-cell">@line.Product</td><td>@line.Book</td><td>@line.Counted</td><td>@(line.Counted-line.Book)</td></tr>}
+</tbody></table></div>
+<TablePager Pager="linePager" TotalCount="totalLines" />
+</section>}
 @code {
  private bool showCreate, showLine;
+ private readonly PagerState countPager = new();
+ private readonly PagerState linePager = new();
  private void ToggleForm(string form){
   showCreate = form=="showCreate" && !showCreate;
   showLine = form=="showLine" && !showLine;

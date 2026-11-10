@@ -100,3 +100,26 @@ public record SellerPeriodStatVm(
     public long EstimatedRenewalCommissionVnd => RenewalCount * RenewalCommissionRateVnd;
     public long TotalEstimatedCommissionVnd => EstimatedOrderCommissionVnd + EstimatedRenewalCommissionVnd;
 }
+
+public sealed class PagerState
+{
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+
+    public int PageCount(int totalCount) => Math.Max(1, (Math.Max(0, totalCount) + PageSize - 1) / Math.Max(1, PageSize));
+    public int CurrentPage(int totalCount) => Math.Clamp(Page, 1, PageCount(totalCount));
+    public int StartIndex(int totalCount) => (CurrentPage(totalCount) - 1) * PageSize;
+    public void Reset() => Page = 1;
+
+    public List<(int Stt, T Item)> Slice<T>(IEnumerable<T> source, out int totalCount)
+    {
+        var list = source as IReadOnlyList<T> ?? source.ToList();
+        totalCount = list.Count;
+        var start = StartIndex(totalCount);
+        var count = Math.Min(PageSize, Math.Max(0, totalCount - start));
+        var result = new List<(int Stt, T Item)>(count);
+        for (var i = 0; i < count; i++)
+            result.Add((start + i + 1, list[start + i]));
+        return result;
+    }
+}

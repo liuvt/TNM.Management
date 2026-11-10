@@ -156,13 +156,13 @@ public sealed class AuditTrail(IWebHostEnvironment env)
         q.Parameters.AddWithValue("$details",details.Length>500?details[..500]:details);
         q.ExecuteNonQuery();
     }
-    public List<(long Id,string Actor,string Action,string Resource,string At)> RecentActions(int limit=50)
+    public List<(long Id,string Actor,string Action,string Resource,string At)> RecentActions(int limit=200)
     {
         using var c=Open();using var q=c.CreateCommand();q.CommandText="""
             SELECT id,COALESCE(actor_username,'[Không xác định]'),action,resource,occurred_at
             FROM activity_actions ORDER BY id DESC LIMIT $n
             """;
-        q.Parameters.AddWithValue("$n",Math.Clamp(limit,1,50));
+        q.Parameters.AddWithValue("$n",Math.Clamp(limit,1,200));
         using var rd=q.ExecuteReader();var rows=new List<(long,string,string,string,string)>();
         while(rd.Read())rows.Add((rd.GetInt64(0),rd.GetString(1),rd.GetString(2),rd.GetString(3),rd.GetString(4)));
         return rows;
@@ -196,7 +196,9 @@ public sealed class AuditTrail(IWebHostEnvironment env)
             """;
         q.Parameters.AddWithValue("$t",table??"");q.Parameters.AddWithValue("$k",key??"");q.Parameters.AddWithValue("$a",action??"");
         q.Parameters.AddWithValue("$actor",actor??"");q.Parameters.AddWithValue("$from",from??"");q.Parameters.AddWithValue("$to",to??"");
-        q.Parameters.AddWithValue("$limit",Math.Clamp(pageSize,1,50));q.Parameters.AddWithValue("$offset",(Math.Max(1,page)-1)*Math.Clamp(pageSize,1,50));
+        var clampedSize = Math.Clamp(pageSize, 1, 200);
+        q.Parameters.AddWithValue("$limit", clampedSize);
+        q.Parameters.AddWithValue("$offset", (Math.Max(1, page) - 1) * clampedSize);
         using var r=q.ExecuteReader();var rows=new List<ActivityRow>();while(r.Read())rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7)));return rows;
     }
     public ActivitySummary Summary(string table,long id)

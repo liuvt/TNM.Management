@@ -253,10 +253,12 @@ else
                             <button type="button" class="btn secondary btn-sm" @onclick="() => installerProdSearch = string.Empty">Xóa lọc SP</button>
                         }
                     </div>
+                    @{ var pagedInstProds = instProdPager.Slice(FilteredInstallerProducts, out var totalInstProds); }
                     <div class="table-wrap" style="max-height:360px;overflow-y:auto">
                         <table>
                             <thead>
                                 <tr>
+                                    <th style="width:60px">STT</th>
                                     <th style="width:110px">Mã SP</th>
                                     <th>Tên sản phẩm</th>
                                     <th>Nhóm sản phẩm</th>
@@ -265,11 +267,12 @@ else
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach(var p in FilteredInstallerProducts)
+                                @foreach(var (stt, p) in pagedInstProds)
                                 {
                                     var pid = p.Id;
                                     var curRate = GetInstallerRateInput(pid);
                                     <tr>
+                                        <td><strong>@stt</strong></td>
                                         <td><strong>@p.Code</strong></td>
                                         <td class="name-cell"><strong>@p.Name</strong></td>
                                         <td><span class="chip">@p.Group</span></td>
@@ -298,6 +301,7 @@ else
                             </tbody>
                         </table>
                     </div>
+                    <TablePager Pager="instProdPager" TotalCount="totalInstProds" />
                 </div>
             }
             <div class="form-actions"><button type="button" class="btn" @onclick="Save">@(CurrentSection=="installers" ? "Lưu người lắp đặt & đơn giá" : "Lưu dữ liệu")</button><button type="button" class="btn secondary" @onclick="CloseEditor">Hủy</button></div>
@@ -314,18 +318,20 @@ else
             <div class="button-group">
                 @if(canExport){<button type="button" class="btn secondary" @onclick="ExportCsv">@(selected.Count>0 ? $"Xuất đã chọn ({selected.Count})" : "Xuất dữ liệu")</button>}
                 <label class="catalog-page-size">Số dòng
-                    <select @bind="pageSize" @bind:after="ResetPage">
-                        <option value="10">10</option><option value="25">25</option><option value="50">50</option>
+                    <select @bind="catalogPager.PageSize" @bind:after="ResetPage">
+                        <option value="20">20</option><option value="50">50</option><option value="100">100</option>
                     </select>
                 </label>
             </div>
         </div>
         <p class="catalog-table-summary">@FilteredRows.Count bản ghi phù hợp · Trang @CurrentPage/@PageCount · @(selected.Count>0?$"Đã chọn {selected.Count} bản ghi để xuất":"Chưa chọn dòng: xuất toàn bộ dữ liệu phù hợp bộ lọc")</p>
+        @{ var pagedCatalogRows = catalogPager.Slice(FilteredRows, out var totalCatalogRows); }
         <div class="table-wrap">
             @if(CurrentSection=="installers")
             {
                 <table>
                     <thead><tr>
+                        <th>STT</th>
                         <th><input type="checkbox" aria-label="Chọn tất cả dòng đang hiển thị" checked="@PageAllSelected" @onchange="TogglePage" /></th>
                         <th>Mã KT</th>
                         <th>Họ tên Người lắp đặt</th>
@@ -335,10 +341,11 @@ else
                         @if(canUpdate || canAudit){<th>Thao tác</th>}
                     </tr></thead>
                     <tbody>
-                        @foreach(var row in PageRows)
+                        @foreach(var (stt, row) in pagedCatalogRows)
                         {
                             var inst = installers.FirstOrDefault(x => x.Id == row.Id);
                             <tr @key="row.Id">
+                                <td><strong>@stt</strong></td>
                                 <td><input type="checkbox" aria-label="@($"Chọn {row.Name}")" checked="@selected.Contains(row.Id)" @onchange="e => ToggleRow(row.Id,e.Value is bool b && b)" /></td>
                                 <td><span class="chip orange-chip">@row.Code</span></td>
                                 <td class="name-cell"><strong>@row.Name</strong></td>
@@ -391,7 +398,7 @@ else
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?7:6)">Chưa có người lắp đặt nào. Bấm <strong>“+ Khai báo người lắp đặt”</strong> ở góc phải để thêm kỹ thuật viên hoặc đối tác lắp đặt.</td></tr>
+                            <tr><td colspan="@(canUpdate||canAudit?8:7)">Chưa có người lắp đặt nào. Bấm <strong>“+ Khai báo người lắp đặt”</strong> ở góc phải để thêm kỹ thuật viên hoặc đối tác lắp đặt.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -400,6 +407,7 @@ else
             {
                 <table>
                     <thead><tr>
+                        <th>STT</th>
                         <th><input type="checkbox" aria-label="Chọn tất cả dòng đang hiển thị" checked="@PageAllSelected" @onchange="TogglePage" /></th>
                         <th>Mã Seller</th>
                         <th>Họ tên Nhân viên bán hàng</th>
@@ -412,10 +420,11 @@ else
                         @if(canUpdate || canAudit){<th>Thao tác</th>}
                     </tr></thead>
                     <tbody>
-                        @foreach(var row in PageRows)
+                        @foreach(var (stt, row) in pagedCatalogRows)
                         {
                             var sl = sellers.FirstOrDefault(x => x.Id == row.Id);
                             <tr @key="row.Id">
+                                <td><strong>@stt</strong></td>
                                 <td><input type="checkbox" aria-label="@($"Chọn {row.Name}")" checked="@selected.Contains(row.Id)" @onchange="e => ToggleRow(row.Id,e.Value is bool b && b)" /></td>
                                 <td><span class="chip blue-chip">@row.Code</span></td>
                                 <td class="name-cell">
@@ -466,7 +475,7 @@ else
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?10:9)">Chưa có Seller nào. Bấm <strong>“+ Khai báo Seller mới”</strong> ở góc phải để thêm nhân viên bán hàng.</td></tr>
+                            <tr><td colspan="@(canUpdate||canAudit?11:10)">Chưa có Seller nào. Bấm <strong>“+ Khai báo Seller mới”</strong> ở góc phải để thêm nhân viên bán hàng.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -475,14 +484,16 @@ else
             {
                 <table>
                     <thead><tr>
+                        <th>STT</th>
                         <th><input type="checkbox" aria-label="Chọn tất cả dòng đang hiển thị" checked="@PageAllSelected" @onchange="TogglePage" /></th>
                         <th>Mã / ID</th><th>Tên / đối tượng</th><th>Nhóm / khu vực</th><th>Thông tin</th>
                         @if(canUpdate || canAudit){<th>Thao tác</th>}
                     </tr></thead>
                     <tbody>
-                        @foreach(var row in PageRows)
+                        @foreach(var (stt, row) in pagedCatalogRows)
                         {
                             <tr @key="row.Id">
+                                <td><strong>@stt</strong></td>
                                 <td><input type="checkbox" aria-label="@($"Chọn {row.Name}")" checked="@selected.Contains(row.Id)" @onchange="e => ToggleRow(row.Id,e.Value is bool b && b)" /></td>
                                 <td><strong>@row.Code</strong></td><td class="name-cell">@row.Name</td><td>@row.Group</td><td class="wrap-cell">@row.Details</td>
                                 @if(canUpdate || canAudit)
@@ -508,35 +519,28 @@ else
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?6:5)">Không có dữ liệu phù hợp. Bấm “Thêm mới” để khai báo.</td></tr>
+                            <tr><td colspan="@(canUpdate||canAudit?7:6)">Không có dữ liệu phù hợp. Bấm “Thêm mới” để khai báo.</td></tr>
                         }
                     </tbody>
                 </table>
             }
         </div>
-        <div class="catalog-pagination">
-            <span>Hiển thị @(FilteredRows.Count==0?0:(CurrentPage-1)*pageSize+1)–@Math.Min(FilteredRows.Count,CurrentPage*pageSize) / @FilteredRows.Count</span>
-            <div class="button-group">
-                <button type="button" class="btn secondary btn-sm" disabled="@(CurrentPage==1)" @onclick="() => GoPage(1)">Đầu</button>
-                <button type="button" class="btn secondary btn-sm" disabled="@(CurrentPage==1)" @onclick="() => GoPage(CurrentPage-1)">Trước</button>
-                <span class="catalog-page-label">@CurrentPage / @PageCount</span>
-                <button type="button" class="btn secondary btn-sm" disabled="@(CurrentPage==PageCount)" @onclick="() => GoPage(CurrentPage+1)">Sau</button>
-                <button type="button" class="btn secondary btn-sm" disabled="@(CurrentPage==PageCount)" @onclick="() => GoPage(PageCount)">Cuối</button>
-            </div>
-        </div>
+        <TablePager Pager="catalogPager" TotalCount="totalCatalogRows" OnChange="() => pendingDelete = null" />
     </section>
 
 }
 @code {
     [Parameter] public string? Section { get; set; }
-    private const int MaxPageSize=50;
+    private const int MaxPageSize=100;
     private sealed record CatalogRow(long Id,string Code,string Name,string Group,string Details);
     private readonly HashSet<long> selected=[];
+    private readonly PagerState instProdPager = new();
+    private readonly PagerState catalogPager = new();
     private long? editingId,pendingDelete;
     private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending;
     private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật",installerProdSearch="";
     private long groupId,productId,buyPrice,standard,installed,renewal,bulkInstallerRate=150000,selectedSellerId;
-    private int discount,page=1,pageSize=50;
+    private int discount;
     private DateTime effective=DateTime.Today,until=DateTime.Today.AddDays(30);
     private readonly Dictionary<long, long> installerProductRates=[];
     private List<InputCatalog.SupplierGroup> supplierGroups=[];
@@ -606,9 +610,9 @@ else
         "campaigns"=>campaigns.Select(x=>new CatalogRow(x.Id,x.Id.ToString(),x.Name,x.Group,$"Giảm {x.Discount}% · {x.From} – {x.To} · {(x.Active?"Đang bật":"Đã tắt")}")).ToList(),
         _=>[] };
     private List<CatalogRow> FilteredRows => Rows.Where(r=>string.IsNullOrWhiteSpace(search) || ($"{r.Code} {r.Name} {r.Group} {r.Details}").Contains(search.Trim(),StringComparison.OrdinalIgnoreCase)).ToList();
-    private int PageCount=>Math.Max(1,(FilteredRows.Count+pageSize-1)/pageSize);
-    private int CurrentPage=>Math.Clamp(page,1,PageCount);
-    private List<CatalogRow> PageRows=>FilteredRows.Skip((CurrentPage-1)*pageSize).Take(Math.Clamp(pageSize,1,MaxPageSize)).ToList();
+    private int PageCount=>catalogPager.PageCount(FilteredRows.Count);
+    private int CurrentPage=>catalogPager.CurrentPage(FilteredRows.Count);
+    private List<CatalogRow> PageRows=>FilteredRows.Skip((CurrentPage-1)*catalogPager.PageSize).Take(Math.Clamp(catalogPager.PageSize,1,MaxPageSize)).ToList();
     private bool PageAllSelected=>PageRows.Count>0 && PageRows.All(r=>selected.Contains(r.Id));
     protected override async Task OnParametersSetAsync()
     {
@@ -622,7 +626,7 @@ else
         canUpdate=await Gate.CanAsync(UpdatePermission);
         canAudit=await Gate.CanAsync(Permissions.ReportsAuditView);
         canExport=canView;
-        selected.Clear();page=1;search=query="";CloseEditor();message="";
+        selected.Clear();catalogPager.Reset();instProdPager.Reset();search=query="";CloseEditor();message="";
         if(canView && IsValidSection)Reload();
     }
     private void Reload()
@@ -654,11 +658,10 @@ else
             await JS.InvokeVoidAsync("tnmScrollCatalogEditor");
         }
     }
-    private void ApplySearch(){search=(query??"").Trim();page=1;pendingDelete=null;}
+    private void ApplySearch(){search=(query??"").Trim();catalogPager.Reset();pendingDelete=null;}
     private void OnSearchKeyDown(KeyboardEventArgs e){if(e.Key=="Enter")ApplySearch();}
-    private void ClearSearch(){query=search="";page=1;pendingDelete=null;}
-    private void ResetPage(){page=1;}
-    private void GoPage(int n){page=Math.Clamp(n,1,PageCount);pendingDelete=null;}
+    private void ClearSearch(){query=search="";catalogPager.Reset();pendingDelete=null;}
+    private void ResetPage(){catalogPager.Reset();}
     private void ToggleRow(long id,bool value){if(value)selected.Add(id);else selected.Remove(id);}
     private void TogglePage(ChangeEventArgs e){bool check=e.Value is bool b && b;foreach(var r in PageRows){if(check)selected.Add(r.Id);else selected.Remove(r.Id);}}
     private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch="";department=CurrentSection=="sellers"?"Sale Nội bộ (Kinh doanh)":"Kỹ thuật";groupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}

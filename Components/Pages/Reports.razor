@@ -23,21 +23,24 @@
         </div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>NHÓM CÔNG NỢ</th><th>PHÁT SINH</th><th>ĐÃ THANH TOÁN</th><th>CÒN NỢ</th></tr></thead>
+                <thead><tr><th>STT</th><th>NHÓM CÔNG NỢ</th><th>PHÁT SINH</th><th>ĐÃ THANH TOÁN</th><th>CÒN NỢ</th></tr></thead>
                 <tbody>
                     <tr>
+                        <td><strong>1</strong></td>
                         <td><strong>1. Nhà cung cấp (Nhập hàng)</strong></td>
                         <td>@Money(supTotal)</td>
                         <td>@Money(supPaid)</td>
                         <td><strong class="orange">@Money(supTotal - supPaid)</strong></td>
                     </tr>
                     <tr>
+                        <td><strong>2</strong></td>
                         <td><strong>2. Khách hàng (Thu khách / Công nợ)</strong></td>
                         <td>@Money(custTotal)</td>
                         <td><strong style="color:#15803d">@Money(custPaid)</strong></td>
                         <td><strong style="color:#0284c7">@Money(custTotal - custPaid)</strong></td>
                     </tr>
                     <tr>
+                        <td><strong>3</strong></td>
                         <td><strong>3. Sell (Hoa hồng) &amp; Kỹ thuật</strong></td>
                         <td>@Money(sellTechTotal)</td>
                         <td>@Money(sellTechPaid)</td>
@@ -46,6 +49,7 @@
                 </tbody>
             </table>
         </div>
+        <TablePager Pager="debtSummaryPager" TotalCount="3" />
     </section>
 
     <section class="panel" style="margin-bottom:0">
@@ -58,21 +62,24 @@
         </div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>SỔ QUỸ</th><th>KHOẢN THU (+)</th><th>KHOẢN CHI (−)</th><th>TỒN QUỸ (THU − CHI)</th></tr></thead>
+                <thead><tr><th>STT</th><th>SỔ QUỸ</th><th>KHOẢN THU (+)</th><th>KHOẢN CHI (−)</th><th>TỒN QUỸ (THU − CHI)</th></tr></thead>
                 <tbody>
                     <tr>
+                        <td><strong>1</strong></td>
                         <td><span class="chip green-chip">Tiền mặt (CASH)</span></td>
                         <td><strong style="color:#15803d">+@Money(cashBook.CashInVnd)</strong></td>
                         <td><strong style="color:#dc2626">-@Money(cashBook.CashOutVnd)</strong></td>
                         <td><strong>@Money(cashBook.CashBalanceVnd)</strong></td>
                     </tr>
                     <tr>
+                        <td><strong>2</strong></td>
                         <td><span class="chip blue-chip">Ngân hàng (BANK)</span></td>
                         <td><strong style="color:#15803d">+@Money(cashBook.BankInVnd)</strong></td>
                         <td><strong style="color:#dc2626">-@Money(cashBook.BankOutVnd)</strong></td>
                         <td><strong>@Money(cashBook.BankBalanceVnd)</strong></td>
                     </tr>
                     <tr style="background:#f8fafc;font-weight:700">
+                        <td><strong>—</strong></td>
                         <td><strong>TỔNG SỔ QUỸ</strong></td>
                         <td><strong style="color:#15803d">+@Money(cashBook.TotalInVnd)</strong></td>
                         <td><strong style="color:#dc2626">-@Money(cashBook.TotalOutVnd)</strong></td>
@@ -81,20 +88,31 @@
                 </tbody>
             </table>
         </div>
+        <TablePager Pager="cashSummaryPager" TotalCount="2" />
     </section>
 </div>
 }
 
 @if(canLedger){<section class="panel"><div class="panel-head"><div><h2>Sổ nhập / xuất / điều chuyển</h2><p>Giao dịch phát sinh được lưu kể cả sau khi IMEI thay đổi vị trí.</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="IMEI / SKU / người tác động..." /></div>
-<div class="table-wrap"><table><thead><tr><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ</th><th>SKU</th><th>IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
-@foreach(var r in ledger.Where(x=>(x.Imei+x.Sku+x.Target+x.Actor).Contains(search,StringComparison.OrdinalIgnoreCase))){<tr><td>#@r.Id</td><td>@r.At</td><td><span class="chip">@r.Type</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td class="wrap-cell">@r.Target</td><td>@r.Actor</td></tr>}
-</tbody></table></div></section>}
+@{ var pagedLedger = ledgerPager.Slice(ledger.Where(x=>(x.Imei+x.Sku+x.Target+x.Actor).Contains(search,StringComparison.OrdinalIgnoreCase)), out var totalLedger); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ</th><th>SKU</th><th>IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
+@foreach(var (stt, r) in pagedLedger){<tr><td><strong>@stt</strong></td><td>#@r.Id</td><td>@r.At</td><td><span class="chip">@r.Type</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td class="wrap-cell">@r.Target</td><td>@r.Actor</td></tr>}
+</tbody></table></div>
+<TablePager Pager="ledgerPager" TotalCount="totalLedger" />
+</section>}
 @if(canAudit){<section class="panel"><div class="panel-head"><div><h2>Audit log</h2><p>Ghi nhận thao tác, bảng dữ liệu bị ảnh hưởng và nội dung thay đổi.</p></div></div>
-<div class="table-wrap"><table><thead><tr><th>ID</th><th>THỜI GIAN</th><th>NGƯỜI DÙNG</th><th>HÀNH ĐỘNG</th><th>ĐỐI TƯỢNG</th><th>GHI CHÚ</th></tr></thead><tbody>
-@foreach(var a in audit){<tr><td>#@a.Id</td><td>@a.At</td><td>@a.Actor</td><td><span class="chip">@a.Action</span></td><td>@a.Entity</td><td class="wrap-cell">@a.Details</td></tr>}
-</tbody></table></div></section>}
+@{ var pagedAudit = auditPager.Slice(audit, out var totalAudit); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>ID</th><th>THỜI GIAN</th><th>NGƯỜI DÙNG</th><th>HÀNH ĐỘNG</th><th>ĐỐI TƯỢNG</th><th>GHI CHÚ</th></tr></thead><tbody>
+@foreach(var (stt, a) in pagedAudit){<tr><td><strong>@stt</strong></td><td>#@a.Id</td><td>@a.At</td><td>@a.Actor</td><td><span class="chip">@a.Action</span></td><td>@a.Entity</td><td class="wrap-cell">@a.Details</td></tr>}
+</tbody></table></div>
+<TablePager Pager="auditPager" TotalCount="totalAudit" />
+</section>}
 @code {
  private bool canInventoryExport,canFinanceExport,canFinanceView,canLedger,canAudit;
+ private readonly PagerState debtSummaryPager = new();
+ private readonly PagerState cashSummaryPager = new();
+ private readonly PagerState ledgerPager = new();
+ private readonly PagerState auditPager = new();
  private List<LedgerVm> ledger=[];private List<AuditVm> audit=[];private string search="";
  private CashBookSummaryVm cashBook = new(0,0,0,0,0,0,0,0,0,0,0,0);
  private long supTotal, supPaid, custTotal, custPaid, sellTechTotal, sellTechPaid;

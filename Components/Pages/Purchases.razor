@@ -155,14 +155,16 @@
     <div class="panel-head">
         <div><h2>Danh sách đơn mua (PO)</h2><p>Phiếu chỉ được ghi tăng tồn khi bấm xác nhận nhận hàng.</p></div>
     </div>
+    @{ var pagedOrders = poPager.Slice(orders, out var totalOrders); }
     <div class="table-wrap">
         <table>
-            <thead><tr><th>Số PO</th><th>NCC</th><th>Kho</th><th>SKU</th><th>SL</th><th>Giá nhập</th><th>Trạng thái</th><th>Nhận hàng</th></tr></thead>
+            <thead><tr><th>STT</th><th>Số PO</th><th>NCC</th><th>Kho</th><th>SKU</th><th>SL</th><th>Giá nhập</th><th>Trạng thái</th><th>Nhận hàng</th></tr></thead>
             <tbody>
-                @foreach (var x in orders)
+                @foreach (var (stt, x) in pagedOrders)
                 {
                     <tr>
-                        <td><strong>@x.Code</strong></td><td>@x.Supplier</td><td>@x.Warehouse</td><td>@x.Sku</td><td>@x.Qty</td>
+                        <td><strong>@stt</strong></td>
+                        <td><strong>@x.Code</strong></td><td class="wrap-cell">@x.Supplier</td><td>@x.Warehouse</td><td>@x.Sku</td><td>@x.Qty</td>
                         <td>@x.Cost.ToString("N0")</td><td>@x.Status</td>
                         <td>@if (canReceive && x.Status == "DRAFT")
                             {
@@ -174,6 +176,7 @@
             </tbody>
         </table>
     </div>
+    <TablePager Pager="poPager" TotalCount="totalOrders" />
     @if (orders.Count == 0)
     {
         <p class="purchase-help">Chưa có PO tại các kho bạn được phép xem.</p>
@@ -183,6 +186,7 @@
 
 @code {
  private bool showCreate;
+ private readonly PagerState poPager = new();
  private void ToggleForm(string form){
   showCreate = form=="showCreate" && !showCreate;
  }

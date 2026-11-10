@@ -216,18 +216,19 @@
 
         @if(draftLines.Count > 0)
         {
+            var pagedDrafts = draftPager.Slice(draftLines.Select((item, idx) => (Idx: idx, Item: item)), out var totalDrafts);
             <div class="table-wrap" style="margin-top:0.75rem">
                 <table>
-                    <thead><tr><th>#</th><th>Mã SP</th><th>Tên sản phẩm</th><th>Tồn kho hiện tại</th><th>Loại</th><th>Đơn giá dự kiến</th><th>Số lượng lắp</th><th>Thành tiền</th><th>Thao tác</th></tr></thead>
+                    <thead><tr><th>STT</th><th>Mã SP</th><th>Tên sản phẩm</th><th>Tồn kho hiện tại</th><th>Loại</th><th>Đơn giá dự kiến</th><th>Số lượng lắp</th><th>Thành tiền</th><th>Thao tác</th></tr></thead>
                     <tbody>
-                        @for(int i = 0; i < draftLines.Count; i++)
+                        @foreach(var (stt, entry) in pagedDrafts)
                         {
-                            var idx = i;
-                            var item = draftLines[idx];
+                            var idx = entry.Idx;
+                            var item = entry.Item;
                             var p = products.FirstOrDefault(x => x.Id == item.ProductId);
                             var unitPrice = Orders.PreviewUnitPrice(customer, item.ProductId);
                             <tr>
-                                <td>@(idx + 1)</td>
+                                <td><strong>@stt</strong></td>
                                 <td><strong>@(p?.Sku ?? "—")</strong></td>
                                 <td>@(p?.Name ?? "—")</td>
                                 <td>
@@ -254,6 +255,7 @@
                     </tbody>
                 </table>
             </div>
+            <TablePager Pager="draftPager" TotalCount="totalDrafts" />
         }
         else
         {
@@ -418,17 +420,17 @@
                 }
             </datalist>
 
+            @{ var pagedOrderLines = orderLinePager.Slice(SelectedOrder.Lines, out var totalOrderLines); }
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>#</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
+                    <thead><tr><th>STT</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
                     <tbody>
-                        @for(int i = 0; i < SelectedOrder.Lines.Count; i++)
+                        @foreach(var (stt, ln) in pagedOrderLines)
                         {
-                            var ln = SelectedOrder.Lines[i];
                             var rep = GetOrCreateLineReport(ln);
                             var prodInfo = products.FirstOrDefault(p => p.Id == ln.ProductId);
                             <tr>
-                                <td>@(i + 1)</td>
+                                <td><strong>@stt</strong></td>
                                 <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
                                 <td>
                                     @if(prodInfo?.Kind == "GOODS")
@@ -446,7 +448,7 @@
                                 @if(ln.IsSerialized)
                                 {
                                     <td>
-                                        <input list="in-stock-imeis-list" disabled="@SelectedOrder.IsImmutable" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @(i + 1)" />
+                                        <input list="in-stock-imeis-list" disabled="@SelectedOrder.IsImmutable" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @stt" />
                                     </td>
                                     <td>
                                         <input disabled="@SelectedOrder.IsImmutable" value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
@@ -464,6 +466,7 @@
                     </tbody>
                 </table>
             </div>
+            <TablePager Pager="orderLinePager" TotalCount="totalOrderLines" />
         </div>
     }
 
@@ -487,10 +490,12 @@
             <p>Theo dõi trạng thái đơn, Seller bán hàng, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
         </div>
     </div>
+    @{ var pagedOrders = orderPager.Slice(orders, out var totalOrders); }
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
+                    <th>STT</th>
                     <th>Mã đơn</th>
                     <th>Đơn vị (HTX/ĐL) &amp; Khách lắp</th>
                     <th>Seller (Người bán)</th>
@@ -504,9 +509,10 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach(var o in orders)
+                @foreach(var (stt, o) in pagedOrders)
                 {
                     <tr style="@(o.Id == selected ? "background:#f0f9ff" : "")" @onclick="() => SelectOrderRow(o.Id)">
+                        <td><strong>@stt</strong></td>
                         <td>
                             <div><strong>@o.Code</strong></div>
                             @if(o.IsImmutable)
@@ -592,10 +598,14 @@
             </tbody>
         </table>
     </div>
+    <TablePager Pager="orderPager" TotalCount="totalOrders" />
 </section>
 
 @code {
     private sealed class LineReportInput { public string Imei { get; set; } = ""; public string PlateNo { get; set; } = ""; public string VinNo { get; set; } = ""; }
+    private readonly PagerState draftPager = new();
+    private readonly PagerState orderLinePager = new();
+    private readonly PagerState orderPager = new();
     private List<V7Order> orders = [];
     private List<CustomerVm> customers = [];
     private List<ProductVm> products = [];

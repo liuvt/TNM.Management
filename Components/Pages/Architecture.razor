@@ -41,6 +41,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>STT</th>
                     <th>Giai đoạn</th>
                     <th>Điểm đầu vào (UI / Tác nhân)</th>
                     <th>Xử lý nghiệp vụ &amp; Dịch vụ C#</th>
@@ -50,6 +51,7 @@
             </thead>
             <tbody>
                 <tr>
+                    <td><strong>1</strong></td>
                     <td><strong>B1. Danh mục &amp; Giá</strong></td>
                     <td class="wrap-cell">Admin / Quản lý khai báo tại <code>/catalog/*</code></td>
                     <td class="wrap-cell"><code>InputCatalog</code> thiết lập Sản phẩm, KH, NCC, Seller, Kỹ thuật, Kho và Bảng giá</td>
@@ -57,6 +59,7 @@
                     <td class="wrap-cell">Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn</td>
                 </tr>
                 <tr>
+                    <td><strong>2</strong></td>
                     <td><strong>B2. Nhập kho &amp; Kho IMEI</strong></td>
                     <td class="wrap-cell">Thủ kho nhập PO / nhập IMEI / nhập số lượng tại <code>/inventory</code>, <code>/warehouse-ops</code></td>
                     <td class="wrap-cell"><code>DemoDb.AddStock</code>, <code>V6Ops.ReceivePurchase</code>, <code>V6Ops.MoveQuantity</code></td>
@@ -64,6 +67,7 @@
                     <td class="wrap-cell">Tăng tồn kho + Tự động sinh <strong>Công nợ Sản phẩm (<code>PURCHASE</code>)</strong></td>
                 </tr>
                 <tr>
+                    <td><strong>3</strong></td>
                     <td><strong>B3. Tạo đơn &amp; Điều phối</strong></td>
                     <td class="wrap-cell">Seller gửi thông tin → CSKH tạo đơn tại <code>/sales-orders</code></td>
                     <td class="wrap-cell"><code>V7Orders.CreateMulti</code>, <code>Approve</code>, <code>Dispatch</code>, <code>ReportLines</code></td>
@@ -71,6 +75,7 @@
                     <td class="wrap-cell">Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho</td>
                 </tr>
                 <tr>
+                    <td><strong>4</strong></td>
                     <td><strong>B4. Hoàn thành &amp; Kích hoạt</strong></td>
                     <td class="wrap-cell">ĐV lắp đặt báo IMEI &amp; biển số → CSKH chọn Ngày kích hoạt &amp; bấm Hoàn thành</td>
                     <td class="wrap-cell"><code>V7Orders.Complete</code> kiểm tra tồn kho, xuất IMEI/số lượng, kích hoạt thuê bao</td>
@@ -78,6 +83,7 @@
                     <td class="wrap-cell">Trừ tồn kho + Sinh <strong>Công nợ KH (<code>SALE</code>)</strong> &amp; <strong>Công kỹ thuật (<code>SERVICE</code>)</strong></td>
                 </tr>
                 <tr>
+                    <td><strong>5</strong></td>
                     <td><strong>B5. Theo dõi &amp; Gia hạn TB</strong></td>
                     <td class="wrap-cell">CSKH gia hạn thiết bị 12 tháng &amp; chọn Seller tại <code>/devices</code></td>
                     <td class="wrap-cell"><code>DemoDb.Renew</code> cộng thêm 12 tháng vào hạn thuê bao và lưu người gia hạn</td>
@@ -85,6 +91,7 @@
                     <td class="wrap-cell">Sinh <strong>Công nợ Gia hạn (<code>RENEWAL</code>)</strong> + Cộng chỉ tiêu hoa hồng Seller</td>
                 </tr>
                 <tr>
+                    <td><strong>6</strong></td>
                     <td><strong>B6. Quyết toán &amp; Hoa hồng</strong></td>
                     <td class="wrap-cell">Kế toán thu/chi công nợ &amp; đối soát cuối kỳ tại <code>/finance</code></td>
                     <td class="wrap-cell"><code>DemoDb.PayInvoice</code>, <code>CreateCustomInvoice</code>, <code>SellerPeriodStats</code></td>
@@ -94,4 +101,9 @@
             </tbody>
         </table>
     </div>
+    <TablePager Pager="pager" TotalCount="6" />
 </section>
+
+@code {
+    private readonly PagerState pager = new();
+}

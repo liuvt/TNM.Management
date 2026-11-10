@@ -84,9 +84,12 @@
 @if(canDue60){<button class="@(filter=="DUE60"?"selected":"")" @onclick='() => filter = "DUE60"'>D+60</button>}
 @if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => filter = "OVERDUE"'>Quá hạn</button>}
 </div></div></div>
-<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>SKU</th><th>KHÁCH HÀNG / CHỦ XE</th><th>SELLER PHỤ TRÁCH</th><th>BIỂN SỐ &amp; THÔNG TIN PHỤ</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
-@foreach(var x in devices.Where(Match)){<tr><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td class="wrap-cell"><div><strong>@x.Customer</strong></div>@if(!string.IsNullOrWhiteSpace(x.ContactName)){<small>Khách lắp: @x.ContactName</small>}</td><td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td class="wrap-cell"><div>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</div>@if(!string.IsNullOrWhiteSpace(x.VinNo)){<small>@x.VinNo</small>}</td><td><strong>@x.ActivatedAt</strong></td><td>@x.ExpiresAt</td><td><span class="chip @(DaysToExpiry(x)<0?"orange-chip":DaysToExpiry(x)<=30?"purple-chip":"green-chip")">@(DaysToExpiry(x)<0?"Quá hạn":DaysToExpiry(x)<=30?$"Còn {DaysToExpiry(x)} ngày":"Còn hạn")</span></td><td>@if(canRenew){<div style="display:flex;gap:4px;flex-wrap:wrap"><button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button><button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa ngày KH</button></div>}</td></tr>}
-</tbody></table></div></section>
+@{ var pagedDevices = devicePager.Slice(devices.Where(Match), out var totalDevices); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>SKU</th><th>KHÁCH HÀNG / CHỦ XE</th><th>SELLER PHỤ TRÁCH</th><th>BIỂN SỐ &amp; THÔNG TIN PHỤ</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
+@foreach(var (stt, x) in pagedDevices){<tr><td><strong>@stt</strong></td><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td class="wrap-cell"><div><strong>@x.Customer</strong></div>@if(!string.IsNullOrWhiteSpace(x.ContactName)){<small>Khách lắp: @x.ContactName</small>}</td><td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td class="wrap-cell"><div>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</div>@if(!string.IsNullOrWhiteSpace(x.VinNo)){<small>@x.VinNo</small>}</td><td><strong>@x.ActivatedAt</strong></td><td>@x.ExpiresAt</td><td><span class="chip @(DaysToExpiry(x)<0?"orange-chip":DaysToExpiry(x)<=30?"purple-chip":"green-chip")">@(DaysToExpiry(x)<0?"Quá hạn":DaysToExpiry(x)<=30?$"Còn {DaysToExpiry(x)} ngày":"Còn hạn")</span></td><td>@if(canRenew){<div style="display:flex;gap:4px;flex-wrap:wrap"><button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button><button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa ngày KH</button></div>}</td></tr>}
+</tbody></table></div>
+<TablePager Pager="devicePager" TotalCount="totalDevices" />
+</section>
 @if(canHistory){<section class="panel"><div class="panel-head"><div><h2>Lịch sử các lần gia hạn &amp; Thống kê theo Seller</h2><p>Ghi nhận chi phí tại thời điểm gia hạn và nhân viên Seller phụ trách để chi hoa hồng.</p></div>
 <select class="search-input" style="min-width:220px" @bind="historySellerFilter">
     <option value="">— Tất cả Seller gia hạn —</option>
@@ -107,11 +110,16 @@
         }
     </div>
 }
-<div class="table-wrap"><table><thead><tr><th>IMEI</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>SELLER GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th></tr></thead><tbody>
-@foreach(var x in FilteredRenewals){<tr><td><strong>@x.Imei</strong></td><td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td><td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td>@x.Source</td><td>@x.StartDate</td><td>@x.EndDate</td><td><strong>@x.Price.ToString("N0") ₫</strong></td><td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td></tr>}
-</tbody></table></div></section>}
+@{ var pagedRenewals = renewalPager.Slice(FilteredRenewals, out var totalRenewals); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>SELLER GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th></tr></thead><tbody>
+@foreach(var (stt, x) in pagedRenewals){<tr><td><strong>@stt</strong></td><td><strong>@x.Imei</strong></td><td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td><td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td>@x.Source</td><td>@x.StartDate</td><td>@x.EndDate</td><td><strong>@x.Price.ToString("N0") ₫</strong></td><td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td></tr>}
+</tbody></table></div>
+<TablePager Pager="renewalPager" TotalCount="totalRenewals" />
+</section>}
 @code {
  private bool showRenew, showEditAct;
+ private readonly PagerState devicePager = new();
+ private readonly PagerState renewalPager = new();
  private void ToggleForm(string form){
   showRenew = form=="showRenew" && !showRenew;
   showEditAct = form=="showEditAct" && !showEditAct;

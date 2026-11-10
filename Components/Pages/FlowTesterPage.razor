@@ -49,11 +49,12 @@
                 <p>Từng bước kiểm tra cả luồng thuận (Happy Path) và các Trigger bảo vệ (Negative Test).</p>
             </div>
         </div>
+        @{ var pagedSteps = stepPager.Slice(report.Steps, out var totalSteps); }
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th>#</th>
+                        <th>STT</th>
                         <th>PHÂN HỆ</th>
                         <th>KỊCH BẢN KIỂM THỬ</th>
                         <th>TRẠNG THÁI</th>
@@ -62,10 +63,10 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var step in report.Steps)
+                    @foreach (var (stt, step) in pagedSteps)
                     {
                         <tr>
-                            <td><strong>@step.Number</strong></td>
+                            <td><strong>@stt</strong></td>
                             <td>@step.Category</td>
                             <td class="wrap-cell"><strong>@step.Name</strong></td>
                             <td>
@@ -80,12 +81,14 @@
                 </tbody>
             </table>
         </div>
+        <TablePager Pager="stepPager" TotalCount="totalSteps" />
     </section>
 }
 
 @code {
     private FlowTestReport? report;
     private bool running;
+    private readonly PagerState stepPager = new();
 
     protected override async Task OnInitializedAsync()
     {

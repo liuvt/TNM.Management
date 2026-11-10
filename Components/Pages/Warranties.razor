@@ -18,11 +18,16 @@
 <label>Kho nhận lại<select @bind="warehouse">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
 <label>Ghi chú<input @bind="statusNote" /></label></div>
 <div class="form-actions"><button class="btn" @onclick="UpdateStatus">Cập nhật trạng thái</button><span class="feedback">@statusMessage</span></div></section></div>
-<section class="panel"><div class="panel-head"><h2>Danh sách bảo hành</h2></div><div class="table-wrap"><table><thead><tr><th>Phiếu</th><th>IMEI</th><th>Sản phẩm</th><th>Sự cố</th><th>Tiếp nhận</th><th>Trạng thái</th></tr></thead><tbody>
-@foreach(var x in warranties){<tr><td>#@x.Id</td><td>@x.Imei</td><td class="wrap-cell">@x.Product</td><td class="wrap-cell">@x.Problem</td><td>@x.Received</td><td>@x.Status</td></tr>}
-</tbody></table></div></section>
+<section class="panel"><div class="panel-head"><h2>Danh sách bảo hành</h2></div>
+@{ var pagedWarranties = warrantyPager.Slice(warranties, out var totalWarranties); }
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>Phiếu</th><th>IMEI</th><th>Sản phẩm</th><th>Sự cố</th><th>Tiếp nhận</th><th>Trạng thái</th></tr></thead><tbody>
+@foreach(var (stt, x) in pagedWarranties){<tr><td><strong>@stt</strong></td><td>#@x.Id</td><td>@x.Imei</td><td class="wrap-cell">@x.Product</td><td class="wrap-cell">@x.Problem</td><td>@x.Received</td><td>@x.Status</td></tr>}
+</tbody></table></div>
+<TablePager Pager="warrantyPager" TotalCount="totalWarranties" />
+</section>
 @code {
  private bool showCreate, showStatus;
+ private readonly PagerState warrantyPager = new();
  private void ToggleForm(string form){
   showCreate = form=="showCreate" && !showCreate;
   showStatus = form=="showStatus" && !showStatus;

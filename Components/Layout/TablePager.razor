@@ -1,0 +1,78 @@
+<div class="catalog-pagination">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span>
+            Hiển thị <strong>@(TotalCount == 0 ? 0 : StartIdx + 1)–@Math.Min(TotalCount, StartIdx + Pager.PageSize)</strong> / <strong>@TotalCount</strong> dòng
+        </span>
+        <label class="catalog-page-size">
+            Số dòng:
+            <select value="@Pager.PageSize" @onchange="OnPageSizeChanged">
+                <option value="20">20 / trang</option>
+                <option value="50">50 / trang</option>
+                <option value="100">100 / trang</option>
+            </select>
+        </label>
+    </div>
+    <div class="button-group" style="gap:4px">
+        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage <= 1)" @onclick="() => GoTo(1)">« Đầu</button>
+        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage <= 1)" @onclick="() => GoTo(CurPage - 1)">‹ Trước</button>
+        @foreach (var p in VisiblePages())
+        {
+            if (p < 0)
+            {
+                <span style="padding:0 4px;color:#94a3b8">…</span>
+            }
+            else
+            {
+                var targetPage = p;
+                <button type="button" class="btn @(targetPage == CurPage ? "" : "secondary") btn-sm" style="min-width:30px;padding:4px 8px" @onclick="() => GoTo(targetPage)">@targetPage</button>
+            }
+        }
+        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage >= TotalPages)" @onclick="() => GoTo(CurPage + 1)">Sau ›</button>
+        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage >= TotalPages)" @onclick="() => GoTo(TotalPages)">Cuối »</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PagerState Pager { get; set; } = new();
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public EventCallback OnChange { get; set; }
+
+    private int TotalPages => Pager.PageCount(TotalCount);
+    private int CurPage => Pager.CurrentPage(TotalCount);
+    private int StartIdx => Pager.StartIndex(TotalCount);
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var sz) && sz is 20 or 50 or 100)
+        {
+            Pager.PageSize = sz;
+            Pager.Page = 1;
+            await OnChange.InvokeAsync();
+        }
+    }
+
+    private async Task GoTo(int target)
+    {
+        Pager.Page = Math.Clamp(target, 1, TotalPages);
+        await OnChange.InvokeAsync();
+    }
+
+    private IEnumerable<int> VisiblePages()
+    {
+        var total = TotalPages;
+        var cur = CurPage;
+        if (total <= 7)
+        {
+            for (var i = 1; i <= total; i++) yield return i;
+            yield break;
+        }
+
+        yield return 1;
+        var left = Math.Max(2, cur - 2);
+        var right = Math.Min(total - 1, cur + 2);
+        if (left > 2) yield return -1;
+        for (var i = left; i <= right; i++) yield return i;
+        if (right < total - 1) yield return -2;
+        yield return total;
+    }
+}
