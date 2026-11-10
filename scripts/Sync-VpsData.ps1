@@ -34,7 +34,7 @@ if (![string]::IsNullOrWhiteSpace($VpsPass)) {
 try {
     $remoteTemp = "/tmp/tnm-vps-snapshot.db"
     Write-Host "[2/4] Creating consistent SQLite snapshot on VPS ($VpsHost`:$VpsPort)..." -ForegroundColor Cyan
-    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@$VpsHost" "sqlite3 $RemoteDbPath '.backup $remoteTemp' && ls -lh $remoteTemp"
+    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@$VpsHost" "python3 -c `"import sqlite3; s=sqlite3.connect('$RemoteDbPath'); d=sqlite3.connect('$remoteTemp'); s.backup(d); d.close(); s.close()`" && ls -lh $remoteTemp"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create SQLite snapshot on VPS (exit code $LASTEXITCODE)."
     }
@@ -46,12 +46,21 @@ try {
         throw "Failed to download database snapshot from VPS."
     }
 
-    Remove-Item "$LocalDbPath-wal" -ErrorAction SilentlyContinue
-    Remove-Item "$LocalDbPath-shm" -ErrorAction SilentlyContinue
-    Move-Item $downloadedTemp $LocalDbPath -Force
+    $vpsBackupTs = Get-Date -Format "yyyyMMdd-HHmmss"
+    $vpsBackupFile = Join-Path $BackupDir "tnm-vps-backup-$vpsBackupTs.db"
+    Copy-Item $downloadedTemp $vpsBackupFile -Force
+
+    python -c "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()" $downloadedTemp $LocalDbPath
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item "$LocalDbPath-wal" -ErrorAction SilentlyContinue
+        Remove-Item "$LocalDbPath-shm" -ErrorAction SilentlyContinue
+        Move-Item $downloadedTemp $LocalDbPath -Force
+    } else {
+        Remove-Item $downloadedTemp -Force -ErrorAction SilentlyContinue
+    }
 
     & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@$VpsHost" "rm -f $remoteTemp" | Out-Null
-    Write-Host "[4/4] Successfully synced VPS database to $LocalDbPath" -ForegroundColor Green
+    Write-Host "[4/4] Successfully synced VPS database to $LocalDbPath (Backup copy: $vpsBackupFile)" -ForegroundColor Green
 }
 finally {
     if ($askPassBat -and (Test-Path $askPassBat)) {
