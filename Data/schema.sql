@@ -467,6 +467,9 @@ CREATE TABLE IF NOT EXISTS renewals(
   new_expiry TEXT NOT NULL,
   amount_vnd INTEGER NOT NULL CHECK(amount_vnd>=0),
   payment_method TEXT NOT NULL CHECK(payment_method IN ('DEBT','CASH')),
+  is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0,1)),
+  locked_at TEXT,
+  locked_by INTEGER REFERENCES app_users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS ix_renewals_activation_at ON renewals(activation_id, renewed_at);
@@ -486,7 +489,10 @@ CREATE TABLE IF NOT EXISTS invoices(
   due_at TEXT NOT NULL,
   amount_vnd INTEGER NOT NULL CHECK(amount_vnd>=0),
   status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN','PARTIAL','PAID','VOID')),
-  notes TEXT NOT NULL DEFAULT ''
+  notes TEXT NOT NULL DEFAULT '',
+  is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0,1)),
+  locked_at TEXT,
+  locked_by INTEGER REFERENCES app_users(id)
 );
 CREATE INDEX IF NOT EXISTS ix_invoices_type_status ON invoices(invoice_type, status);
 

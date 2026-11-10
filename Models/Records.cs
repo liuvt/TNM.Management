@@ -41,14 +41,17 @@ public record PartnerDebtSummaryVm(
     long TotalPaidVnd,
     long RemainingDebtVnd);
 public record InvoiceVm(long Id, string Code, string Type, string Customer, long Total, long Paid,
-    string Status, string CreatedAt, string DueAt, string Notes = "", string RefCode = "", List<InvoiceLineVm>? Lines = null)
+    string Status, string CreatedAt, string DueAt, string Notes = "", string RefCode = "", List<InvoiceLineVm>? Lines = null,
+    bool IsLocked = false, string LockedAt = "", long? RenewalId = null)
 {
     public long Balance => Total - Paid;
     public bool IsReceivable => Type is "SALE" or "RENEWAL";
 }
 public record LedgerVm(long Id, string At, string Type, string Sku, string Imei, string Target, string Actor);
 public record AuditVm(long Id, string At, string Actor, string Action, string Entity, string Details);
-public record RenewalVm(long Id, string Imei, string Source, string StartDate, string EndDate, long Price, string PaymentMethod, long? SellerId = null, string SellerName = "", string CustomerName = "", string PlateNo = "");
+public record RenewalVm(long Id, string Imei, string Source, string StartDate, string EndDate, long Price, string PaymentMethod,
+    long? SellerId = null, string SellerName = "", string CustomerName = "", string PlateNo = "",
+    long ActivationId = 0, string PreviousExpiry = "", bool IsLocked = false, string LockedAt = "", string InvoiceNo = "", long? InvoiceId = null);
 public record SellerChoiceVm(long Id, string Code, string Name, string Phone, string Department, long OrderCommissionVnd, long RenewalCommissionVnd)
 {
     public string DisplayLabel => $"{Code} — {Name}";

@@ -34,14 +34,15 @@ if (![string]::IsNullOrWhiteSpace($VpsPass)) {
 try {
     $remoteTemp = "/tmp/tnm-vps-snapshot.db"
     Write-Host "[2/4] Creating consistent SQLite snapshot on VPS ($VpsHost`:$VpsPort)..." -ForegroundColor Cyan
-    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@$VpsHost" "python3 -c `"import sqlite3; s=sqlite3.connect('$RemoteDbPath'); d=sqlite3.connect('$remoteTemp'); s.backup(d); d.close(); s.close()`" && ls -lh $remoteTemp"
+    $remotePy = "import sqlite3`ns=sqlite3.connect('$RemoteDbPath')`nd=sqlite3.connect('$remoteTemp')`ns.backup(d)`nd.close()`ns.close()`n"
+    $remotePy | & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 "$VpsUser@$VpsHost" "python3 - && ls -lh $remoteTemp"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create SQLite snapshot on VPS (exit code $LASTEXITCODE)."
     }
 
     $downloadedTemp = Join-Path $AppDataDir "tnm-local.vps-download.db"
     Write-Host "[3/4] Downloading snapshot via SCP..." -ForegroundColor Cyan
-    & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@${VpsHost}:$remoteTemp" $downloadedTemp
+    & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 "$VpsUser@${VpsHost}:$remoteTemp" $downloadedTemp
     if ($LASTEXITCODE -ne 0 -or !(Test-Path $downloadedTemp)) {
         throw "Failed to download database snapshot from VPS."
     }
@@ -50,7 +51,8 @@ try {
     $vpsBackupFile = Join-Path $BackupDir "tnm-vps-backup-$vpsBackupTs.db"
     Copy-Item $downloadedTemp $vpsBackupFile -Force
 
-    python -c "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()" $downloadedTemp $LocalDbPath
+    $localPy = "import sqlite3,sys`ns=sqlite3.connect(sys.argv[1])`nd=sqlite3.connect(sys.argv[2])`ns.backup(d)`nd.close()`ns.close()`n"
+    $localPy | python - $downloadedTemp $LocalDbPath
     if ($LASTEXITCODE -ne 0) {
         Remove-Item "$LocalDbPath-wal" -ErrorAction SilentlyContinue
         Remove-Item "$LocalDbPath-shm" -ErrorAction SilentlyContinue
@@ -59,7 +61,7 @@ try {
         Remove-Item $downloadedTemp -Force -ErrorAction SilentlyContinue
     }
 
-    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VpsUser@$VpsHost" "rm -f $remoteTemp" | Out-Null
+    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 "$VpsUser@$VpsHost" "rm -f $remoteTemp" | Out-Null
     Write-Host "[4/4] Successfully synced VPS database to $LocalDbPath (Backup copy: $vpsBackupFile)" -ForegroundColor Green
 }
 finally {

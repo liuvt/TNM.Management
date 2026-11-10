@@ -114,6 +114,20 @@ public sealed class DemoDb
             Exec(c, null, "ALTER TABLE renewals ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
         if (!renCols.Any(x => string.Equals(x, "seller_name", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE renewals ADD COLUMN seller_name TEXT NOT NULL DEFAULT ''");
+        if (!renCols.Any(x => string.Equals(x, "is_locked", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0");
+        if (!renCols.Any(x => string.Equals(x, "locked_at", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN locked_at TEXT");
+        if (!renCols.Any(x => string.Equals(x, "locked_by", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN locked_by INTEGER REFERENCES app_users(id)");
+
+        var invCols = Query(c, "PRAGMA table_info(invoices)", r => S(r, 1));
+        if (!invCols.Any(x => string.Equals(x, "is_locked", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE invoices ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0");
+        if (!invCols.Any(x => string.Equals(x, "locked_at", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE invoices ADD COLUMN locked_at TEXT");
+        if (!invCols.Any(x => string.Equals(x, "locked_by", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE invoices ADD COLUMN locked_by INTEGER REFERENCES app_users(id)");
 
         var sgCols = Query(c, "PRAGMA table_info(supplier_groups)", r => S(r, 1));
         if (sgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)))
@@ -155,15 +169,15 @@ public sealed class DemoDb
         return new DashboardVm(
           K("SELECT COUNT(*) FROM products WHERE is_active=1 AND deleted_at IS NULL"),
           K("SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL"),
-          K("SELECT COUNT(*) FROM stock_units WHERE status='IN_STOCK'"),
-          K("SELECT COUNT(*) FROM stock_units WHERE status='CONSIGNED'"),
-          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND date(expires_at)>=date('now')"),
-          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND date(expires_at) BETWEEN date('now') AND date('now','+30 days')"),
+          K("SELECT COUNT(*) FROM stock_units WHERE status='IN_STOCK' AND deleted_at IS NULL"),
+          K("SELECT COUNT(*) FROM stock_units WHERE status='CONSIGNED' AND deleted_at IS NULL"),
+          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at)>=date('now')"),
+          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at) BETWEEN date('now') AND date('now','+30 days')"),
           K("SELECT COUNT(*) FROM v7_orders WHERE status IN ('PENDING','APPROVED','DISPATCHED','REPORTED') AND deleted_at IS NULL"),
-          K("SELECT COALESCE(SUM(i.amount_vnd-COALESCE(p.paid,0)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
-          K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE invoice_type IN ('SALE','RENEWAL') AND status!='VOID'"),
-          K("SELECT COALESCE(SUM(pa.allocated_vnd),0) FROM payment_allocations pa JOIN payments p ON p.id=pa.payment_id WHERE p.direction='IN'"),
-          K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE invoice_type='RENEWAL' AND status!='VOID'")
+          K("SELECT COALESCE(SUM(i.amount_vnd-COALESCE(p.paid,0)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.deleted_at IS NULL AND i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
+          K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type IN ('SALE','RENEWAL') AND status!='VOID'"),
+          K("SELECT COALESCE(SUM(pa.allocated_vnd),0) FROM payment_allocations pa JOIN payments p ON p.id=pa.payment_id WHERE p.deleted_at IS NULL AND pa.deleted_at IS NULL AND p.direction='IN'"),
+          K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type='RENEWAL' AND status!='VOID'")
         );
     }
 
@@ -378,18 +392,36 @@ public sealed class DemoDb
           r => new DeviceVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),S(r,9),S(r,10),S(r,11),r.IsDBNull(12) ? null : L(r,12),S(r,13)));
     }
 
-    public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null)
+    public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null, string? customExpiresAt = null, long? sellerId = null)
     {
         string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
         if (!DateTime.TryParseExact((activatedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var actDate))
             throw new InvalidOperationException("Ngày kích hoạt không hợp lệ (định dạng dd/MM/yyyy hoặc yyyy-MM-dd).");
         var months = durationMonths > 0 ? durationMonths : 12;
         var expDate = actDate.AddMonths(months);
+        if (!string.IsNullOrWhiteSpace(customExpiresAt))
+        {
+            if (!DateTime.TryParseExact(customExpiresAt.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out expDate))
+                throw new InvalidOperationException("Ngày hết hạn (Hạn gia hạn) không hợp lệ (định dạng dd/MM/yyyy hoặc yyyy-MM-dd).");
+        }
         Tx((c,t) => {
-            if (N(c,t,"SELECT COUNT(*) FROM activations WHERE id=$id AND deleted_at IS NULL",("$id",activationId)) == 0)
+            var cur = QueryTx(c,t,"SELECT id, customer_id, v7_order_id, expires_at FROM activations WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r,0), CustId: L(r,1), OrderId: L(r,2), ExpiresAt: S(r,3)), ("$id",activationId)).SingleOrDefault();
+            if (cur.Id == 0)
                 throw new InvalidOperationException("Không tìm thấy thiết bị kích hoạt.");
             var actStr = actDate.ToString("yyyy-MM-dd");
             var expStr = expDate.ToString("yyyy-MM-dd");
+
+            if (!string.Equals(cur.ExpiresAt, expStr, StringComparison.OrdinalIgnoreCase))
+            {
+                var lockedCount = N(c,t,@"SELECT COUNT(*) FROM renewals r
+                    LEFT JOIN invoices i ON i.renewal_id=r.id AND i.deleted_at IS NULL
+                    WHERE r.activation_id=$id AND r.deleted_at IS NULL AND (r.is_locked=1 OR COALESCE(i.is_locked,0)=1)",
+                    ("$id", activationId));
+                if (lockedCount > 0)
+                    throw new InvalidOperationException("Thiết bị này có đợt gia hạn đã được Kế toán chốt số / khóa số, không thể cập nhật lại thời gian gia hạn.");
+            }
+
             Exec(c,t,@"UPDATE activations SET activated_at=$act, expires_at=$exp,
                 plate_no=COALESCE($plate, plate_no), vin_no=COALESCE($vin, vin_no)
                 WHERE id=$id",
@@ -397,6 +429,27 @@ public sealed class DemoDb
                 ("$plate", plateNo is not null ? plateNo.Trim() : null),
                 ("$vin", vinNo is not null ? vinNo.Trim() : null),
                 ("$id", activationId));
+
+            // Nếu thiết bị đã có đợt gia hạn gần nhất chưa chốt số, đồng bộ luôn hạn mới (new_expiry) của đợt gia hạn đó
+            var latestRenewalId = N(c,t,@"SELECT COALESCE((SELECT r.id FROM renewals r
+                LEFT JOIN invoices i ON i.renewal_id=r.id AND i.deleted_at IS NULL
+                WHERE r.activation_id=$id AND r.deleted_at IS NULL AND r.is_locked=0 AND COALESCE(i.is_locked,0)=0
+                ORDER BY r.renewed_at DESC, r.id DESC LIMIT 1), 0)", ("$id", activationId));
+            if (latestRenewalId > 0 && !string.Equals(cur.ExpiresAt, expStr, StringComparison.OrdinalIgnoreCase))
+            {
+                Exec(c,t,"UPDATE renewals SET new_expiry=$exp WHERE id=$rid", ("$exp", expStr), ("$rid", latestRenewalId));
+            }
+
+            if (sellerId is > 0 && cur.CustId > 0)
+            {
+                var sellerLabel = QueryTx(c,t,"SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", r => S(r,0), ("$id", sellerId.Value)).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(sellerLabel))
+                {
+                    Exec(c,t,"UPDATE customers SET seller_id=$sid, source_name=$sname WHERE id=$cid",
+                        ("$sid", sellerId.Value), ("$sname", sellerLabel), ("$cid", cur.CustId));
+                }
+            }
+
             Log(c,t,"UPDATE_ACTIVATION","ACTIVATION",activationId,$"Kích hoạt: {actStr} -> Hết hạn: {expStr}");
             return 0;
         });
@@ -409,21 +462,32 @@ public sealed class DemoDb
           r.seller_id,
           COALESCE(sl.code||' — '||sl.full_name, NULLIF(r.seller_name,''), '—'),
           COALESCE(c.name,''),
-          COALESCE(a.plate_no,'')
+          COALESCE(a.plate_no,''),
+          r.activation_id,
+          r.previous_expiry,
+          CASE WHEN r.is_locked=1 OR COALESCE(inv.is_locked,0)=1 THEN 1 ELSE 0 END,
+          COALESCE(r.locked_at, inv.locked_at, ''),
+          COALESCE(inv.invoice_no, ''),
+          inv.id
           FROM renewals r
           JOIN activations a ON a.id=r.activation_id
           JOIN stock_units u ON u.id=a.stock_unit_id
           LEFT JOIN customers c ON c.id=a.customer_id
           LEFT JOIN v7_sellers sl ON sl.id=r.seller_id
+          LEFT JOIN invoices inv ON inv.id=(SELECT i2.id FROM invoices i2 WHERE i2.renewal_id=r.id AND i2.deleted_at IS NULL AND i2.status<>'VOID' ORDER BY i2.id DESC LIMIT 1)
           WHERE r.deleted_at IS NULL
           ORDER BY r.id DESC",
-          r => new RenewalVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),L(r,5),S(r,6),r.IsDBNull(7) ? null : L(r,7),S(r,8),S(r,9),S(r,10)));
+          r => new RenewalVm(
+              L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), S(r,6),
+              r.IsDBNull(7) ? null : L(r,7), S(r,8), S(r,9), S(r,10),
+              L(r,11), S(r,12), L(r,13) == 1, S(r,14), S(r,15), r.IsDBNull(16) ? null : L(r,16)));
     }
 
-    public void Renew(long activationId, string source, string paymentMethod, long? sellerId = null, string? sellerName = null)
+    public void Renew(long activationId, string source, string paymentMethod, long? sellerId = null, string? sellerName = null, long? customPriceVnd = null, string? customRenewedAt = null, string? customNewExpiry = null)
     {
         if (!(new[]{"TNM","NCC","HTX","B2C"}).Contains(source) || !(new[]{"CASH","DEBT"}).Contains(paymentMethod))
             throw new InvalidOperationException("Nguồn gia hạn / hình thức thanh toán không hợp lệ.");
+        string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
         Tx((c,t) => {
             var device = QueryTx(c,t,@"SELECT a.expires_at,a.customer_id,a.product_id,p.renewal_fee_vnd,
                 COALESCE(o.seller_record_id, c.seller_id, 0),
@@ -458,32 +522,343 @@ public sealed class DemoDb
                 resolvedSellerName = device.FallbackSellerName;
             }
 
-            // Lấy giá gia hạn cố định snapshot tại thời điểm phát sinh gia hạn
-            var price = N(c,t,@"SELECT renewal_price_vnd FROM v7_group_prices
+            // Lấy giá gia hạn cố định tại thời điểm phát sinh gia hạn (hoặc giá tùy chỉnh nếu Admin nhập)
+            var price = customPriceVnd is >= 0 ? customPriceVnd.Value : N(c,t,@"SELECT renewal_price_vnd FROM v7_group_prices
                WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p AND deleted_at IS NULL AND effective_from<=date('now')
                  AND (effective_to IS NULL OR effective_to>=date('now'))
                ORDER BY effective_from DESC,id DESC LIMIT 1",("$c",device.CustomerId),("$p",device.ProductId));
-            if(price == 0) price = device.DefaultPrice;
+            if(customPriceVnd is null && price == 0) price = device.DefaultPrice;
+
+            var renDate = DateTime.Today;
+            if (!string.IsNullOrWhiteSpace(customRenewedAt) && DateTime.TryParseExact(customRenewedAt.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedRen))
+                renDate = parsedRen.Date;
+
             var old = DateTime.ParseExact(device.Expires,"yyyy-MM-dd",CultureInfo.InvariantCulture);
-            var next = (old.Date > DateTime.Today ? old.Date : DateTime.Today).AddYears(1);
+            var next = (old.Date > renDate ? old.Date : renDate).AddYears(1);
+            if (!string.IsNullOrWhiteSpace(customNewExpiry) && DateTime.TryParseExact(customNewExpiry.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedNext))
+                next = parsedNext.Date;
+
+            var renStr = renDate.ToString("yyyy-MM-dd");
+            var nextStr = next.ToString("yyyy-MM-dd");
+
             Exec(c,t,@"INSERT INTO renewals(activation_id,seller_id,seller_name,source_type,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
-               VALUES($a,$seller,$sellerName,$s,date('now'),$old,$next,$price,$pay)",
-               ("$a",activationId),("$seller",resolvedSellerId),("$sellerName",resolvedSellerName),("$s",source),("$old",device.Expires),("$next",next.ToString("yyyy-MM-dd")),("$price",price),("$pay",paymentMethod));
+               VALUES($a,$seller,$sellerName,$s,$renAt,$old,$next,$price,$pay)",
+               ("$a",activationId),("$seller",resolvedSellerId),("$sellerName",resolvedSellerName),("$s",source),("$renAt",renStr),("$old",device.Expires),("$next",nextStr),("$price",price),("$pay",paymentMethod));
             var renewalId = N(c,t,"SELECT last_insert_rowid()");
-            Exec(c,t,"UPDATE activations SET expires_at=$new WHERE id=$id",("$new",next.ToString("yyyy-MM-dd")),("$id",activationId));
+            Exec(c,t,"UPDATE activations SET expires_at=$new WHERE id=$id",("$new",nextStr),("$id",activationId));
             var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
             var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · Seller: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
-            Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,due_at,amount_vnd,notes)
-               VALUES($no,'RENEWAL',$c,$r,date('now','+30 days'),$price,$notes)",
-               ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$price",price),("$notes",sellerNote));
+            Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,issued_at,due_at,amount_vnd,notes)
+               VALUES($no,'RENEWAL',$c,$r,$renAt,date($renAt,'+30 days'),$price,$notes)",
+               ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$renAt",renStr),("$price",price),("$notes",sellerNote));
             var invoiceId = N(c,t,"SELECT last_insert_rowid()");
             Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,1,$price)",
                ("$i",invoiceId),("$desc",sellerNote),("$p",device.ProductId),("$price",price));
             if (paymentMethod == "CASH" && price > 0)
                 InsertPayment(c,t,invoiceId,price,"CASH");
-            Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {next:yyyy-MM-dd}; {price} VND; {source}; Seller: {resolvedSellerName}");
+            SyncUnlockedSellerCommissionInvoices(c,t);
+            Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {nextStr}; {price} VND; {source}; Seller: {resolvedSellerName}");
             return 0;
         });
+    }
+
+    public void UpdateRenewal(long renewalId, long? sellerId, string? sellerName, string source, string renewedAt, string previousExpiry, string newExpiry, long amountVnd, string paymentMethod)
+    {
+        if (!(new[] { "TNM", "NCC", "HTX", "B2C" }).Contains(source) || !(new[] { "CASH", "DEBT" }).Contains(paymentMethod))
+            throw new InvalidOperationException("Nguồn gia hạn / hình thức thanh toán không hợp lệ.");
+        if (amountVnd < 0)
+            throw new InvalidOperationException("Số tiền gia hạn không được âm.");
+        string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
+        if (!DateTime.TryParseExact((renewedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var renDate))
+            throw new InvalidOperationException("Ngày gia hạn không hợp lệ.");
+        if (!DateTime.TryParseExact((previousExpiry ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var prevExpDate))
+            throw new InvalidOperationException("Hạn cũ không hợp lệ.");
+        if (!DateTime.TryParseExact((newExpiry ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var newExpDate))
+            throw new InvalidOperationException("Hạn mới không hợp lệ.");
+
+        var renStr = renDate.ToString("yyyy-MM-dd");
+        var prevExpStr = prevExpDate.ToString("yyyy-MM-dd");
+        var newExpStr = newExpDate.ToString("yyyy-MM-dd");
+
+        Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.is_locked, a.customer_id, a.product_id
+                FROM renewals r JOIN activations a ON a.id=r.activation_id
+                WHERE r.id=$id AND r.deleted_at IS NULL",
+                r => (Id: L(r, 0), ActId: L(r, 1), IsLocked: L(r, 2) == 1, CustId: L(r, 3), ProdId: L(r, 4)),
+                ("$id", renewalId)).SingleOrDefault();
+            if (cur.Id == 0)
+                throw new InvalidOperationException("Không tìm thấy lịch sử gia hạn hoặc bản ghi đã bị xóa.");
+
+            var lockedInvCount = N(c, t, "SELECT COUNT(*) FROM invoices WHERE renewal_id=$id AND deleted_at IS NULL AND is_locked=1", ("$id", renewalId));
+            if (cur.IsLocked || lockedInvCount > 0)
+                throw new InvalidOperationException("Đợt gia hạn này đã được Kế toán chốt số / khóa số, không thể chỉnh sửa.");
+
+            long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : null;
+            string resolvedSellerName = (sellerName ?? "").Trim();
+            if (resolvedSellerId.HasValue)
+            {
+                var foundLabel = QueryTx(c, t, "SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", r => S(r, 0), ("$id", resolvedSellerId.Value)).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(foundLabel)) resolvedSellerName = foundLabel;
+            }
+            else if (!string.IsNullOrWhiteSpace(resolvedSellerName))
+            {
+                var matchedId = N(c, t, "SELECT COALESCE((SELECT id FROM v7_sellers WHERE deleted_at IS NULL AND (code=$s OR full_name=$s OR (code||' — '||full_name)=$s OR $s LIKE '%'||code||'%' OR $s LIKE '%'||full_name||'%') LIMIT 1), 0)", ("$s", resolvedSellerName));
+                if (matchedId > 0)
+                {
+                    resolvedSellerId = matchedId;
+                    var foundLabel = QueryTx(c, t, "SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id", r => S(r, 0), ("$id", matchedId)).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(foundLabel)) resolvedSellerName = foundLabel;
+                }
+            }
+
+            Exec(c, t, @"UPDATE renewals
+                SET seller_id=$seller, seller_name=$sellerName, source_type=$src,
+                    renewed_at=$renAt, previous_expiry=$prevExp, new_expiry=$newExp,
+                    amount_vnd=$amt, payment_method=$pay
+                WHERE id=$id",
+                ("$seller", resolvedSellerId), ("$sellerName", resolvedSellerName), ("$src", source),
+                ("$renAt", renStr), ("$prevExp", prevExpStr), ("$newExp", newExpStr),
+                ("$amt", amountVnd), ("$pay", paymentMethod), ("$id", renewalId));
+
+            // Cập nhật lại thời gian gia hạn (expires_at) của thiết bị theo đợt gia hạn mới nhất còn hiệu lực
+            var latestExp = QueryTx(c, t, @"SELECT new_expiry FROM renewals
+                WHERE activation_id=$act AND deleted_at IS NULL
+                ORDER BY renewed_at DESC, id DESC LIMIT 1",
+                r => S(r, 0), ("$act", cur.ActId)).FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(latestExp))
+            {
+                Exec(c, t, "UPDATE activations SET expires_at=$exp WHERE id=$act", ("$exp", latestExp), ("$act", cur.ActId));
+            }
+
+            // Đồng bộ Chứng từ Kế toán (invoices, invoice_lines, payments, payment_allocations)
+            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · Seller: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
+            var invId = N(c, t, "SELECT COALESCE((SELECT id FROM invoices WHERE renewal_id=$r AND invoice_type='RENEWAL' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1), 0)", ("$r", renewalId));
+            if (invId > 0)
+            {
+                Exec(c, t, @"UPDATE invoices SET customer_id=$c, issued_at=$renAt, due_at=date($renAt,'+30 days'), amount_vnd=$amt, notes=$notes
+                    WHERE id=$inv",
+                    ("$c", cur.CustId), ("$renAt", renStr), ("$amt", amountVnd), ("$notes", sellerNote), ("$inv", invId));
+                Exec(c, t, @"UPDATE invoice_lines SET description=$desc, product_id=$p, unit_price_vnd=$amt
+                    WHERE invoice_id=$inv AND deleted_at IS NULL",
+                    ("$desc", sellerNote), ("$p", cur.ProdId), ("$amt", amountVnd), ("$inv", invId));
+
+                var allocs = QueryTx(c, t, "SELECT id, payment_id, allocated_vnd FROM payment_allocations WHERE invoice_id=$inv AND deleted_at IS NULL",
+                    r => (AllocId: L(r, 0), PayId: L(r, 1), Amt: L(r, 2)), ("$inv", invId));
+
+                if (paymentMethod == "DEBT" || amountVnd == 0)
+                {
+                    foreach (var al in allocs)
+                    {
+                        Exec(c, t, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id", ("$id", al.AllocId));
+                        if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", al.PayId)) == 0)
+                            Exec(c, t, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", al.PayId));
+                    }
+                    Exec(c, t, "UPDATE invoices SET status=$st WHERE id=$inv", ("$st", amountVnd == 0 ? "PAID" : "OPEN"), ("$inv", invId));
+                }
+                else // CASH && amountVnd > 0
+                {
+                    if (allocs.Count == 1)
+                    {
+                        Exec(c, t, "UPDATE payment_allocations SET allocated_vnd=$amt WHERE id=$id", ("$amt", amountVnd), ("$id", allocs[0].AllocId));
+                        Exec(c, t, "UPDATE payments SET amount_vnd=$amt, paid_at=$renAt WHERE id=$p", ("$amt", amountVnd), ("$renAt", renStr), ("$p", allocs[0].PayId));
+                        Exec(c, t, "UPDATE invoices SET status='PAID' WHERE id=$inv", ("$inv", invId));
+                    }
+                    else
+                    {
+                        foreach (var al in allocs)
+                        {
+                            Exec(c, t, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id", ("$id", al.AllocId));
+                            if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", al.PayId)) == 0)
+                                Exec(c, t, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", al.PayId));
+                        }
+                        InsertPayment(c, t, invId, amountVnd, "CASH");
+                    }
+                }
+            }
+            else if (amountVnd > 0)
+            {
+                var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,issued_at,due_at,amount_vnd,notes)
+                   VALUES($no,'RENEWAL',$c,$r,$renAt,date($renAt,'+30 days'),$price,$notes)",
+                   ("$no", invoiceNo), ("$c", cur.CustId), ("$r", renewalId), ("$renAt", renStr), ("$price", amountVnd), ("$notes", sellerNote));
+                var newInvId = N(c, t, "SELECT last_insert_rowid()");
+                Exec(c, t, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,1,$price)",
+                   ("$i", newInvId), ("$desc", sellerNote), ("$p", cur.ProdId), ("$price", amountVnd));
+                if (paymentMethod == "CASH")
+                    InsertPayment(c, t, newInvId, amountVnd, "CASH");
+            }
+
+            SyncUnlockedSellerCommissionInvoices(c, t);
+            Log(c, t, "UPDATE_RENEWAL", "RENEWAL", renewalId, $"Cập nhật gia hạn #{renewalId}: Hạn {prevExpStr}->{newExpStr}, {amountVnd:N0} VND ({paymentMethod}), Seller: {resolvedSellerName}");
+            return 0;
+        });
+    }
+
+    public void DeleteRenewal(long renewalId)
+    {
+        Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.previous_expiry, r.new_expiry, r.amount_vnd, r.seller_name, r.is_locked
+                FROM renewals r WHERE r.id=$id AND r.deleted_at IS NULL",
+                r => (Id: L(r, 0), ActId: L(r, 1), PrevExp: S(r, 2), NewExp: S(r, 3), Amt: L(r, 4), Seller: S(r, 5), IsLocked: L(r, 6) == 1),
+                ("$id", renewalId)).SingleOrDefault();
+            if (cur.Id == 0)
+                throw new InvalidOperationException("Không tìm thấy lịch sử gia hạn hoặc bản ghi đã bị xóa.");
+
+            var lockedInvCount = N(c, t, "SELECT COUNT(*) FROM invoices WHERE renewal_id=$id AND deleted_at IS NULL AND is_locked=1", ("$id", renewalId));
+            if (cur.IsLocked || lockedInvCount > 0)
+                throw new InvalidOperationException("Đợt gia hạn này đã được Kế toán chốt số / khóa số, không thể xóa.");
+
+            // 1. Xóa mềm đợt gia hạn
+            Exec(c, t, "UPDATE renewals SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id", ("$id", renewalId));
+
+            // 2. Xóa mềm chứng từ kế toán (invoices, invoice_lines, payment_allocations, payments) gắn với đợt gia hạn này
+            var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL", r => L(r, 0), ("$r", renewalId));
+            foreach (var invId in invIds)
+            {
+                var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", r => L(r, 0), ("$i", invId));
+                Exec(c, t, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                foreach (var pid in payIds)
+                {
+                    if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", pid)) == 0)
+                        Exec(c, t, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", pid));
+                }
+                Exec(c, t, "UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$i", ("$i", invId));
+            }
+
+            // 3. Khôi phục / tính lại thời gian hết hạn (expires_at) của thiết bị
+            var remainingLatestExp = QueryTx(c, t, @"SELECT new_expiry FROM renewals
+                WHERE activation_id=$act AND deleted_at IS NULL
+                ORDER BY renewed_at DESC, id DESC LIMIT 1",
+                r => S(r, 0), ("$act", cur.ActId)).FirstOrDefault();
+            var revertedExp = !string.IsNullOrWhiteSpace(remainingLatestExp) ? remainingLatestExp : cur.PrevExp;
+            if (!string.IsNullOrWhiteSpace(revertedExp))
+            {
+                Exec(c, t, "UPDATE activations SET expires_at=$exp WHERE id=$act", ("$exp", revertedExp), ("$act", cur.ActId));
+            }
+
+            // 4. Đồng bộ lại các chứng từ Hoa hồng Seller chưa chốt số
+            SyncUnlockedSellerCommissionInvoices(c, t);
+
+            Log(c, t, "DELETE_RENEWAL", "RENEWAL", renewalId, $"Xóa lịch sử gia hạn #{renewalId} ({cur.Amt:N0} VND, Seller: {cur.Seller}) · Hạn TB khôi phục về {revertedExp}");
+            return 0;
+        });
+    }
+
+    public void SetRenewalLock(long renewalId, bool locked)
+    {
+        Tx((c, t) =>
+        {
+            if (N(c, t, "SELECT COUNT(*) FROM renewals WHERE id=$id AND deleted_at IS NULL", ("$id", renewalId)) == 0)
+                throw new InvalidOperationException("Không tìm thấy đợt gia hạn.");
+            var lockVal = locked ? 1 : 0;
+            Exec(c, t, @"UPDATE renewals SET is_locked=$l,
+                locked_at=CASE WHEN $l=1 THEN datetime('now','localtime') ELSE NULL END,
+                locked_by=CASE WHEN $l=1 THEN $actor ELSE NULL END
+                WHERE id=$id",
+                ("$l", lockVal), ("$actor", ActorId > 0 ? ActorId : null), ("$id", renewalId));
+            Exec(c, t, @"UPDATE invoices SET is_locked=$l,
+                locked_at=CASE WHEN $l=1 THEN datetime('now','localtime') ELSE NULL END,
+                locked_by=CASE WHEN $l=1 THEN $actor ELSE NULL END
+                WHERE renewal_id=$id AND deleted_at IS NULL",
+                ("$l", lockVal), ("$actor", ActorId > 0 ? ActorId : null), ("$id", renewalId));
+            Log(c, t, locked ? "LOCK_RENEWAL" : "UNLOCK_RENEWAL", "RENEWAL", renewalId, locked ? "Kế toán chốt số / khóa số đợt gia hạn" : "Mở khóa đợt gia hạn");
+            return 0;
+        });
+    }
+
+    public void SetInvoiceLock(long invoiceId, bool locked)
+    {
+        Tx((c, t) =>
+        {
+            var inv = QueryTx(c, t, "SELECT id, invoice_no, renewal_id FROM invoices WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), RenId: r.IsDBNull(2) ? (long?)null : L(r, 2)), ("$id", invoiceId)).SingleOrDefault();
+            if (inv.Id == 0)
+                throw new InvalidOperationException("Không tìm thấy chứng từ kế toán.");
+            var lockVal = locked ? 1 : 0;
+            Exec(c, t, @"UPDATE invoices SET is_locked=$l,
+                locked_at=CASE WHEN $l=1 THEN datetime('now','localtime') ELSE NULL END,
+                locked_by=CASE WHEN $l=1 THEN $actor ELSE NULL END
+                WHERE id=$id",
+                ("$l", lockVal), ("$actor", ActorId > 0 ? ActorId : null), ("$id", invoiceId));
+            if (inv.RenId is > 0)
+            {
+                Exec(c, t, @"UPDATE renewals SET is_locked=$l,
+                    locked_at=CASE WHEN $l=1 THEN datetime('now','localtime') ELSE NULL END,
+                    locked_by=CASE WHEN $l=1 THEN $actor ELSE NULL END
+                    WHERE id=$rid AND deleted_at IS NULL",
+                    ("$l", lockVal), ("$actor", ActorId > 0 ? ActorId : null), ("$rid", inv.RenId.Value));
+            }
+            Log(c, t, locked ? "LOCK_INVOICE" : "UNLOCK_INVOICE", "INVOICE", invoiceId, $"{(locked ? "Kế toán chốt số" : "Mở khóa")} chứng từ {inv.No}");
+            return 0;
+        });
+    }
+
+    public int LockInvoicesBatch(IEnumerable<long> invoiceIds, bool locked)
+    {
+        var ids = invoiceIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+        return Tx((c, t) =>
+        {
+            var lockVal = locked ? 1 : 0;
+            var count = 0;
+            foreach (var invId in ids)
+            {
+                var renId = N(c, t, "SELECT COALESCE(renewal_id, 0) FROM invoices WHERE id=$id AND deleted_at IS NULL", ("$id", invId));
+                Exec(c, t, @"UPDATE invoices SET is_locked=$l,
+                    locked_at=CASE WHEN $l=1 THEN datetime('now','localtime') ELSE NULL END,
+                    locked_by=CASE WHEN $l=1 THEN $actor ELSE NULL END
+                    WHERE id=$id AND deleted_at IS NULL",
+                    ("$l", lockVal), ("$actor", ActorId > 0 ? ActorId : null), ("$id", invId));
+                if (renId > 0)
+                {
+                    Exec(c, t, @"UPDATE renewals SET is_locked=$l,
+                        locked_at=CASE WHEN $l=1 THEN datetime('now','localtime') ELSE NULL END,
+                        locked_by=CASE WHEN $l=1 THEN $actor ELSE NULL END
+                        WHERE id=$rid AND deleted_at IS NULL",
+                        ("$l", lockVal), ("$actor", ActorId > 0 ? ActorId : null), ("$rid", renId));
+                }
+                count++;
+            }
+            Log(c, t, locked ? "LOCK_BATCH" : "UNLOCK_BATCH", "FINANCE", 0, $"{(locked ? "Chốt số hàng loạt" : "Mở khóa hàng loạt")} {count} chứng từ kế toán");
+            return count;
+        });
+    }
+
+    private static void SyncUnlockedSellerCommissionInvoices(SqliteConnection c, SqliteTransaction t)
+    {
+        var sellers = QueryTx(c, t, @"
+            SELECT s.id, s.code, s.full_name, COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
+                   (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                      AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
+                   + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN customers cu ON cu.id=i.customer_id
+                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id) AS dev_qty,
+                   (SELECT COUNT(*) FROM renewals r
+                    WHERE r.deleted_at IS NULL
+                      AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))) AS ren_cnt
+            FROM v7_sellers s WHERE s.deleted_at IS NULL",
+            r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), OrderRate: L(r, 3), RenRate: L(r, 4), DevQty: L(r, 5), RenCnt: L(r, 6)));
+
+        foreach (var s in sellers)
+        {
+            var openCommInvs = QueryTx(c, t, @"SELECT id FROM invoices
+                WHERE invoice_type='COMMISSION' AND status='OPEN' AND is_locked=0 AND deleted_at IS NULL
+                  AND (notes LIKE '%'||$code||'%' OR notes LIKE '%'||$name||'%')",
+                r => L(r, 0), ("$code", s.Code), ("$name", s.Name));
+            if (openCommInvs.Count == 1)
+            {
+                var est = s.DevQty * s.OrderRate + s.RenCnt * s.RenRate;
+                var invId = openCommInvs[0];
+                var desc = $"Chi hoa hồng cuối kỳ cho Sell {s.Name} ({s.Code}): {s.DevQty} thiết bị hoàn thành + {s.RenCnt} lượt gia hạn.";
+                Exec(c, t, "UPDATE invoices SET amount_vnd=$amt, notes=$notes WHERE id=$id",
+                    ("$amt", est), ("$notes", $"{s.Name} ({s.Code}) — {desc}"), ("$id", invId));
+                Exec(c, t, "UPDATE invoice_lines SET description=$desc, quantity=1, unit_price_vnd=$amt WHERE invoice_id=$id AND deleted_at IS NULL",
+                    ("$desc", desc), ("$amt", est), ("$id", invId));
+            }
+        }
     }
 
     public List<InvoiceVm> Invoices()
@@ -506,18 +881,22 @@ public sealed class DemoDb
           END AS partner_name,
           i.amount_vnd,COALESCE(pa.paid,0),i.status,i.issued_at,i.due_at,
           COALESCE(i.notes,''),
-          COALESCE(o.code, CASE WHEN i.renewal_id IS NOT NULL THEN 'GH#'||i.renewal_id ELSE '' END, '')
+          COALESCE(o.code, CASE WHEN i.renewal_id IS NOT NULL THEN 'GH#'||i.renewal_id ELSE '' END, ''),
+          CASE WHEN i.is_locked=1 OR COALESCE(r.is_locked,0)=1 THEN 1 ELSE 0 END,
+          COALESCE(i.locked_at, r.locked_at, ''),
+          i.renewal_id
           FROM invoices i
           LEFT JOIN customers c ON c.id=i.customer_id
           LEFT JOIN suppliers s ON s.id=i.supplier_id
           LEFT JOIN v7_orders o ON o.id=i.v7_order_id
+          LEFT JOIN renewals r ON r.id=i.renewal_id AND r.deleted_at IS NULL
           LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) AS paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) pa ON pa.invoice_id=i.id
           WHERE i.deleted_at IS NULL
           ORDER BY i.id DESC",
           r => {
               var id = L(r,0);
               var lines = allLines.TryGetValue(id, out var list) ? list : [];
-              return new InvoiceVm(id,S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),S(r,6),S(r,7),S(r,8),S(r,9),S(r,10),lines);
+              return new InvoiceVm(id,S(r,1),S(r,2),S(r,3),L(r,4),L(r,5),S(r,6),S(r,7),S(r,8),S(r,9),S(r,10),lines,L(r,11)==1,S(r,12),r.IsDBNull(13)?null:L(r,13));
           });
     }
 
@@ -753,7 +1132,7 @@ public sealed class DemoDb
         var paymentId = N(c,t,"SELECT last_insert_rowid()");
         Exec(c,t,"INSERT INTO payment_allocations(payment_id,invoice_id,allocated_vnd) VALUES($p,$i,$a)",
           ("$p",paymentId),("$i",invoiceId),("$a",amount));
-        var balance = N(c,t,@"SELECT i.amount_vnd - (SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=i.id)
+        var balance = N(c,t,@"SELECT i.amount_vnd - (SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL)
               FROM invoices i WHERE i.id=$id",("$id",invoiceId));
         Exec(c,t,"UPDATE invoices SET status=$s WHERE id=$id",
            ("$s", balance == 0 ? "PAID" : "PARTIAL"),("$id",invoiceId));
@@ -763,8 +1142,8 @@ public sealed class DemoDb
     {
         if (amount <= 0 || !(new[]{"CASH","BANK"}).Contains(method)) throw new InvalidOperationException("Số tiền và phương thức không hợp lệ.");
         Tx((c,t) => {
-            var inv = QueryTx(c,t,@"SELECT i.amount_vnd-COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id),0),i.status
-              FROM invoices i WHERE i.id=$id", r => (Balance:L(r,0),Status:S(r,1)),("$id",invoiceId)).SingleOrDefault();
+            var inv = QueryTx(c,t,@"SELECT i.amount_vnd-COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL),0),i.status
+              FROM invoices i WHERE i.id=$id AND i.deleted_at IS NULL", r => (Balance:L(r,0),Status:S(r,1)),("$id",invoiceId)).SingleOrDefault();
             if(inv.Balance < amount || inv.Status == "VOID" || inv.Status == "")
                 throw new InvalidOperationException("Thanh toán vượt công nợ hoặc chứng từ không hợp lệ.");
             InsertPayment(c,t,invoiceId,amount,method);

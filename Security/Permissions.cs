@@ -133,7 +133,7 @@ public static class Permissions
         new(DevicesDue30View, "Quản lý thiết bị", "Đến hạn", "Xem đến hạn trong 30 ngày", 56, true),
         new(DevicesDue60View, "Quản lý thiết bị", "Đến hạn", "Xem đến hạn trong 60 ngày", 57, true),
         new(DevicesRenew, "Quản lý thiết bị", "Gia hạn", "Gia hạn thiết bị và phát sinh công nợ", 58, true),
-        new(DevicesUpdate, "Quản lý thiết bị", "Cập nhật thiết bị", "Sửa thông tin/biển số/thiết bị", 59, false),
+        new(DevicesUpdate, "Quản lý thiết bị", "Cập nhật thiết bị", "Sửa thông tin/biển số/lịch sử gia hạn thiết bị", 59, true),
         new(DevicesRenewalsView, "Quản lý thiết bị", "Lịch sử gia hạn", "Xem các lần gia hạn và số tiền", 58, true),
         new(DevicesReportSource, "Quản lý thiết bị", "Báo cáo gia hạn", "Báo cáo theo nguồn gia hạn", 60, false),
         new(DevicesReportTime, "Quản lý thiết bị", "Báo cáo gia hạn", "Báo cáo theo ngày/tháng/quý", 61, false),

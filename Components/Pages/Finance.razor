@@ -891,6 +891,12 @@ else
           <option value="PAID">Đã tất toán (PAID)</option>
         </select>
         <input class="search-input" style="min-width:250px" @bind="search" @bind:event="oninput" placeholder="Tìm số chứng từ, NCC, khách hàng, Sell..." />
+        @if (canPay && FilteredInvoices.Any(i => !i.IsLocked))
+        {
+          <button type="button" class="btn secondary btn-sm" @onclick="LockFilteredInvoices" title="Khóa sổ / chốt số toàn bộ chứng từ đang hiển thị để không cho phép sửa/xóa lịch sử gia hạn">
+            🔒 Chốt số danh sách đang lọc (@FilteredInvoices.Count(i => !i.IsLocked))
+          </button>
+        }
       </div>
     </div>
 
@@ -953,6 +959,16 @@ else
                 <span class="chip @(x.Status == "PAID" ? "green-chip" : x.Status == "PARTIAL" ? "purple-chip" : "orange-chip")">
                   @StatusLabel(x.Status)
                 </span>
+                <div style="margin-top:4px">
+                  @if (x.IsLocked)
+                  {
+                    <span class="chip orange-chip" title="Đã chốt số lúc @x.LockedAt">🔒 Đã chốt số KT</span>
+                  }
+                  else
+                  {
+                    <span class="chip">Chưa chốt số</span>
+                  }
+                </div>
               </td>
               <td>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -963,6 +979,12 @@ else
                   {
                     <button type="button" class="btn" style="padding:4px 8px;font-size:12px" @onclick="() => QuickPay(x)">
                       @(x.IsReceivable ? "Thu khách" : x.Type is "PURCHASE" or "SUPPLIER" ? "Chi nhập hàng" : "Chi trả")
+                    </button>
+                  }
+                  @if (canPay && x.Status != "VOID")
+                  {
+                    <button type="button" class="btn secondary" style="padding:4px 8px;font-size:12px" @onclick="() => ToggleInvoiceLock(x)">
+                      @(x.IsLocked ? "🔓 Mở khóa" : "🔒 Chốt số")
                     </button>
                   }
                 </div>
@@ -1314,6 +1336,40 @@ else
       Reload();
       selectedInvoice = invoices.FirstOrDefault(x => x.Id == createdId);
       message = $"Đã lập chứng từ công nợ {selectedInvoice?.Code} thành công.";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task ToggleInvoiceLock(InvoiceVm inv)
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      var nextLock = !inv.IsLocked;
+      Db.SetInvoiceLock(inv.Id, nextLock);
+      Reload();
+      message = nextLock
+        ? $"Đã chốt số / khóa sổ Kế toán cho chứng từ {inv.Code}. Đợt gia hạn gắn liền sẽ không thể chỉnh sửa hoặc xóa."
+        : $"Đã mở khóa chứng từ {inv.Code}.";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task LockFilteredInvoices()
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      var ids = FilteredInvoices.Where(x => !x.IsLocked && x.Status != "VOID").Select(x => x.Id).ToList();
+      var count = Db.LockInvoicesBatch(ids, true);
+      Reload();
+      message = $"Đã chốt số / khóa sổ Kế toán cho {count} chứng từ.";
     }
     catch (Exception ex)
     {
