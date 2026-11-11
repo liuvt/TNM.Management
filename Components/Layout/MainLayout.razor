@@ -57,13 +57,13 @@
                     @if (Accounts.HasPermission(nav.User, Permissions.OrdersView)) { <NavLink href="/sales-orders"><AppIcon Name="file" /> <span>Đơn hàng & lắp đặt</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.PurchaseView)) { <NavLink href="/purchases"><AppIcon Name="cart" /> <span>Mua hàng NCC</span></NavLink> }
                     <div class="nav-heading">Kho & thiết bị</div>
-                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
-                    {
-                        <NavLink href="/catalog/warehouses"><AppIcon Name="warehouse" /> <span>Danh sách Kho</span></NavLink>
-                    }
                     @if (Accounts.HasPermission(nav.User, Permissions.InventoryView) || Accounts.HasPermission(nav.User, Permissions.QuantityStockView))
                     {
                         <NavLink href="/inventory"><AppIcon Name="layers" /> <span>Kho</span></NavLink>
+                    }
+                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
+                    {
+                        <NavLink href="/catalog/warehouses"><AppIcon Name="warehouse" /> <span>Danh sách Kho</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.QuantityCountView)) { <NavLink href="/quantity-counts"><AppIcon Name="clipboard" /> <span>Kiểm kê tồn kho</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.DevicesView)) { <NavLink href="/devices"><AppIcon Name="device" /> <span>Thiết bị & gia hạn</span></NavLink> }
