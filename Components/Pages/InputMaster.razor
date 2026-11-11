@@ -373,7 +373,7 @@ else
                     <TablePager Pager="instProdPager" TotalCount="totalInstProds" />
                 </div>
             }
-            <div class="form-actions"><button type="button" class="btn" @onclick="Save">@(CurrentSection=="installers" ? "Lưu người lắp đặt & đơn giá" : "Lưu dữ liệu")</button><button type="button" class="btn secondary" @onclick="CloseEditor">Hủy</button></div>
+            <div class="form-actions"><button type="button" class="btn" data-confirm="@(editingId.HasValue ? "edit" : "add")" data-confirm-msg="@(editingId.HasValue ? $"Bạn có chắc chắn muốn lưu cập nhật thông tin ({Title}) không?" : $"Bạn có chắc chắn muốn thêm mới dữ liệu vào ({Title}) không?")" @onclick="Save">@(CurrentSection=="installers" ? "Lưu người lắp đặt & đơn giá" : "Lưu dữ liệu")</button><button type="button" class="btn secondary" @onclick="CloseEditor">Hủy</button></div>
         </section>
     }
     <section class="panel">
@@ -451,15 +451,7 @@ else
                                         @if(canUpdate)
                                         {
                                             <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Cấu hình &amp; Sửa</button>
-                                            @if(pendingDelete==row.Id)
-                                            {
-                                                <button type="button" class="btn btn-sm" @onclick="() => DeleteRow(row)">Xác nhận xóa</button>
-                                                <button type="button" class="btn secondary btn-sm" @onclick="() => pendingDelete=null">Hủy</button>
-                                            }
-                                            else
-                                            {
-                                                <button type="button" class="btn secondary btn-sm" @onclick="() => pendingDelete=row.Id">Xóa</button>
-                                            }
+                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa \"{row.Name}\" ({row.Code}) không?")" @onclick="() => DeleteRow(row)">Xóa</button>
                                         }
                                     </td>
                                 }
@@ -528,15 +520,7 @@ else
                                         @if(canUpdate)
                                         {
                                             <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Sửa</button>
-                                            @if(pendingDelete==row.Id)
-                                            {
-                                                <button type="button" class="btn btn-sm" @onclick="() => DeleteRow(row)">Xác nhận xóa</button>
-                                                <button type="button" class="btn secondary btn-sm" @onclick="() => pendingDelete=null">Hủy</button>
-                                            }
-                                            else
-                                            {
-                                                <button type="button" class="btn secondary btn-sm" @onclick="() => pendingDelete=row.Id">Xóa</button>
-                                            }
+                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa \"{row.Name}\" ({row.Code}) không?")" @onclick="() => DeleteRow(row)">Xóa</button>
                                         }
                                     </td>
                                 }
@@ -572,15 +556,7 @@ else
                                         @if(canUpdate)
                                         {
                                         <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Sửa</button>
-                                        @if(pendingDelete==row.Id)
-                                        {
-                                            <button type="button" class="btn btn-sm" @onclick="() => DeleteRow(row)">Xác nhận xóa</button>
-                                            <button type="button" class="btn secondary btn-sm" @onclick="() => pendingDelete=null">Hủy</button>
-                                        }
-                                        else
-                                        {
-                                            <button type="button" class="btn secondary btn-sm" @onclick="() => pendingDelete=row.Id">Xóa</button>
-                                        }
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa \"{row.Name}\" ({row.Code}) không?")" @onclick="() => DeleteRow(row)">Xóa</button>
                                         }
                                     </td>
                                 }

@@ -120,3 +120,25 @@ h1:focus,h1:focus-visible,h2:focus,h2:focus-visible,h3:focus,h3:focus-visible,la
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #components-reconnect-modal,.components-reconnect-modal{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;width:0!important;height:0!important;overflow:hidden!important}
 @media(max-width:720px){.catalog-toolbar-search{width:100%}.catalog-toolbar .button-group{justify-content:flex-start}.catalog-pagination{align-items:flex-start}}
+
+/* Global Action Confirmation Dialog (Add / Edit / Delete) */
+.tnm-confirm-overlay{position:fixed;inset:0;z-index:9999;background:rgba(24,25,38,.48);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:18px;animation:tnmFadeIn .14s ease-out}
+.tnm-confirm-overlay[hidden]{display:none!important}
+.tnm-confirm-dialog{width:100%;max-width:440px;background:#fff;border:1px solid #e6e7ef;border-radius:14px;box-shadow:0 20px 50px rgba(20,21,35,.22);padding:22px 24px 20px;animation:tnmPopIn .16s cubic-bezier(.16,1,.3,1)}
+.tnm-confirm-header{display:flex;align-items:flex-start;gap:13px;margin-bottom:12px}
+.tnm-confirm-icon{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-size:18px;font-weight:800;flex:none}
+.tnm-confirm-icon.type-add{background:#eff6ff;color:#0284c7;border:1px solid #bae6fd}
+.tnm-confirm-icon.type-edit{background:#fff7ed;color:#d97706;border:1px solid #fed7aa}
+.tnm-confirm-icon.type-delete{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.tnm-confirm-title{margin:0 0 4px;font-size:15.5px;font-weight:760;color:#1e293b;line-height:1.3}
+.tnm-confirm-badge{display:inline-block;font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.6px;padding:2px 7px;border-radius:5px;margin-bottom:4px}
+.tnm-confirm-badge.type-add{background:#e0f2fe;color:#0369a1}
+.tnm-confirm-badge.type-edit{background:#ffedd5;color:#b45309}
+.tnm-confirm-badge.type-delete{background:#fee2e2;color:#b91c1c}
+.tnm-confirm-body{font-size:13px;line-height:1.58;color:#475569;margin:0 0 18px;padding:11px 13px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;word-break:break-word}
+.tnm-confirm-body strong{color:#0f172a;font-weight:700}
+.tnm-confirm-actions{display:flex;justify-content:flex-end;gap:9px;align-items:center}
+.tnm-confirm-btn-danger{background:#dc2626!important;border-color:#dc2626!important;color:#fff!important}
+.tnm-confirm-btn-danger:hover{background:#b91c1c!important;border-color:#b91c1c!important}
+@keyframes tnmFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes tnmPopIn{from{opacity:0;transform:scale(.95) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}

@@ -23,6 +23,285 @@ window.tnmScrollCatalogEditor = function () {
     let reconnectingLoop = false;
     let isFlushingQueue = false;
 
+    // ==================== GLOBAL CONFIRMATION DIALOG (ADD / EDIT / DELETE) ====================
+    let confirmOverlayEl = null;
+    let pendingTargetBtn = null;
+
+    function ensureConfirmModal() {
+        if (confirmOverlayEl && document.body.contains(confirmOverlayEl)) return confirmOverlayEl;
+        const overlay = document.createElement('div');
+        overlay.id = 'tnm-confirm-overlay';
+        overlay.className = 'tnm-confirm-overlay';
+        overlay.hidden = true;
+        overlay.innerHTML = `
+            <div class="tnm-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="tnm-confirm-title">
+                <div class="tnm-confirm-header">
+                    <div id="tnm-confirm-icon" class="tnm-confirm-icon type-edit">!</div>
+                    <div style="min-width:0;flex:1">
+                        <span id="tnm-confirm-badge" class="tnm-confirm-badge type-edit">XÁC NHẬN THAO TÁC</span>
+                        <h3 id="tnm-confirm-title" class="tnm-confirm-title">Xác nhận thực hiện</h3>
+                    </div>
+                </div>
+                <div id="tnm-confirm-body" class="tnm-confirm-body"></div>
+                <div class="tnm-confirm-actions">
+                    <button type="button" id="tnm-confirm-cancel" class="btn secondary" data-confirm="none">Hủy bỏ</button>
+                    <button type="button" id="tnm-confirm-ok" class="btn" data-confirm="none">Xác nhận thực hiện</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const cancelBtn = overlay.querySelector('#tnm-confirm-cancel');
+        const okBtn = overlay.querySelector('#tnm-confirm-ok');
+
+        cancelBtn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            closeConfirmModal();
+        });
+
+        overlay.addEventListener('click', function (ev) {
+            if (ev.target === overlay) {
+                closeConfirmModal();
+            }
+        });
+
+        okBtn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            const btnToClick = pendingTargetBtn;
+            closeConfirmModal();
+            if (btnToClick && document.body.contains(btnToClick) && !btnToClick.disabled) {
+                btnToClick.dataset.tnmConfirmed = '1';
+                btnToClick.click();
+            }
+        });
+
+        window.addEventListener('keydown', function (ev) {
+            if (!confirmOverlayEl || confirmOverlayEl.hidden) return;
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                closeConfirmModal();
+            }
+        });
+
+        confirmOverlayEl = overlay;
+        return overlay;
+    }
+
+    function closeConfirmModal() {
+        if (confirmOverlayEl) {
+            confirmOverlayEl.hidden = true;
+        }
+        pendingTargetBtn = null;
+    }
+
+    function classifyButtonForConfirm(btn) {
+        if (!btn || btn.disabled) return null;
+        if (btn.closest('#tnm-confirm-overlay')) return null;
+        if (btn.dataset.confirm === 'none') return null;
+
+        const rawText = (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim();
+        const lower = rawText.toLowerCase();
+
+        // Explicit data-confirm attribute takes highest priority
+        const explicitType = (btn.dataset.confirm || '').toLowerCase();
+        if (explicitType === 'add' || explicitType === 'edit' || explicitType === 'delete') {
+            return {
+                type: explicitType,
+                title: btn.dataset.confirmTitle || (
+                    explicitType === 'delete' ? 'Xác nhận Xóa dữ liệu' :
+                    explicitType === 'add' ? 'Xác nhận Thêm mới dữ liệu' :
+                    'Xác nhận Cập nhật / Chỉnh sửa'
+                ),
+                message: btn.dataset.confirmMsg || `Bạn có chắc chắn muốn thực hiện thao tác "${rawText}" không?`
+            };
+        }
+
+        // Ignore navigation, sidebar, topbar, tabs, and pagination controls
+        if (btn.closest('.sidebar, .topbar, .tabs, .table-pager, .catalog-pagination')) return null;
+        if (btn.classList.contains('mobile-scrim') || btn.classList.contains('mobile-toggle')) return null;
+        if (/^(«|‹|›|»|\d+$)/.test(rawText) || rawText === '« Đầu' || rawText === '‹ Trước' || rawText === 'Sau ›' || rawText === 'Cuối »') return null;
+
+        // Ignore pure UI toggle / filter / search / close / cancel / view detail buttons
+        if (!rawText) return null;
+        if (
+            lower === 'đóng' ||
+            lower.startsWith('đóng ') ||
+            lower.startsWith('đóng ·') ||
+            lower === 'hủy' ||
+            lower === 'hủy bỏ' ||
+            lower === 'tìm kiếm' ||
+            lower === 'xóa lọc' ||
+            lower === 'xóa lọc sp' ||
+            lower === 'trước / sau' ||
+            lower === 'chi tiết' ||
+            lower === 'làm mới' ||
+            lower === 'làm mới danh mục' ||
+            lower === 'nạp quyền user' ||
+            lower === 'hiện tại' ||
+            lower === 'điền mẫu thử nghiệm' ||
+            lower === 'tự động điền vào đơn hàng' ||
+            lower.startsWith('xuất ') ||
+            rawText.endsWith('→')
+        ) {
+            return null;
+        }
+
+        // Ignore buttons in .page-head or .crud-actionbar that only open/toggle a form panel
+        const inActionbarOrHead = !!btn.closest('.crud-actionbar, .page-head');
+        if (inActionbarOrHead && !lower.includes('đồng bộ') && !lower.includes('chốt số')) {
+            return null;
+        }
+
+        // Ignore table row buttons that only load/open the edit or quick-pay form without mutating DB yet
+        const inFormActions = !!btn.closest('.form-actions');
+        if (!inFormActions) {
+            if (
+                lower === 'sửa' ||
+                lower === 'cấu hình & sửa' ||
+                lower === 'phân quyền / sửa' ||
+                lower === 'sửa hạn / tt' ||
+                lower === '+ gia hạn' ||
+                lower === 'chỉnh sửa quyền role' ||
+                lower === '+ thêm nhân viên' ||
+                lower === '+ tạo nhà cung cấp mới' ||
+                lower === 'thu khách' ||
+                lower === 'chi nhập hàng' ||
+                lower === 'chi trả' ||
+                lower.startsWith('+ lập chứng từ công nợ') ||
+                lower.startsWith('+ lập công nợ hoa hồng')
+            ) {
+                return null;
+            }
+        }
+
+        // Ignore helper preset buttons inside forms (e.g. "Tất toán 100%")
+        if (lower.startsWith('tất toán 100%')) return null;
+
+        // 1. DELETE / CANCEL / DISABLE actions
+        if (
+            lower === 'xóa' ||
+            lower.startsWith('xác nhận xóa') ||
+            lower === 'ngừng bán' ||
+            lower.startsWith('xác nhận ngừng bán') ||
+            lower === 'hủy đơn' ||
+            lower === 'đặt lại 0 ₫'
+        ) {
+            return {
+                type: 'delete',
+                title: lower.includes('hủy đơn') ? 'Xác nhận Hủy đơn hàng' :
+                       lower.includes('ngừng bán') ? 'Xác nhận Ngừng bán sản phẩm' :
+                       'Xác nhận Xóa dữ liệu',
+                message: `Bạn có chắc chắn muốn thực hiện thao tác <strong>"${rawText}"</strong> không?`
+            };
+        }
+
+        // 2. ADD / CREATE / RECEIVE / RENEW actions
+        if (
+            lower.startsWith('+ tạo') ||
+            lower.startsWith('tạo ') ||
+            lower.startsWith('+ thêm') ||
+            lower.startsWith('+ lập') ||
+            lower.startsWith('+ nhập kho') ||
+            lower.startsWith('+ mở phiên') ||
+            lower.startsWith('+ gia hạn') ||
+            lower.startsWith('+ ghi nhận') ||
+            lower === 'ghi phiếu' ||
+            lower === 'lưu nhân viên' ||
+            lower === 'lưu và chọn ncc'
+        ) {
+            return {
+                type: 'add',
+                title: 'Xác nhận Thêm mới / Ghi nhận dữ liệu',
+                message: `Bạn có chắc chắn muốn thực hiện thao tác <strong>"${rawText}"</strong> không?`
+            };
+        }
+
+        // 3. EDIT / SAVE / UPDATE / COMPLETE / APPROVE / TRANSFER / LOCK actions
+        if (
+            inFormActions ||
+            lower.includes('lưu') ||
+            lower.includes('cập nhật') ||
+            lower.includes('hoàn thành') ||
+            lower.includes('điều chuyển') ||
+            lower.includes('duyệt') ||
+            lower.includes('nhận đủ') ||
+            lower.includes('chốt số') ||
+            lower.includes('mở khóa') ||
+            lower.includes('đồng bộ') ||
+            lower === 'áp dụng' ||
+            /^\d+k$/i.test(rawText)
+        ) {
+            return {
+                type: 'edit',
+                title: 'Xác nhận Cập nhật / Thực thi',
+                message: `Bạn có chắc chắn muốn thực hiện thao tác <strong>"${rawText}"</strong> không?`
+            };
+        }
+
+        return null;
+    }
+
+    function openConfirmModal(btn, info) {
+        const overlay = ensureConfirmModal();
+        pendingTargetBtn = btn;
+
+        const iconEl = overlay.querySelector('#tnm-confirm-icon');
+        const badgeEl = overlay.querySelector('#tnm-confirm-badge');
+        const titleEl = overlay.querySelector('#tnm-confirm-title');
+        const bodyEl = overlay.querySelector('#tnm-confirm-body');
+        const okBtn = overlay.querySelector('#tnm-confirm-ok');
+
+        iconEl.className = `tnm-confirm-icon type-${info.type}`;
+        badgeEl.className = `tnm-confirm-badge type-${info.type}`;
+
+        if (info.type === 'delete') {
+            iconEl.textContent = '✕';
+            badgeEl.textContent = 'XÁC NHẬN XÓA / HỦY';
+            okBtn.textContent = 'Xác nhận xóa';
+            okBtn.classList.add('tnm-confirm-btn-danger');
+        } else if (info.type === 'add') {
+            iconEl.textContent = '+';
+            badgeEl.textContent = 'XÁC NHẬN THÊM MỚI';
+            okBtn.textContent = 'Xác nhận thêm mới';
+            okBtn.classList.remove('tnm-confirm-btn-danger');
+        } else {
+            iconEl.textContent = '✓';
+            badgeEl.textContent = 'XÁC NHẬN CẬP NHẬT';
+            okBtn.textContent = 'Xác nhận lưu / thực hiện';
+            okBtn.classList.remove('tnm-confirm-btn-danger');
+        }
+
+        titleEl.textContent = info.title;
+        if (btn.dataset.confirmMsg) {
+            bodyEl.textContent = info.message;
+        } else {
+            bodyEl.innerHTML = info.message;
+        }
+
+        overlay.hidden = false;
+        setTimeout(() => okBtn.focus(), 20);
+    }
+
+    // Intercept button clicks in window capture phase (runs before document / Blazor event delegation)
+    window.addEventListener('click', function (e) {
+        if (isFlushingQueue || e.__tnmReplay) return;
+        const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+        if (!btn || btn.disabled) return;
+
+        if (btn.dataset.tnmConfirmed === '1') {
+            delete btn.dataset.tnmConfirmed;
+            return;
+        }
+
+        const confirmInfo = classifyButtonForConfirm(btn);
+        if (confirmInfo) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            openConfirmModal(btn, confirmInfo);
+        }
+    }, true);
+
     function loadJson(key, fallback) {
         try {
             const raw = localStorage.getItem(key);

@@ -51,7 +51,7 @@
         </div>
         <p class="panel-note">Giá nhập quản lý theo nhóm NCC, giá bán theo nhóm khách hàng. Tồn kho được sinh từ chứng từ PO/SO hoặc điều chỉnh kho; không nhập tồn trong danh mục sản phẩm.</p>
         <div class="form-actions">
-            <button type="button" class="btn" @onclick="Save">@(editingId.HasValue?"Lưu thay đổi":"Tạo sản phẩm")</button>
+            <button type="button" class="btn" data-confirm="@(editingId.HasValue ? "edit" : "add")" data-confirm-msg="@(editingId.HasValue ? "Bạn có chắc chắn muốn lưu thay đổi thông tin sản phẩm này không?" : "Bạn có chắc chắn muốn tạo sản phẩm mới này không?")" @onclick="Save">@(editingId.HasValue?"Lưu thay đổi":"Tạo sản phẩm")</button>
             <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Hủy</button>
         </div>
     </section>
@@ -98,27 +98,11 @@
                         @if(canUpdate&&p.IsActive){<button type="button" class="btn secondary btn-sm" @onclick="()=>Edit(p)">Sửa</button>}
                         @if(canUpdate&&p.IsActive)
                         {
-                            @if(pendingDisableId==p.Id)
-                            {
-                                <button type="button" class="btn btn-sm" @onclick="()=>Disable(p)">Xác nhận ngừng bán</button>
-                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDisableId=null">Hủy</button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDisableId=p.Id">Ngừng bán</button>
-                            }
+                            <button type="button" class="btn secondary btn-sm" data-confirm="delete" data-confirm-title="Xác nhận ngừng bán sản phẩm" data-confirm-msg="@($"Bạn có chắc chắn muốn ngừng bán sản phẩm \"{p.Name}\" ({p.Sku}) không?")" @onclick="()=>Disable(p)">Ngừng bán</button>
                         }
                         @if(canUpdate)
                         {
-                            @if(pendingDeleteId==p.Id)
-                            {
-                                <button type="button" class="btn btn-sm" @onclick="()=>DeleteProduct(p)">Xác nhận xóa mềm</button>
-                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDeleteId=null">Hủy</button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn secondary btn-sm" @onclick="()=>pendingDeleteId=p.Id">Xóa</button>
-                            }
+                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa sản phẩm \"{p.Name}\" ({p.Sku}) không?")" @onclick="()=>DeleteProduct(p)">Xóa</button>
                         }
                     </td>
                 </tr>

@@ -214,15 +214,7 @@
             @if(!x.IsLocked && (canUpdateDevice || canRenew))
             {
                 <button type="button" class="btn secondary btn-sm" @onclick="() => StartEditRenewal(x)">Sửa</button>
-                @if(confirmDeleteRenewalId == x.Id)
-                {
-                    <button type="button" class="btn btn-sm" style="background:#dc2626;border-color:#dc2626;color:#fff" @onclick="() => ConfirmDeleteRenewal(x.Id)">Xác nhận xóa</button>
-                    <button type="button" class="btn secondary btn-sm" @onclick="() => confirmDeleteRenewalId = 0">Hủy</button>
-                }
-                else
-                {
-                    <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" @onclick="() => confirmDeleteRenewalId = x.Id">Xóa</button>
-                }
+                <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa lịch sử gia hạn của IMEI {x.Imei} (Hạn {x.PreviousExpiry} → {x.EndDate}, số tiền {x.Price:N0} ₫) và đồng bộ lại Kế toán không?")" @onclick="() => ConfirmDeleteRenewal(x.Id)">Xóa</button>
             }
             else if(x.IsLocked)
             {
