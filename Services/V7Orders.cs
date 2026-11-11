@@ -785,8 +785,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         else
                         {
                             fr.Close();
-                            if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei", ("$imei", ln.Imei)) > 0)
+                            if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", ln.Imei)) > 0)
                                 throw new InvalidOperationException($"IMEI '{ln.Imei}' đã tồn tại và không còn ở trạng thái tồn kho khả dụng.");
+
+                            // Nếu có bản ghi stock_units đã bị xóa mềm (deleted_at IS NOT NULL) trùng IMEI, giải phóng hậu tố IMEI cũ để không vướng UNIQUE
+                            Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", ln.Imei));
 
                             // ĐV lắp đặt gửi mã IMEI thực tế ngoài hiện trường về -> lấy 1 thiết bị IN_STOCK của cùng sản phẩm trong kho để gán IMEI & trừ tồn kho
                             using var findSlot = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
@@ -828,10 +831,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     }
                     else
                     {
-                        using var find = Cmd(c, "SELECT id FROM stock_units WHERE imei=$imei", ("$imei", ln.Imei));
+                        using var find = Cmd(c, "SELECT id FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", ln.Imei));
                         var existing = find.ExecuteScalar();
                         if (existing is not null)
                             throw new InvalidOperationException($"IMEI '{ln.Imei}' đã tồn tại trong danh sách thiết bị.");
+                        Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", ln.Imei));
                         Run(c, "INSERT INTO stock_units(product_id,imei,status,customer_id) VALUES($p,$imei,'INSTALLED',$c)",
                             ("$p", ln.ProductId), ("$imei", ln.Imei), ("$c", customer));
                         stockUnitId = Scalar(c, "SELECT last_insert_rowid()");

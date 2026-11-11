@@ -287,15 +287,17 @@ public sealed class DemoDb
     public int Receive(long productId, long warehouseId, string multiline, long? supplierId = null, int quantityIfNoImei = 0)
     {
         var codes = (multiline ?? "").Replace("\r","").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-           .Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+           .Where(x => !string.IsNullOrWhiteSpace(x))
+           .Distinct(StringComparer.OrdinalIgnoreCase)
+           .ToList();
         if (codes.Count == 0 && quantityIfNoImei > 0 && quantityIfNoImei <= 500)
         {
             var stamp = DateTime.Now.ToString("yyMMddHHmmss");
             for (int i = 1; i <= quantityIfNoImei; i++)
                 codes.Add($"KHO-{productId}-{stamp}-{i:D3}");
         }
-        if (codes.Count == 0 || codes.Count > 500 || codes.Any(x => x.Length > 64) || codes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != codes.Count)
-            throw new InvalidOperationException("Nhập 1–500 IMEI khác nhau (hoặc nhập Số lượng nhập 1–500), tối đa 64 ký tự / dòng.");
+        if (codes.Count == 0 || codes.Count > 500 || codes.Any(x => x.Length > 64))
+            throw new InvalidOperationException("Nhập 1–500 IMEI (hoặc nhập Số lượng nhập 1–500), tối đa 64 ký tự / dòng.");
         return Tx((c,t) => {
             if (N(c,t,"SELECT COUNT(*) FROM products WHERE id=$id AND is_serialized=1 AND is_active=1 AND deleted_at IS NULL",("$id",productId)) == 0)
                 throw new InvalidOperationException("Nhập kho theo IMEI chỉ hỗ trợ sản phẩm có serial đang kinh doanh.");
@@ -314,27 +316,62 @@ public sealed class DemoDb
             Exec(c,t,"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,actor_user_id,notes) VALUES($n,'RECEIVE',$w,$actor,'Nhập kho IMEI')",
               ("$n",code),("$w",warehouseId),("$actor",ActorId));
             var transId = N(c,t,"SELECT last_insert_rowid()");
-            foreach(var imei in codes)
+            int importedCount = 0;
+            var skippedInstalled = new List<string>();
+            foreach(var rawImei in codes)
             {
-                Exec(c,t,"INSERT INTO stock_units(product_id,imei,status,warehouse_id,supplier_id) VALUES($p,$i,'IN_STOCK',$w,$sup)",
-                    ("$p",productId),("$i",imei),("$w",warehouseId),("$sup",resolvedSup > 0 ? resolvedSup : null));
-                var stockId = N(c,t,"SELECT last_insert_rowid()");
+                var imei = rawImei.Trim();
+                var existing = QueryTx(c,t,@"SELECT id, status, CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END
+                    FROM stock_units WHERE LOWER(TRIM(imei))=LOWER($i) ORDER BY id DESC LIMIT 1",
+                    r => (Id: L(r,0), Status: S(r,1), IsDeleted: L(r,2) == 1), ("$i", imei)).FirstOrDefault();
+
+                long stockId;
+                if (existing.Id > 0)
+                {
+                    if (!existing.IsDeleted && existing.Status is "INSTALLED" or "CONSIGNED" or "TECHNICIAN")
+                    {
+                        var hasActiveAct = N(c,t,"SELECT COUNT(*) FROM activations WHERE stock_unit_id=$sid AND deleted_at IS NULL", ("$sid", existing.Id)) > 0;
+                        if (hasActiveAct)
+                        {
+                            skippedInstalled.Add(imei);
+                            continue;
+                        }
+                    }
+                    Exec(c,t,@"UPDATE stock_units
+                        SET product_id=$p, imei=$i, status='IN_STOCK', warehouse_id=$w, supplier_id=$sup,
+                            customer_id=NULL, employee_id=NULL, deleted_at=NULL,
+                            updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                        WHERE id=$id",
+                        ("$p",productId),("$i",imei),("$w",warehouseId),("$sup",resolvedSup > 0 ? resolvedSup : null),("$id",existing.Id));
+                    stockId = existing.Id;
+                }
+                else
+                {
+                    Exec(c,t,"INSERT INTO stock_units(product_id,imei,status,warehouse_id,supplier_id) VALUES($p,$i,'IN_STOCK',$w,$sup)",
+                        ("$p",productId),("$i",imei),("$w",warehouseId),("$sup",resolvedSup > 0 ? resolvedSup : null));
+                    stockId = N(c,t,"SELECT last_insert_rowid()");
+                }
                 Exec(c,t,"INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
                     ("$t",transId),("$s",stockId),("$p",productId),("$cost",cost));
+                importedCount++;
             }
-            if (resolvedSup > 0 && cost * codes.Count > 0)
+            if (importedCount == 0 && skippedInstalled.Count > 0)
+            {
+                throw new InvalidOperationException($"Tất cả {skippedInstalled.Count} mã IMEI đã tồn tại ở trạng thái Đã lắp đặt / Kích hoạt ({string.Join(", ", skippedInstalled.Take(5))}{(skippedInstalled.Count > 5 ? "..." : "")}).");
+            }
+            if (resolvedSup > 0 && cost * importedCount > 0)
             {
                 var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-                var totalCost = cost * codes.Count;
+                var totalCost = cost * importedCount;
                 Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
                     VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
-                    ("$no",invNo),("$sup",resolvedSup),("$amt",totalCost),("$note",$"Nhập lô {codes.Count} IMEI ({code}): {prodName}"));
+                    ("$no",invNo),("$sup",resolvedSup),("$amt",totalCost),("$note",$"Nhập lô {importedCount} IMEI ({code}): {prodName}"));
                 var invId = N(c,t,"SELECT last_insert_rowid()");
                 Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
-                    ("$i",invId),("$d",$"Nhập kho IMEI ({code}): {prodName}"),("$p",productId),("$q",codes.Count),("$c",cost));
+                    ("$i",invId),("$d",$"Nhập kho IMEI ({code}): {prodName}"),("$p",productId),("$q",importedCount),("$c",cost));
             }
-            Log(c,t,"RECEIVE","INVENTORY_TX",transId,$"{codes.Count} thiết bị / Product {productId}");
-            return codes.Count;
+            Log(c,t,"RECEIVE","INVENTORY_TX",transId,$"{importedCount} thiết bị / Product {productId}");
+            return importedCount;
         });
     }
 
