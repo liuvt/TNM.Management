@@ -62,7 +62,7 @@ public sealed class AuthRepository
             var roleId = Convert.ToInt64(Scalar(c,"SELECT id FROM roles WHERE code=$r",("$r",role.Key)) ?? 0);
             if (roleId == 0) continue;
             var initialized = Convert.ToInt64(Scalar(c,"SELECT count(*) FROM role_defaults_initialized WHERE role_id=$id",("$id",roleId))) != 0;
-            if (!initialized || role.Key is "ADMIN" or "ACCOUNTANT" or "MANAGER" or "CSKH")
+            if (!initialized || role.Key is "ADMIN" or "ACCOUNTANT" or "MANAGER" or "CSKH" or "WAREHOUSE" or "TECH")
             {
                 foreach (var permission in role.Value)
                     Exec(c,"INSERT OR IGNORE INTO role_permissions(role_id,permission_key) VALUES($r,$p)",
@@ -347,7 +347,7 @@ public sealed class AuthRepository
             (Permissions.ProductsView,"/products"),
             (Permissions.CustomersView,"/catalog/customers"),
             (Permissions.InventoryView,"/inventory"),(Permissions.OrdersView,"/sales-orders"),
-            (Permissions.DevicesView,"/devices"),(Permissions.FinanceView,"/finance"),
+            (Permissions.DevicesView,"/devices"),(Permissions.InventoryWarranty,"/warranties"),(Permissions.FinanceView,"/finance"),
             (Permissions.ReportsView,"/reports"),(Permissions.ArchitectureView,"/architecture"),
             (Permissions.UsersView,"/admin/users")];
         return options.FirstOrDefault(x=>permissions.Contains(x.key)).path ?? "/account/denied";

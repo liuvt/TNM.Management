@@ -188,7 +188,6 @@ public static class Permissions
         [InventoryConsignReturn] = InventoryView,
         [InventoryTechOut] = InventoryView,
         [InventoryTechReturn] = InventoryView,
-        [InventoryWarranty] = InventoryView,
         [InventoryLedgerView] = InventoryView,
         [InventoryLedgerExport] = InventoryView,
         [InventoryConsignCount] = InventoryView,
@@ -248,9 +247,9 @@ public static class Permissions
         ["ADMIN"] = Definitions.Select(x => x.Key).ToArray(),
         ["MANAGER"] = [QuantityStockView, QuantityMove, WarehouseLocationManage, QuantityCountView, QuantityCountCreate, QuantityCountApprove, PurchaseView, PurchaseCreate, PurchaseReceive, CustomersUpdate, OrdersUpdate, InventoryWarranty, DashboardView, DashboardRevenue, DashboardProfit, DashboardStock, DashboardDebt, DashboardOrders, DashboardDevices, DashboardRenewals, ProductsView, ProductsCreate, ProductsUpdate, ProductsExport, StockCountView, StockCountReview, CustomersView, CustomersCreate, PricesView, PricesUpdate, InventoryView, InventoryReceive, InventoryMove, InventoryConsignOut, InventoryConsignReturn, InventoryTechOut, InventoryTechReturn, InventoryLedgerView, InventoryLedgerExport, OrdersView, OrdersCreate, OrdersActivate, OrdersCancel, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenew, DevicesRenewalsView, FinanceView, FinanceSupplierView, FinanceCustomerView, FinanceRenewView, FinanceOtherView, FinancePay, FinanceExport, ReportsView, ReportsAuditView, ReportsExport, ArchitectureView],
         ["ACCOUNTANT"] = [PurchaseView, QuantityStockView, DashboardView, DashboardRevenue, DashboardProfit, DashboardStock, DashboardDebt, DashboardOrders, DashboardDevices, DashboardRenewals, ProductsView, ProductsExport, StockCountView, CustomersView, PricesView, InventoryView, InventoryLedgerView, InventoryLedgerExport, OrdersView, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenewalsView, FinanceView, FinanceSupplierView, FinanceCustomerView, FinanceRenewView, FinanceOtherView, FinancePay, FinanceExport, ReportsView, ReportsAuditView, ReportsExport],
-        ["WAREHOUSE"] = [QuantityStockView, QuantityMove, QuantityCountView, QuantityCountCreate, PurchaseView, PurchaseReceive, DashboardView, ProductsView, StockCountView, StockCountReview, InventoryView, InventoryReceive, InventoryMove, ReportsView, ReportsExport],
-        ["CSKH"] = [CustomersUpdate, OrdersUpdate, DashboardView, ProductsView, CustomersView, CustomersCreate, PricesView, PricesUpdate, OrdersView, OrdersCreate, OrdersCancel, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenew, DevicesRenewalsView, ReportsView],
-        ["TECH"] = [QuantityStockView, DashboardView, ProductsView, StockCountView, InventoryView, OrdersView, OrdersActivate, DevicesView, DevicesActiveView]
+        ["WAREHOUSE"] = [QuantityStockView, QuantityMove, QuantityCountView, QuantityCountCreate, PurchaseView, PurchaseReceive, InventoryWarranty, DashboardView, ProductsView, StockCountView, StockCountReview, InventoryView, InventoryReceive, InventoryMove, ReportsView, ReportsExport],
+        ["CSKH"] = [CustomersUpdate, OrdersUpdate, InventoryWarranty, DashboardView, ProductsView, CustomersView, CustomersCreate, PricesView, PricesUpdate, OrdersView, OrdersCreate, OrdersCancel, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenew, DevicesRenewalsView, ReportsView],
+        ["TECH"] = [QuantityStockView, InventoryWarranty, DashboardView, ProductsView, StockCountView, InventoryView, OrdersView, OrdersActivate, DevicesView, DevicesActiveView]
     };
 }
 

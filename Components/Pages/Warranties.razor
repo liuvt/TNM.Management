@@ -1,42 +1,431 @@
 @page "/warranties"
-@attribute [Authorize(Policy=Permissions.InventoryWarranty)]
+@attribute [Authorize(Policy = Permissions.InventoryWarranty)]
 @inject V6Ops Ops
 @inject PermissionGate Gate
-<PageTitle>Bảo hành · TNM v6</PageTitle>
-<div class="page-head"><div><div class="eyebrow">WARRANTY / RMA</div><h1>Bảo hành thiết bị</h1><p>Tiếp nhận → gửi NCC → hoàn tất; ghi lịch sử và trả thiết bị vào kho được chọn.</p></div></div>
-<div class="crud-actionbar">@if(true){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Tiếp nhận":"+ Tiếp nhận")</button>}@if(true){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showStatus))">@(showStatus?"Đóng · + Cập nhật trạng thái":"+ Cập nhật trạng thái")</button>}</div>
+<PageTitle>Bảo hành · TNM</PageTitle>
 
+<div class="page-head">
+    <div>
+        <div class="eyebrow">WARRANTY / RMA WORKFLOW</div>
+        <h1>Bảo hành &amp; Bảo trì thiết bị</h1>
+        <p>Luồng phối hợp CSKH ↔ Kỹ thuật ↔ Kho: Tiếp nhận báo lỗi từ khách hàng/kho → Gửi Nhà cung cấp (Hãng) → Hoàn tất trả lại xe khách hàng hoặc nhập lại kho.</p>
+    </div>
+</div>
 
-<div class="two-column"><section class="panel edit-panel" hidden="@(!showCreate)"><div class="panel-head"><h2>Tiếp nhận bảo hành</h2></div>
-<div class="form-grid one"><label>IMEI<select @bind="unit">@foreach(var x in candidates){<option value="@x.Id">@x.Name</option>}</select></label>
-<label>Lỗi / sự cố<input @bind="problem" /></label><label>Ghi chú<input @bind="note" /></label></div>
-<div class="form-actions"><button class="btn" @onclick="Open">+ Tạo phiếu</button><span class="feedback">@message</span></div></section>
-<section class="panel edit-panel" hidden="@(!showStatus)"><div class="panel-head"><h2>Cập nhật quy trình</h2></div>
-<div class="form-grid one"><label>Phiếu xử lý<select @bind="warrantyId">@foreach(var x in warranties.Where(x=>x.Status is "RECEIVED" or "SENT_SUPPLIER")){<option value="@x.Id">#@x.Id — @x.Imei (@x.Status)</option>}</select></label>
-<label>Trạng thái<select @bind="next"><option value="SENT_SUPPLIER">Gửi NCC</option><option value="COMPLETED">Hoàn tất trả kho</option><option value="CANCELLED">Hủy và trả kho</option></select></label>
-<label>Nhà cung cấp<select @bind="supplier">@foreach(var x in suppliers){<option value="@x.Id">@x.Name</option>}</select></label>
-<label>Kho nhận lại<select @bind="warehouse">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
-<label>Ghi chú<input @bind="statusNote" /></label></div>
-<div class="form-actions"><button class="btn" @onclick="UpdateStatus">Cập nhật trạng thái</button><span class="feedback">@statusMessage</span></div></section></div>
-<section class="panel"><div class="panel-head"><h2>Danh sách bảo hành</h2></div>
-@{ var pagedWarranties = warrantyPager.Slice(warranties, out var totalWarranties); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>Phiếu</th><th>IMEI</th><th>Sản phẩm</th><th>Sự cố</th><th>Tiếp nhận</th><th>Trạng thái</th></tr></thead><tbody>
-@foreach(var (stt, x) in pagedWarranties){<tr><td><strong>@stt</strong></td><td>#@x.Id</td><td>@x.Imei</td><td class="wrap-cell">@x.Product</td><td class="wrap-cell">@x.Problem</td><td>@x.Received</td><td>@x.Status</td></tr>}
-</tbody></table></div>
-<TablePager Pager="warrantyPager" TotalCount="totalWarranties" />
+<div class="crud-actionbar">
+    <button type="button" class="btn @(showCreate ? "" : "secondary")" @onclick="() => ToggleForm(nameof(showCreate))">
+        @(showCreate ? "Đóng · + Tiếp nhận bảo hành" : "+ Tiếp nhận bảo hành mới")
+    </button>
+    <button type="button" class="btn @(showStatus ? "" : "secondary")" @onclick="() => ToggleForm(nameof(showStatus))">
+        @(showStatus ? "Đóng · Cập nhật tiến độ BH" : "Cập nhật tiến độ / Trả bảo hành")
+    </button>
+    <a class="btn secondary" href="/devices">Thiết bị &amp; gia hạn →</a>
+    <a class="btn secondary" href="/sales-orders">Đơn hàng &amp; lắp đặt →</a>
+</div>
+
+<div class="panel" style="margin-bottom:14px;padding:12px 16px;background:linear-gradient(90deg,#f0fdf4 0%,#f8fafc 100%);border:1px solid #bbf7d0">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between;font-size:13px">
+        <div>
+            <strong style="color:#166534">🔄 Quy trình chuẩn Bảo hành (CSKH · Kỹ thuật · Kho):</strong>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <span class="chip blue-chip">Bước 1 (CSKH / KT): Tra cứu Biển số / IMEI &amp; Tiếp nhận lỗi</span>
+            <span>→</span>
+            <span class="chip purple-chip">Bước 2 (KT / Kho): Gửi Nhà cung cấp (NCC) sửa chữa</span>
+            <span>→</span>
+            <span class="chip green-chip">Bước 3A (CSKH / KT): Hoàn tất trả lại xe khách (INSTALLED)</span>
+            <span>hoặc</span>
+            <span class="chip orange-chip">Bước 3B (Kho): Hoàn tất nhập lại kho (IN_STOCK)</span>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+        @message
+    </div>
+}
+
+<div class="two-column">
+    <section class="panel edit-panel" hidden="@(!showCreate)">
+        <div class="panel-head">
+            <div>
+                <h2>1. Tiếp nhận thiết bị bảo hành</h2>
+                <p>Tìm nhanh theo Biển số xe, Số IMEI, Tên Đại lý/HTX hoặc Tên/SĐT khách hàng trong toàn bộ 3.021+ thiết bị.</p>
+            </div>
+        </div>
+        <div class="form-grid one">
+            <label>Tìm nhanh thiết bị (Biển số xe / IMEI / Đại lý / Khách hàng / SĐT)
+                <input @bind="candidateSearch" @bind:event="oninput" @bind:after="OnCandidateSearchChanged" placeholder="Nhập biển số (VD: 51H, 47H05184), IMEI hoặc tên khách hàng..." />
+            </label>
+            <label>Chọn thiết bị cần tiếp nhận bảo hành (@candidates.Count kết quả phù hợp) *
+                <select @bind="unit">
+                    @foreach (var x in candidates)
+                    {
+                        <option value="@x.StockUnitId">@x.DisplayLabel</option>
+                    }
+                </select>
+            </label>
+            <label>Mô tả lỗi / sự cố khách báo *
+                <input @bind="problem" placeholder="VD: Mất tín hiệu GPS, không truyền dữ liệu, lỗi nguồn, hỏng anten..." />
+            </label>
+            <label>Ghi chú tiếp nhận (SĐT liên hệ, người nhận, tình trạng vỏ/sim...)
+                <input @bind="note" placeholder="VD: Khách gửi về qua nhà xe / Kỹ thuật tháo kiểm tra..." />
+            </label>
+        </div>
+        <div class="form-actions">
+            <button class="btn" @onclick="Open">+ Tạo phiếu tiếp nhận bảo hành</button>
+        </div>
+    </section>
+
+    <section class="panel edit-panel" hidden="@(!showStatus)">
+        <div class="panel-head">
+            <div>
+                <h2>2. Cập nhật tiến độ &amp; Kết quả bảo hành</h2>
+                <p>Chuyển phiếu sang Gửi Nhà cung cấp (Hãng), hoặc Hoàn tất trả lại xe khách hàng / nhập lại kho.</p>
+            </div>
+        </div>
+        <div class="form-grid one">
+            <label>Chọn phiếu bảo hành đang mở *
+                <select @bind="warrantyId" @bind:after="OnWarrantySelected">
+                    @foreach (var x in warranties.Where(x => x.Status is "RECEIVED" or "SENT_SUPPLIER"))
+                    {
+                        <option value="@x.Id">#@x.Id — @(string.IsNullOrWhiteSpace(x.PlateNo) ? x.Imei : $"{x.PlateNo} ({x.Imei})") · @x.CustomerName [@StatusLabel(x.Status)]</option>
+                    }
+                </select>
+            </label>
+            <label>Bước xử lý tiếp theo *
+                <select @bind="next">
+                    <option value="SENT_SUPPLIER">Bước 2: Gửi Nhà cung cấp / Hãng bảo hành (SENT_SUPPLIER)</option>
+                    <option value="COMPLETED">Bước 3: Hoàn tất bảo hành (COMPLETED)</option>
+                    <option value="CANCELLED">Hủy phiếu bảo hành / Không lỗi (CANCELLED)</option>
+                </select>
+            </label>
+            @if (next == "SENT_SUPPLIER")
+            {
+                <label>Nhà cung cấp / Hãng tiếp nhận bảo hành *
+                    <select @bind="supplier">
+                        @foreach (var x in suppliers)
+                        {
+                            <option value="@x.Id">@x.Name</option>
+                        }
+                    </select>
+                </label>
+            }
+            else
+            {
+                <label>Đích trả thiết bị sau bảo hành *
+                    <select @bind="returnTarget">
+                        <option value="CUSTOMER">Trả lại lắp trên xe Khách hàng / Đại lý (Giữ trạng thái Đang hoạt động)</option>
+                        <option value="WAREHOUSE">Nhập lại vào Kho TNM (Chuyển trạng thái Tồn kho IN_STOCK)</option>
+                    </select>
+                </label>
+                @if (returnTarget == "WAREHOUSE")
+                {
+                    <label>Chọn Kho nhận lại thiết bị *
+                        <select @bind="warehouse">
+                            @foreach (var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </label>
+                }
+            }
+            <label>Ghi chú xử lý / Kết quả bảo hành
+                <input @bind="statusNote" placeholder="VD: Đã gửi hãng Nasa / Đã sửa xong bo mạch, trả lại xe khách..." />
+            </label>
+        </div>
+        <div class="form-actions">
+            <button class="btn" @onclick="UpdateStatus">Lưu cập nhật trạng thái</button>
+            <span class="feedback">@statusMessage</span>
+        </div>
+    </section>
+</div>
+
+@{
+    var searchedWarranties = warranties.Where(MatchSearch).ToList();
+    var countAll = searchedWarranties.Count;
+    var countReceived = searchedWarranties.Count(x => x.Status == "RECEIVED");
+    var countSent = searchedWarranties.Count(x => x.Status == "SENT_SUPPLIER");
+    var countCompleted = searchedWarranties.Count(x => x.Status == "COMPLETED");
+    var countCancelled = searchedWarranties.Count(x => x.Status == "CANCELLED");
+    var filteredWarranties = searchedWarranties.Where(MatchFilter).ToList();
+    var pagedWarranties = warrantyPager.Slice(filteredWarranties, out var totalWarranties);
+}
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2>Danh sách phiếu bảo hành</h2>
+            <p>Theo dõi toàn bộ phiếu tiếp nhận, tiến độ gửi NCC và kết quả hoàn tất trả khách hàng hoặc nhập kho.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input class="search-input" @bind="search" @bind:event="oninput" @bind:after="() => warrantyPager.Reset()" placeholder="Tìm phiếu, biển số, IMEI, khách hàng, lỗi..." />
+            <div class="tabs">
+                <button class="@(filter == "ALL" ? "selected" : "")" @onclick='() => SetFilter("ALL")'>Tất cả (@countAll)</button>
+                <button class="@(filter == "RECEIVED" ? "selected" : "")" @onclick='() => SetFilter("RECEIVED")'>Mới tiếp nhận (@countReceived)</button>
+                <button class="@(filter == "SENT_SUPPLIER" ? "selected" : "")" @onclick='() => SetFilter("SENT_SUPPLIER")'>Đang gửi NCC (@countSent)</button>
+                <button class="@(filter == "COMPLETED" ? "selected" : "")" @onclick='() => SetFilter("COMPLETED")'>Đã hoàn tất (@countCompleted)</button>
+                <button class="@(filter == "CANCELLED" ? "selected" : "")" @onclick='() => SetFilter("CANCELLED")'>Đã hủy (@countCancelled)</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="device-summary-bar">
+        <button type="button" class="device-summary-item total @(filter == "ALL" ? "active" : "")" @onclick='() => SetFilter("ALL")'>
+            <span>Tổng số phiếu BH:</span>
+            <strong>@countAll</strong>
+        </button>
+        <button type="button" class="device-summary-item warn @(filter == "RECEIVED" ? "active" : "")" @onclick='() => SetFilter("RECEIVED")'>
+            <span>1. Đang tiếp nhận (Chờ xử lý):</span>
+            <strong class="text-red">@countReceived</strong>
+        </button>
+        <button type="button" class="device-summary-item @(filter == "SENT_SUPPLIER" ? "active" : "")" @onclick='() => SetFilter("SENT_SUPPLIER")'>
+            <span>2. Đang gửi NCC / Hãng:</span>
+            <strong class="text-purple">@countSent</strong>
+        </button>
+        <button type="button" class="device-summary-item @(filter == "COMPLETED" ? "active" : "")" @onclick='() => SetFilter("COMPLETED")'>
+            <span>3. Đã hoàn tất BH:</span>
+            <strong class="text-green">@countCompleted</strong>
+        </button>
+        <button type="button" class="device-summary-item muted @(filter == "CANCELLED" ? "active" : "")" @onclick='() => SetFilter("CANCELLED")'>
+            <span>Đã hủy:</span>
+            <strong>@countCancelled</strong>
+        </button>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>STT</th>
+                    <th>MÃ PHIẾU</th>
+                    <th>BIỂN SỐ &amp; IMEI</th>
+                    <th>THIẾT BỊ</th>
+                    <th>ĐẠI LÝ / KHÁCH HÀNG</th>
+                    <th>LỖI / SỰ CỐ &amp; GHI CHÚ</th>
+                    <th>NCC BẢO HÀNH</th>
+                    <th>MỐC THỜI GIAN</th>
+                    <th>TRẠNG THÁI</th>
+                    <th>THAO TÁC NHANH</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (pagedWarranties.Count == 0)
+                {
+                    <tr>
+                        <td colspan="10" style="text-align:center;padding:24px;color:#64748b">
+                            Chưa có phiếu bảo hành nào trong mục này. Bấm <strong>+ Tiếp nhận bảo hành mới</strong> để tạo phiếu.
+                        </td>
+                    </tr>
+                }
+                @foreach (var (stt, x) in pagedWarranties)
+                {
+                    <tr>
+                        <td><strong>@stt</strong></td>
+                        <td><strong>#BH-@x.Id.ToString("D4")</strong></td>
+                        <td class="wrap-cell">
+                            <div><strong>@(string.IsNullOrWhiteSpace(x.PlateNo) ? "—" : x.PlateNo)</strong></div>
+                            <small style="color:#0284c7;font-weight:600">IMEI: @x.Imei</small>
+                        </td>
+                        <td class="wrap-cell">@x.Product</td>
+                        <td class="wrap-cell">
+                            <div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "Kho nội bộ TNM" : x.CustomerName)</strong></div>
+                            @if (!string.IsNullOrWhiteSpace(x.OwnerName) || !string.IsNullOrWhiteSpace(x.OwnerPhone))
+                            {
+                                <small style="color:#64748b">@x.OwnerName @(string.IsNullOrWhiteSpace(x.OwnerPhone) ? "" : $"· 📞 {x.OwnerPhone}")</small>
+                            }
+                        </td>
+                        <td class="wrap-cell">
+                            <div><strong>@x.Problem</strong></div>
+                            @if (!string.IsNullOrWhiteSpace(x.Notes))
+                            {
+                                <small style="color:#64748b">Ghi chú: @x.Notes</small>
+                            }
+                        </td>
+                        <td>@(string.IsNullOrWhiteSpace(x.SupplierName) ? "—" : x.SupplierName)</td>
+                        <td class="wrap-cell">
+                            <div><small>Tiếp nhận:</small> <strong>@x.Received</strong></div>
+                            @if (!string.IsNullOrWhiteSpace(x.SentSupplierAt))
+                            {
+                                <div><small>Gửi NCC:</small> <strong>@x.SentSupplierAt</strong></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(x.CompletedAt))
+                            {
+                                <div><small>Hoàn tất:</small> <strong>@x.CompletedAt</strong></div>
+                            }
+                        </td>
+                        <td>
+                            @if (x.Status == "RECEIVED")
+                            {
+                                <span class="chip blue-chip">1. Đã tiếp nhận</span>
+                            }
+                            else if (x.Status == "SENT_SUPPLIER")
+                            {
+                                <span class="chip purple-chip">2. Đang gửi NCC</span>
+                            }
+                            else if (x.Status == "COMPLETED")
+                            {
+                                <span class="chip green-chip">3. Hoàn tất BH</span>
+                            }
+                            else
+                            {
+                                <span class="chip orange-chip">Đã hủy</span>
+                            }
+                        </td>
+                        <td>
+                            @if (x.Status is "RECEIVED" or "SENT_SUPPLIER")
+                            {
+                                <div style="display:flex;gap:4px;flex-wrap:wrap">
+                                    @if (x.Status == "RECEIVED")
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" @onclick='() => OpenQuickUpdate(x, "SENT_SUPPLIER")'>Gửi NCC</button>
+                                    }
+                                    <button type="button" class="btn btn-sm" @onclick='() => OpenQuickUpdate(x, "COMPLETED")'>Hoàn tất / Trả</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <small style="color:#64748b">Đã đóng phiếu</small>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <TablePager Pager="warrantyPager" TotalCount="totalWarranties" />
 </section>
-@code {
- private bool showCreate, showStatus;
- private readonly PagerState warrantyPager = new();
- private void ToggleForm(string form){
-  showCreate = form=="showCreate" && !showCreate;
-  showStatus = form=="showStatus" && !showStatus;
- }
 
- private long actor,unit,warrantyId,supplier,warehouse;private string problem="",note="",message="",next="SENT_SUPPLIER",statusNote="",statusMessage="";
- private List<Pick> candidates=[],suppliers=[];private List<WarehousePick> warehouses=[];private List<WarrantyRow> warranties=[];
- protected override async Task OnInitializedAsync(){actor=await Gate.RequireAsync(Permissions.InventoryWarranty);warehouses=Ops.Warehouses(actor);suppliers=Ops.Suppliers();supplier=suppliers.FirstOrDefault()?.Id??0;warehouse=warehouses.FirstOrDefault()?.Id??0;Reload();}
- private void Reload(){candidates=Ops.WarrantyCandidates();warranties=Ops.Warranties();unit=candidates.FirstOrDefault()?.Id??0;warrantyId=warranties.FirstOrDefault(x=>x.Status is "RECEIVED" or "SENT_SUPPLIER")?.Id??0;}
- private async Task Open(){try{actor=await Gate.RequireAsync(Permissions.InventoryWarranty);Ops.OpenWarranty(actor,unit,problem,note);Reload();message="Đã tiếp nhận bảo hành.";}catch(Exception e){message=e.Message;}}
- private async Task UpdateStatus(){try{actor=await Gate.RequireAsync(Permissions.InventoryWarranty);Ops.SetWarrantyStatus(actor,warrantyId,next,warehouse,next=="SENT_SUPPLIER"?supplier:null,statusNote);Reload();statusMessage="Cập nhật thành công.";}catch(Exception e){statusMessage=e.Message;}}
+@code {
+    private bool showCreate, showStatus;
+    private readonly PagerState warrantyPager = new();
+
+    private void ToggleForm(string form)
+    {
+        showCreate = form == "showCreate" && !showCreate;
+        showStatus = form == "showStatus" && !showStatus;
+    }
+
+    private long actor, unit, warrantyId, supplier, warehouse;
+    private string candidateSearch = "", problem = "", note = "", message = "", next = "SENT_SUPPLIER", returnTarget = "CUSTOMER", statusNote = "", statusMessage = "", search = "", filter = "ALL";
+    private List<WarrantyCandidateVm> candidates = [];
+    private List<Pick> suppliers = [];
+    private List<WarehousePick> warehouses = [];
+    private List<WarrantyRow> warranties = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
+        warehouses = Ops.AllWarehouses();
+        suppliers = Ops.Suppliers();
+        supplier = suppliers.FirstOrDefault()?.Id ?? 0;
+        warehouse = warehouses.FirstOrDefault()?.Id ?? 0;
+        Reload();
+    }
+
+    private void Reload()
+    {
+        candidates = Ops.SearchWarrantyCandidates(candidateSearch, 100);
+        warranties = Ops.Warranties();
+        if (candidates.Count > 0 && !candidates.Any(x => x.StockUnitId == unit))
+            unit = candidates[0].StockUnitId;
+        var openList = warranties.Where(x => x.Status is "RECEIVED" or "SENT_SUPPLIER").ToList();
+        if (openList.Count > 0 && !openList.Any(x => x.Id == warrantyId))
+        {
+            warrantyId = openList[0].Id;
+            OnWarrantySelected();
+        }
+    }
+
+    private void OnCandidateSearchChanged()
+    {
+        candidates = Ops.SearchWarrantyCandidates(candidateSearch, 100);
+        if (candidates.Count > 0)
+            unit = candidates[0].StockUnitId;
+    }
+
+    private void OnWarrantySelected()
+    {
+        var cur = warranties.FirstOrDefault(x => x.Id == warrantyId);
+        if (cur is not null)
+        {
+            returnTarget = cur.CustomerId is > 0 ? "CUSTOMER" : "WAREHOUSE";
+            if (cur.Status == "SENT_SUPPLIER")
+                next = "COMPLETED";
+        }
+    }
+
+    private void OpenQuickUpdate(WarrantyRow row, string targetNext)
+    {
+        warrantyId = row.Id;
+        next = targetNext;
+        returnTarget = row.CustomerId is > 0 ? "CUSTOMER" : "WAREHOUSE";
+        statusNote = "";
+        statusMessage = "";
+        showStatus = true;
+        showCreate = false;
+    }
+
+    private static string StatusLabel(string st) => st switch
+    {
+        "RECEIVED" => "Mới tiếp nhận",
+        "SENT_SUPPLIER" => "Đang gửi NCC",
+        "COMPLETED" => "Đã hoàn tất",
+        "CANCELLED" => "Đã hủy",
+        _ => st
+    };
+
+    private void SetFilter(string f)
+    {
+        filter = f;
+        warrantyPager.Reset();
+    }
+
+    private bool MatchSearch(WarrantyRow x)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return true;
+        return ($"#BH-{x.Id:D4} {x.Imei} {x.PlateNo} {x.Product} {x.CustomerName} {x.OwnerName} {x.OwnerPhone} {x.Problem} {x.Notes} {x.SupplierName}")
+            .Contains(search, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchFilter(WarrantyRow x) => filter == "ALL" || string.Equals(x.Status, filter, StringComparison.OrdinalIgnoreCase);
+
+    private async Task Open()
+    {
+        try
+        {
+            actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
+            var newId = Ops.OpenWarranty(actor, unit, problem, note);
+            problem = "";
+            note = "";
+            showCreate = false;
+            Reload();
+            message = $"Đã tạo phiếu tiếp nhận bảo hành #BH-{newId:D4} thành công.";
+        }
+        catch (Exception e)
+        {
+            message = "Lỗi: " + e.Message;
+        }
+    }
+
+    private async Task UpdateStatus()
+    {
+        try
+        {
+            actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
+            Ops.SetWarrantyStatus(actor, warrantyId, next, warehouse, next == "SENT_SUPPLIER" ? supplier : null, statusNote, returnTarget);
+            statusNote = "";
+            showStatus = false;
+            Reload();
+            message = $"Đã cập nhật trạng thái phiếu bảo hành #BH-{warrantyId:D4} sang [{StatusLabel(next)}].";
+            statusMessage = "";
+        }
+        catch (Exception e)
+        {
+            statusMessage = "Lỗi: " + e.Message;
+        }
+    }
 }

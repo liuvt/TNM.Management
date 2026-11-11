@@ -10,7 +10,16 @@ public record QuantityEntry(long Id, string Document, string When, string Sku, s
 public record QuantityCount(long Id, string Code, string Warehouse, string Location, string Status, string Note, string Created);
 public record QuantityCountLine(long Id, long ProductId, string Sku, string Product, long Book, long Counted);
 public record PurchaseOrderRow(long Id, string Code, string Supplier, string Warehouse, string Sku, long Qty, long Cost, string Status);
-public record WarrantyRow(long Id, string Imei, string Product, string Status, string Problem, string Received, string Notes);
+public record WarrantyRow(long Id, string Imei, string Product, string Status, string Problem, string Received, string Notes,
+    string PlateNo = "", string CustomerName = "", string OwnerName = "", string OwnerPhone = "", string SupplierName = "",
+    string SentSupplierAt = "", string CompletedAt = "", long? CustomerId = null);
+public record WarrantyCandidateVm(long StockUnitId, string Imei, string Sku, string ProductName, string PlateNo, string CustomerName, string OwnerName, string OwnerPhone, string UnitStatus)
+{
+    public string DisplayLabel =>
+        $"{(string.IsNullOrWhiteSpace(PlateNo) ? "Chưa biển số" : PlateNo)} — IMEI: {Imei} · {ProductName}" +
+        $"{(string.IsNullOrWhiteSpace(CustomerName) ? "" : $" · ĐL/KH: {CustomerName}")}" +
+        $"{(string.IsNullOrWhiteSpace(OwnerPhone) ? "" : $" ({OwnerPhone})")} [{UnitStatus}]";
+}
 public record UserWarehouseRow(long Id, string Username, string Name, string Scope);
 
 /// <summary>
@@ -298,56 +307,123 @@ public sealed class V6Ops(IWebHostEnvironment environment)
     }
     public List<WarrantyRow> Warranties()
     {
-        using var c = Open(); return Read(c, @"SELECT wc.id,su.imei,p.name,wc.status,wc.problem,wc.received_at,wc.note
-       FROM warranty_cases wc JOIN stock_units su ON su.id=wc.stock_unit_id JOIN products p ON p.id=su.product_id
-       WHERE wc.deleted_at IS NULL
-       ORDER BY wc.id DESC", r => new WarrantyRow(r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6)));
+        using var c = Open();
+        return Read(c, @"SELECT wc.id, su.imei, p.name, wc.status, wc.problem, wc.received_at, COALESCE(wc.note,''),
+               COALESCE(a.plate_no,''),
+               COALESCE(NULLIF(a.agency_name,''), c.name, ''),
+               COALESCE(a.owner_name,''),
+               COALESCE(a.owner_phone,''),
+               COALESCE(s.name,''),
+               COALESCE(wc.sent_supplier_at,''),
+               COALESCE(wc.completed_at,''),
+               COALESCE(wc.customer_id, a.customer_id, su.customer_id)
+        FROM warranty_cases wc
+        JOIN stock_units su ON su.id=wc.stock_unit_id
+        JOIN products p ON p.id=su.product_id
+        LEFT JOIN activations a ON a.stock_unit_id=su.id AND a.deleted_at IS NULL
+        LEFT JOIN customers c ON c.id=COALESCE(wc.customer_id, a.customer_id, su.customer_id)
+        LEFT JOIN suppliers s ON s.id=su.supplier_id
+        WHERE wc.deleted_at IS NULL
+        ORDER BY wc.id DESC",
+        r => new WarrantyRow(
+            r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6),
+            Text(r, 7), Text(r, 8), Text(r, 9), Text(r, 10), Text(r, 11), Text(r, 12), Text(r, 13), NullableLong(r, 14)));
     }
     public List<Pick> WarrantyCandidates()
     {
         using var c = Open(); return Read(c, @"SELECT su.id,su.imei||' · '||p.sku FROM stock_units su JOIN products p ON p.id=su.product_id
-      WHERE su.status IN ('IN_STOCK','INSTALLED') ORDER BY su.id DESC LIMIT 500", r => new Pick(r.GetInt64(0), Text(r, 1)));
+      WHERE su.status IN ('IN_STOCK','INSTALLED','CONSIGNED','TECHNICIAN') AND su.deleted_at IS NULL ORDER BY su.id DESC LIMIT 500", r => new Pick(r.GetInt64(0), Text(r, 1)));
+    }
+    public List<WarrantyCandidateVm> SearchWarrantyCandidates(string? keyword = null, int limit = 100)
+    {
+        using var c = Open();
+        var kw = (keyword ?? "").Trim();
+        return Read(c, @"SELECT su.id, su.imei, p.sku, COALESCE(NULLIF(a.device_type_label,''), p.name),
+               COALESCE(a.plate_no,''),
+               COALESCE(NULLIF(a.agency_name,''), c.name, ''),
+               COALESCE(a.owner_name,''),
+               COALESCE(a.owner_phone,''),
+               su.status
+        FROM stock_units su
+        JOIN products p ON p.id=su.product_id
+        LEFT JOIN activations a ON a.stock_unit_id=su.id AND a.deleted_at IS NULL
+        LEFT JOIN customers c ON c.id=COALESCE(a.customer_id, su.customer_id)
+        WHERE su.deleted_at IS NULL
+          AND su.status IN ('IN_STOCK','INSTALLED','CONSIGNED','TECHNICIAN')
+          AND ($kw = '' OR su.imei LIKE '%'||$kw||'%' OR COALESCE(a.plate_no,'') LIKE '%'||$kw||'%'
+               OR COALESCE(a.agency_name,'') LIKE '%'||$kw||'%' OR COALESCE(c.name,'') LIKE '%'||$kw||'%'
+               OR COALESCE(a.owner_name,'') LIKE '%'||$kw||'%' OR COALESCE(a.owner_phone,'') LIKE '%'||$kw||'%')
+        ORDER BY CASE WHEN COALESCE(a.plate_no,'')<>'' THEN 0 ELSE 1 END, su.id DESC
+        LIMIT $lim",
+        r => new WarrantyCandidateVm(
+            r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6), Text(r, 7), Text(r, 8)),
+        ("$kw", kw), ("$lim", limit));
     }
     public long OpenWarranty(long user, long stockId, string problem, string notes)
     {
-        if (string.IsNullOrWhiteSpace(problem)) throw new InvalidOperationException("Cần ghi lỗi thiết bị.");
+        if (string.IsNullOrWhiteSpace(problem)) throw new InvalidOperationException("Cần ghi lỗi / sự cố thiết bị.");
         return Transact(user, c => {
-            var unit = Read(c, "SELECT status,warehouse_id,customer_id FROM stock_units WHERE id=$id",
+            var unit = Read(c, @"SELECT su.status, su.warehouse_id, COALESCE(su.customer_id, a.customer_id)
+                FROM stock_units su
+                LEFT JOIN activations a ON a.stock_unit_id=su.id AND a.deleted_at IS NULL
+                WHERE su.id=$id",
                 r => (Status: Text(r, 0), Warehouse: NullableLong(r, 1), Customer: NullableLong(r, 2)), ("$id", stockId)).FirstOrDefault();
-            if (unit.Status is not ("IN_STOCK" or "INSTALLED")) throw new InvalidOperationException("IMEI không hợp lệ để tiếp nhận bảo hành.");
-            if (unit.Warehouse.HasValue) EnsureWarehouse(c, user, unit.Warehouse.Value);
+            if (unit.Status is not ("IN_STOCK" or "INSTALLED" or "CONSIGNED" or "TECHNICIAN"))
+                throw new InvalidOperationException("IMEI không hợp lệ hoặc đang trong tiến trình bảo hành.");
             if (Scalar(c, "SELECT COUNT(*) FROM warranty_cases WHERE stock_unit_id=$s AND status IN ('RECEIVED','SENT_SUPPLIER') AND deleted_at IS NULL", ("$s", stockId)) > 0)
-                throw new InvalidOperationException("IMEI đã có phiếu bảo hành đang mở.");
+                throw new InvalidOperationException("Thiết bị IMEI này đã có phiếu bảo hành đang mở.");
             Execute(c, "INSERT INTO warranty_cases(stock_unit_id,customer_id,received_at,status,problem,note) VALUES($s,$cust,date('now'),'RECEIVED',$p,$n)",
-                ("$s", stockId), ("$cust", unit.Customer), ("$p", problem), ("$n", notes));
-            var id = InsertId(c); Execute(c, "UPDATE stock_units SET status='WARRANTY',warehouse_id=NULL,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$s", ("$s", stockId));
-            Execute(c, "INSERT INTO warranty_events(case_id,new_status,user_id,note) VALUES($id,'RECEIVED',$u,$n)", ("$id", id), ("$u", user), ("$n", notes));
-            Audit(c, user, "WARRANTY_OPEN", "WARRANTY_CASE", id, problem); return id;
+                ("$s", stockId), ("$cust", unit.Customer), ("$p", problem.Trim()), ("$n", (notes ?? "").Trim()));
+            var id = InsertId(c);
+            Execute(c, "UPDATE stock_units SET status='WARRANTY',warehouse_id=NULL,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$s", ("$s", stockId));
+            Execute(c, "INSERT INTO warranty_events(case_id,new_status,user_id,note) VALUES($id,'RECEIVED',$u,$n)", ("$id", id), ("$u", user), ("$n", (notes ?? "").Trim()));
+            Audit(c, user, "WARRANTY_OPEN", "WARRANTY_CASE", id, problem.Trim());
+            return id;
         });
     }
-    public void SetWarrantyStatus(long user, long caseId, string next, long warehouse, long? supplier, string notes)
+    public void SetWarrantyStatus(long user, long caseId, string next, long warehouse, long? supplier, string notes, string returnTarget = "CUSTOMER")
     {
         if (next is not ("SENT_SUPPLIER" or "COMPLETED" or "CANCELLED")) throw new InvalidOperationException("Trạng thái không hợp lệ.");
         Transact(user, c => {
-            var item = Read(c, "SELECT stock_unit_id,status FROM warranty_cases WHERE id=$id", r => (Unit: r.GetInt64(0), Status: Text(r, 1)), ("$id", caseId)).FirstOrDefault();
+            var item = Read(c, @"SELECT wc.stock_unit_id, wc.status, COALESCE(wc.customer_id, a.customer_id, su.customer_id)
+                FROM warranty_cases wc
+                JOIN stock_units su ON su.id=wc.stock_unit_id
+                LEFT JOIN activations a ON a.stock_unit_id=su.id AND a.deleted_at IS NULL
+                WHERE wc.id=$id",
+                r => (Unit: r.GetInt64(0), Status: Text(r, 1), CustId: NullableLong(r, 2)), ("$id", caseId)).FirstOrDefault();
             if (item.Unit == 0 || item.Status is "COMPLETED" or "CANCELLED" || (next == "SENT_SUPPLIER" && item.Status != "RECEIVED"))
                 throw new InvalidOperationException("Không thể chuyển trạng thái bảo hành.");
             if (next == "SENT_SUPPLIER")
             {
                 if (supplier is null || Scalar(c, "SELECT count(*) FROM suppliers WHERE id=$id AND deleted_at IS NULL", ("$id", supplier)) == 0)
                     throw new InvalidOperationException("Hãy chọn nhà cung cấp nhận bảo hành.");
-                Execute(c, "UPDATE warranty_cases SET status='SENT_SUPPLIER',sent_supplier_at=date('now') WHERE id=$id", ("$id", caseId));
-                Execute(c, "UPDATE stock_units SET status='SUPPLIER',supplier_id=$sup,updated_at=CURRENT_TIMESTAMP WHERE id=$u", ("$sup", supplier), ("$u", item.Unit));
+                Execute(c, "UPDATE warranty_cases SET status='SENT_SUPPLIER',sent_supplier_at=date('now'),note=CASE WHEN $n<>'' THEN $n ELSE note END WHERE id=$id",
+                    ("$n", (notes ?? "").Trim()), ("$id", caseId));
+                Execute(c, "UPDATE stock_units SET status='SUPPLIER',supplier_id=$sup,warehouse_id=NULL,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$u",
+                    ("$sup", supplier), ("$u", item.Unit));
             }
             else
             {
-                EnsureWarehouse(c, user, warehouse);
-                Execute(c, "UPDATE warranty_cases SET status=$s,completed_at=date('now') WHERE id=$id", ("$s", next), ("$id", caseId));
-                Execute(c, "UPDATE stock_units SET status='IN_STOCK',warehouse_id=$w,customer_id=NULL,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$u", ("$w", warehouse), ("$u", item.Unit));
+                bool returnToCustomer = string.Equals(returnTarget, "CUSTOMER", StringComparison.OrdinalIgnoreCase) && item.CustId is > 0;
+                if (returnToCustomer)
+                {
+                    Execute(c, "UPDATE warranty_cases SET status=$s,completed_at=date('now'),note=CASE WHEN $n<>'' THEN $n ELSE note END WHERE id=$id",
+                        ("$s", next), ("$n", (notes ?? "").Trim()), ("$id", caseId));
+                    Execute(c, "UPDATE stock_units SET status='INSTALLED',warehouse_id=NULL,customer_id=$c,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$u",
+                        ("$c", item.CustId), ("$u", item.Unit));
+                }
+                else
+                {
+                    var targetWh = warehouse > 0 ? warehouse : Scalar(c, "SELECT COALESCE((SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 1)");
+                    Execute(c, "UPDATE warranty_cases SET status=$s,completed_at=date('now'),note=CASE WHEN $n<>'' THEN $n ELSE note END WHERE id=$id",
+                        ("$s", next), ("$n", (notes ?? "").Trim()), ("$id", caseId));
+                    Execute(c, "UPDATE stock_units SET status='IN_STOCK',warehouse_id=$w,customer_id=NULL,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$u",
+                        ("$w", targetWh), ("$u", item.Unit));
+                }
             }
             Execute(c, "INSERT INTO warranty_events(case_id,old_status,new_status,user_id,note) VALUES($id,$o,$n,$u,$note)",
-                ("$id", caseId), ("$o", item.Status), ("$n", next), ("$u", user), ("$note", notes));
-            Audit(c, user, "WARRANTY_" + next, "WARRANTY_CASE", caseId, notes); return 0;
+                ("$id", caseId), ("$o", item.Status), ("$n", next), ("$u", user), ("$note", (notes ?? "").Trim()));
+            Audit(c, user, "WARRANTY_" + next, "WARRANTY_CASE", caseId, (notes ?? "").Trim()); return 0;
         });
     }
     public List<UserWarehouseRow> UsersWarehouseScopes()
