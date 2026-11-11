@@ -1,40 +1,121 @@
 @attribute [Authorize(Policy = Permissions.ArchitectureView)]
 @page "/architecture"
-<PageTitle>Kiến trúc &amp; Luồng dữ liệu · TNM</PageTitle>
+<PageTitle>Mô hình hệ thống &amp; Hướng dẫn sử dụng · TNM.Management</PageTitle>
+
 <div class="page-head">
     <div>
-        <div class="eyebrow">SYSTEM DESIGN / DATA FLOW &amp; WORKFLOW</div>
-        <h1>Kiến trúc &amp; Luồng dữ liệu TNM.Management</h1>
-        <p>Tổng quan 6 phân hệ nghiệp vụ, luồng đi dữ liệu từ đầu đến cuối, sơ đồ thực thể (ERD) và quy tắc kiểm soát kho – kế toán – bảo mật.</p>
+        <div class="eyebrow">SYSTEM ARCHITECTURE / INTERACTIVE USER GUIDE</div>
+        <h1>Mô hình hệ thống &amp; Hướng dẫn sử dụng</h1>
+        <p>Sơ đồ kiến trúc thực tế của hệ thống TNM.Management. <strong>Hãy bấm trực tiếp vào bất kỳ mục nào bên dưới</strong> để mở hộp thoại (Dialog) xem hướng dẫn sử dụng từng bước, cấu trúc các Tab và quy tắc nghiệp vụ của mục đó.</p>
     </div>
 </div>
-<div class="two-column" style="margin-bottom:16px">
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2>1. Sơ đồ các mục chức năng theo Cấu trúc Menu hiện hành (Bấm vào từng mục để xem Hướng dẫn)</h2>
+            <p>Đã đồng bộ 100% với cấu trúc gom Tab danh mục, Kho (Kho IMEI | Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Nhân viên bán hàng và Dialog xử lý Đơn hàng lắp đặt (SO).</p>
+        </div>
+    </div>
+
+    @foreach (var grp in MenuGroups)
+    {
+        <div style="margin-bottom:1.15rem">
+            <div style="font-size:11px;font-weight:780;letter-spacing:.7px;color:#d75761;text-transform:uppercase;margin:0 0 8px;display:flex;align-items:center;gap:8px">
+                <span>▣ @grp.GroupTitle</span>
+                <span style="flex:1;height:1px;background:#f0eceb"></span>
+            </div>
+            <div class="stats-grid" style="margin-bottom:0">
+                @foreach (var item in grp.Items)
+                {
+                    <div class="panel catalog-shortcut"
+                         style="margin-bottom:0;padding:15px 16px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;gap:10px;border:1px solid #ececf2"
+                         @onclick="() => OpenGuide(item.Key)">
+                        <div>
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                                <span class="chip blue-chip" style="font-size:10px">@item.RouteLabel</span>
+                                @if (!string.IsNullOrWhiteSpace(item.TabBadge))
+                                {
+                                    <span class="chip orange-chip" style="font-size:10px">@item.TabBadge</span>
+                                }
+                            </div>
+                            <h3 style="margin:0 0 5px;font-size:14px;font-weight:740;color:#252637">@item.Title</h3>
+                            <p style="margin:0;font-size:11.6px;color:#686a77;line-height:1.5">@item.Summary</p>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px dashed #eeeef3">
+                            <small style="color:#8b8d99;font-weight:600">@item.Actor</small>
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(item.Key)">
+                                📖 Hướng dẫn sử dụng
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</section>
+
+<div class="two-column" style="margin-bottom:18px">
     <section class="panel">
-        <div class="panel-head"><h2>6 Phân hệ nghiệp vụ cốt lõi</h2></div>
+        <div class="panel-head">
+            <div>
+                <h2>2. 6 Phân hệ nghiệp vụ cốt lõi</h2>
+                <p>Bấm vào từng phân hệ để xem quy trình vận hành chuẩn và các màn hình liên quan.</p>
+            </div>
+        </div>
         <div class="step-list">
-            <div><b>01</b><span><strong>Danh mục &amp; Chính sách giá</strong><small>Nhóm NCC/NCC, Nhóm SP/SP (IMEI &amp; Số lượng), Nhóm KH/KH, Nhân viên bán hàng, Kỹ thuật &amp; Định mức công lắp, Khu vực &amp; Kho</small></span></div>
-            <div><b>02</b><span><strong>Nhập kho, Tồn kho IMEI &amp; Bảo hành RMA</strong><small>Đơn mua PO, Nhập/Xuất số lượng, Kiểm kê, Kho thiết bị IMEI (Tại kho / Ký gửi / Kỹ thuật), Bảo hành 3 bước</small></span></div>
-            <div><b>03</b><span><strong>Đơn hàng &amp; Điều phối lắp đặt (SO)</strong><small>Nhận đơn từ nhân viên bán hàng → CSKH điều kho &amp; chọn ĐV lắp đặt | Hãng lắp đặt → Cập nhật IMEI &amp; Biển số → Kích hoạt &amp; Hoàn thành</small></span></div>
-            <div><b>04</b><span><strong>Thiết bị đang hoạt động &amp; Gia hạn thuê bao</strong><small>Theo dõi hạn thuê bao (Còn hạn, D+10/30/60, Quá hạn), gia hạn 12 tháng gắn nhân viên bán hàng phụ trách</small></span></div>
-            <div><b>05</b><span><strong>Kế toán Công nợ, Sổ Thu/Chi &amp; Hoa hồng</strong><small>4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng nhân viên bán hàng), Phiếu Thu/Chi &amp; Thống kê cuối kỳ</small></span></div>
-            <div><b>06</b><span><strong>Phân quyền RBAC, Phạm vi Kho &amp; Kiểm toán</strong><small>6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, chống xóa cứng &amp; lưu vết 100% thay đổi</small></span></div>
+            @foreach (var mod in CoreModules)
+            {
+                <div style="padding:10px 12px;border:1px solid #eeeef4;border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s;justify-content:space-between"
+                     @onclick="() => OpenGuide(mod.Key)">
+                    <div style="display:flex;align-items:center;gap:12px;min-width:0">
+                        <b>@mod.Code</b>
+                        <span style="min-width:0">
+                            <strong style="color:#252637">@mod.Title</strong>
+                            <small style="line-height:1.45">@mod.Summary</small>
+                        </span>
+                    </div>
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(mod.Key)">
+                        Hướng dẫn
+                    </button>
+                </div>
+            }
         </div>
     </section>
+
     <section class="panel">
-        <div class="panel-head"><h2>Quy tắc toàn vẹn dữ liệu &amp; Nghiệp vụ</h2></div>
-        <p><strong>1. Quản lý IMEI duy nhất:</strong> Mỗi thiết bị <code>stock_units</code> chỉ ở 1 trạng thái tại 1 thời điểm (<code>IN_STOCK</code>, <code>CONSIGNED</code>, <code>TECHNICIAN</code>, <code>INSTALLED</code>, <code>WARRANTY</code>).</p>
-        <p><strong>2. Trừ tồn kho đúng thời điểm:</strong> Tạo đơn và điều phối chưa trừ kho. Tồn kho chỉ giảm khi đơn hàng chuyển sang <code>COMPLETED</code> (cho phép chọn <em>Không trừ tồn kho</em> khi đơn vị lắp đặt là <em>Hãng lắp đặt</em>).</p>
-        <p><strong>3. Bảo toàn đơn giá lịch sử:</strong> Đơn hàng đã hoàn thành giữ nguyên đơn giá bán, giá vốn, công lắp đặt và thông tin nhân viên bán hàng tại thời điểm phát sinh dù bảng giá danh mục thay đổi về sau.</p>
-        <p><strong>4. Đồng bộ Kế toán tự động:</strong> Nhập kho sinh Công nợ NCC (<code>PURCHASE</code>); Hoàn thành đơn lắp đặt sinh Công nợ Khách hàng (<code>SALE</code>) và Công kỹ thuật (<code>SERVICE</code>); Gia hạn sinh Công nợ Gia hạn (<code>RENEWAL</code>).</p>
-        <p><strong>5. Kiểm toán &amp; Xóa mềm (Soft Delete):</strong> Cấm xóa vật lý bản ghi nghiệp vụ; mọi thao tác Thêm/Sửa/Xóa mềm đều tự động ghi nhận giá trị Trước/Sau vào <code>activity_events</code>.</p>
+        <div class="panel-head">
+            <div>
+                <h2>3. Quy tắc toàn vẹn dữ liệu &amp; Kiểm soát nghiệp vụ</h2>
+                <p>Bấm vào từng quy tắc để xem cơ chế kiểm soát tự động trong mã nguồn.</p>
+            </div>
+        </div>
+        <div class="step-list">
+            @foreach (var rule in IntegrityRules)
+            {
+                <div style="padding:10px 12px;border:1px solid #eeeef4;border-radius:10px;cursor:pointer;justify-content:space-between"
+                     @onclick="() => OpenGuide(rule.Key)">
+                    <div style="display:flex;align-items:center;gap:12px;min-width:0">
+                        <b style="background:#eff6ff;color:#0284c7">@rule.Code</b>
+                        <span style="min-width:0">
+                            <strong style="color:#252637">@rule.Title</strong>
+                            <small style="line-height:1.45">@rule.Summary</small>
+                        </span>
+                    </div>
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(rule.Key)">
+                        Chi tiết
+                    </button>
+                </div>
+            }
+        </div>
     </section>
 </div>
 
 <section class="panel">
     <div class="panel-head">
         <div>
-            <h2>Luồng đi dữ liệu xuyên suốt (End-to-End Workflow)</h2>
-            <p>Chu trình khép kín từ Khai báo Danh mục → Nhập kho → Đơn hàng lắp đặt → Kích hoạt thuê bao → Gia hạn → Kế toán &amp; Hoa hồng cuối kỳ.</p>
+            <h2>4. Luồng đi dữ liệu xuyên suốt (End-to-End Workflow)</h2>
+            <p>Chu trình khép kín từ Khai báo Danh mục → Nhập kho → Đơn hàng lắp đặt → Kích hoạt thuê bao → Gia hạn → Kế toán &amp; Hoa hồng cuối kỳ. Bấm vào từng giai đoạn để xem hướng dẫn thực hành.</p>
         </div>
     </div>
     <div class="table-wrap">
@@ -47,63 +128,988 @@
                     <th>Xử lý nghiệp vụ &amp; Dịch vụ C#</th>
                     <th>Bảng dữ liệu SQLite cập nhật</th>
                     <th>Kết quả đầu ra / Kế toán</th>
+                    <th>Hướng dẫn</th>
                 </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td><strong>1</strong></td>
-                    <td><strong>B1. Danh mục &amp; Giá</strong></td>
-                    <td class="wrap-cell">Admin / Quản lý khai báo tại <code>/catalog/*</code></td>
-                    <td class="wrap-cell"><code>InputCatalog</code> thiết lập Sản phẩm, KH, NCC, Nhân viên bán hàng, Kỹ thuật, Kho và Bảng giá</td>
-                    <td class="wrap-cell"><code>products</code>, <code>customers</code>, <code>suppliers</code>, <code>v7_sellers</code>, <code>employees</code>, <code>v7_group_prices</code>, <code>v7_installer_product_rates</code></td>
-                    <td class="wrap-cell">Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn</td>
-                </tr>
-                <tr>
-                    <td><strong>2</strong></td>
-                    <td><strong>B2. Nhập kho &amp; Kho IMEI</strong></td>
-                    <td class="wrap-cell">Thủ kho nhập PO / nhập IMEI / nhập số lượng tại <code>/inventory</code>, <code>/warehouse-ops</code></td>
-                    <td class="wrap-cell"><code>DemoDb.AddStock</code>, <code>V6Ops.ReceivePurchase</code>, <code>V6Ops.MoveQuantity</code></td>
-                    <td class="wrap-cell"><code>stock_units</code>, <code>inventory_transactions</code>, <code>purchase_orders</code>, <code>quantity_movements</code></td>
-                    <td class="wrap-cell">Tăng tồn kho + Tự động sinh <strong>Công nợ Sản phẩm (<code>PURCHASE</code>)</strong></td>
-                </tr>
-                <tr>
-                    <td><strong>3</strong></td>
-                    <td><strong>B3. Tạo đơn &amp; Điều phối</strong></td>
-                    <td class="wrap-cell">Nhân viên bán hàng gửi thông tin → CSKH tạo đơn tại <code>/sales-orders</code></td>
-                    <td class="wrap-cell"><code>V7Orders.CreateMulti</code>, <code>Approve</code>, <code>Dispatch</code>, <code>ReportLines</code></td>
-                    <td class="wrap-cell"><code>v7_orders</code> (<code>PENDING</code> → <code>DISPATCHED</code> → <code>REPORTED</code>), <code>v7_order_lines</code></td>
-                    <td class="wrap-cell">Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho</td>
-                </tr>
-                <tr>
-                    <td><strong>4</strong></td>
-                    <td><strong>B4. Hoàn thành &amp; Kích hoạt</strong></td>
-                    <td class="wrap-cell">ĐV lắp đặt báo IMEI &amp; biển số → CSKH chọn Ngày kích hoạt &amp; bấm Hoàn thành</td>
-                    <td class="wrap-cell"><code>V7Orders.Complete</code> kiểm tra tồn kho, xuất IMEI/số lượng, kích hoạt thuê bao</td>
-                    <td class="wrap-cell"><code>v7_orders</code> (<code>COMPLETED</code>), <code>stock_units</code> (<code>INSTALLED</code>), <code>v7_stock_effects</code>, <code>activations</code></td>
-                    <td class="wrap-cell">Trừ tồn kho + Sinh <strong>Công nợ KH (<code>SALE</code>)</strong> &amp; <strong>Công kỹ thuật (<code>SERVICE</code>)</strong></td>
-                </tr>
-                <tr>
-                    <td><strong>5</strong></td>
-                    <td><strong>B5. Theo dõi &amp; Gia hạn TB</strong></td>
-                    <td class="wrap-cell">CSKH gia hạn thiết bị 12 tháng &amp; chọn nhân viên bán hàng tại <code>/devices</code></td>
-                    <td class="wrap-cell"><code>DemoDb.Renew</code> cộng thêm 12 tháng vào hạn thuê bao và lưu người gia hạn</td>
-                    <td class="wrap-cell"><code>renewals</code>, <code>activations.expires_at</code>, <code>invoices</code>, <code>payments</code></td>
-                    <td class="wrap-cell">Sinh <strong>Công nợ Gia hạn (<code>RENEWAL</code>)</strong> + Cộng chỉ tiêu hoa hồng nhân viên bán hàng</td>
-                </tr>
-                <tr>
-                    <td><strong>6</strong></td>
-                    <td><strong>B6. Quyết toán &amp; Hoa hồng</strong></td>
-                    <td class="wrap-cell">Kế toán thu/chi công nợ &amp; đối soát cuối kỳ tại <code>/finance</code></td>
-                    <td class="wrap-cell"><code>DemoDb.PayInvoice</code>, <code>CreateCustomInvoice</code>, <code>SellerPeriodStats</code></td>
-                    <td class="wrap-cell"><code>invoices</code> (<code>OPEN</code> → <code>PARTIAL</code> → <code>PAID</code>), <code>payments</code>, <code>payment_allocations</code></td>
-                    <td class="wrap-cell">Sổ Phiếu Thu (<code>PT-</code>) / Phiếu Chi (<code>PC-</code>), Báo cáo Lợi nhuận gộp &amp; Hoa hồng nhân viên bán hàng</td>
-                </tr>
+                @foreach (var wf in WorkflowStages)
+                {
+                    <tr style="cursor:pointer" @onclick="() => OpenGuide(wf.Key)">
+                        <td><strong>@wf.Stt</strong></td>
+                        <td><strong>@wf.Stage</strong></td>
+                        <td class="wrap-cell">@wf.EntryPoint</td>
+                        <td class="wrap-cell"><code>@wf.ServiceInfo</code></td>
+                        <td class="wrap-cell"><code>@wf.Tables</code></td>
+                        <td class="wrap-cell"><strong>@wf.Output</strong></td>
+                        <td class="catalog-row-actions">
+                            <button type="button" class="btn btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(wf.Key)">
+                                📖 Xem hướng dẫn
+                            </button>
+                        </td>
+                    </tr>
+                }
             </tbody>
         </table>
     </div>
-    <TablePager Pager="pager" TotalCount="6" />
 </section>
 
+@if (selectedGuide is not null)
+{
+    <div class="so-modal-overlay" @onclick="CloseGuide">
+        <div class="so-modal-dialog" style="max-width:860px" @onclick:stopPropagation="true">
+            <div class="so-modal-header">
+                <div>
+                    <h2>
+                        <span>📖 @selectedGuide.Title</span>
+                        <span class="chip blue-chip">@selectedGuide.Category</span>
+                        @if (!string.IsNullOrWhiteSpace(selectedGuide.TabBadge))
+                        {
+                            <span class="chip orange-chip">@selectedGuide.TabBadge</span>
+                        }
+                    </h2>
+                    <p>
+                        <strong>Đường dẫn:</strong> <code>@selectedGuide.RouteLabel</code>
+                        @if (!string.IsNullOrWhiteSpace(selectedGuide.Actor))
+                        {
+                            <span> · <strong>Vai trò thực hiện:</strong> @selectedGuide.Actor</span>
+                        }
+                    </p>
+                </div>
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseGuide">✕ Đóng</button>
+            </div>
+
+            <div class="so-modal-body" style="display:flex;flex-direction:column;gap:14px">
+                <div style="padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;line-height:1.6;color:#334155">
+                    <strong style="color:#0f172a;display:block;margin-bottom:4px">🎯 Mục đích &amp; Chức năng chính:</strong>
+                    @selectedGuide.Purpose
+                </div>
+
+                @if (selectedGuide.Tabs.Count > 0)
+                {
+                    <div style="padding:12px 14px;background:#fffaf8;border:1px solid #ffdcd2;border-radius:10px">
+                        <strong style="color:#9a3412;display:block;margin-bottom:8px">🗂 Cấu trúc các Tab / Khu vực trong mục này:</strong>
+                        <div style="display:grid;gap:8px">
+                            @foreach (var tab in selectedGuide.Tabs)
+                            {
+                                <div style="padding:8px 10px;background:#fff;border:1px solid #fed7aa;border-radius:8px;font-size:12px;line-height:1.5">
+                                    <strong style="color:#c2410c">• @tab.Name:</strong> @tab.Detail
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div style="padding:12px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:10px">
+                    <strong style="color:#1e293b;display:block;margin-bottom:10px">📋 Hướng dẫn thao tác từng bước (Step-by-Step):</strong>
+                    <div class="step-list" style="gap:10px">
+                        @for (int i = 0; i < selectedGuide.Steps.Count; i++)
+                        {
+                            var stepText = selectedGuide.Steps[i];
+                            <div style="align-items:flex-start">
+                                <b style="width:28px;height:28px;font-size:11.5px;flex:none">B@(i + 1)</b>
+                                <span style="font-size:12.2px;color:#334155;line-height:1.55;padding-top:3px">@stepText</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (selectedGuide.Notes.Count > 0)
+                {
+                    <div style="padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px">
+                        <strong style="color:#166534;display:block;margin-bottom:6px">💡 Quy tắc nghiệp vụ &amp; Lưu ý quan trọng:</strong>
+                        <ul style="margin:0;padding-left:18px;color:#14532d;font-size:12px;line-height:1.65">
+                            @foreach (var note in selectedGuide.Notes)
+                            {
+                                <li>@note</li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedGuide.DataFlow))
+                {
+                    <div style="padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:12px;color:#1e3a8a;line-height:1.55">
+                        <strong>🔄 Liên kết dữ liệu &amp; Kế toán:</strong> @selectedGuide.DataFlow
+                    </div>
+                }
+            </div>
+
+            <div class="so-modal-footer">
+                <div>
+                    @if (!string.IsNullOrWhiteSpace(selectedGuide.PrimaryHref))
+                    {
+                        <a class="btn" href="@selectedGuide.PrimaryHref">Mở màn hình @selectedGuide.Title →</a>
+                    }
+                </div>
+                <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseGuide">Đóng hướng dẫn</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
-    private readonly PagerState pager = new();
+    private sealed record TabGuide(string Name, string Detail);
+    private sealed record GuideTopic(
+        string Key,
+        string Category,
+        string Title,
+        string RouteLabel,
+        string PrimaryHref,
+        string TabBadge,
+        string Actor,
+        string Summary,
+        string Purpose,
+        List<TabGuide> Tabs,
+        List<string> Steps,
+        List<string> Notes,
+        string DataFlow);
+
+    private sealed record MenuGroupVm(string GroupTitle, List<GuideTopic> Items);
+    private sealed record CoreModuleVm(string Key, string Code, string Title, string Summary);
+    private sealed record WorkflowStageVm(string Key, int Stt, string Stage, string EntryPoint, string ServiceInfo, string Tables, string Output);
+
+    private GuideTopic? selectedGuide;
+
+    private void OpenGuide(string key)
+    {
+        if (AllGuides.TryGetValue(key, out var g))
+        {
+            selectedGuide = g;
+        }
+    }
+
+    private void CloseGuide() => selectedGuide = null;
+
+    private static readonly Dictionary<string, GuideTopic> AllGuides = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["dashboard"] = new(
+            Key: "dashboard",
+            Category: "TỔNG QUAN",
+            Title: "Dashboard — Bảng điều hành tổng quan",
+            RouteLabel: "/",
+            PrimaryHref: "/",
+            TabBadge: "1 màn hình",
+            Actor: "Ban giám đốc / Quản lý / Kế toán / CSKH",
+            Summary: "Theo dõi nhanh doanh thu, đã thu, công nợ phải thu, lợi nhuận gộp ước tính, vòng đời thiết bị IMEI và các cảnh báo cần xử lý ngay.",
+            Purpose: "Cung cấp bức tranh tổng thể theo thời gian thực về sức khỏe vận hành của doanh nghiệp: từ tồn kho thiết bị IMEI, tiến độ đơn hàng lắp đặt chưa hoàn thành, thiết bị sắp đến hạn gia hạn trong 30 ngày cho tới công nợ phải thu.",
+            Tabs:
+            [
+                new("Chỉ số tài chính (4 thẻ KPI)", "Hiển thị Doanh thu đã ghi nhận, Đã thu thực tế, Công nợ phải thu còn lại và Lợi nhuận gộp ước tính."),
+                new("Vòng đời thiết bị & Điểm cần chú ý", "Biểu đồ tỷ lệ IMEI Tồn kho / Đang ký gửi / Đã kích hoạt và danh sách cảnh báo thiết bị sắp hết hạn, đơn hàng chờ điều phối."),
+                new("Đi nhanh đến nghiệp vụ", "Các lối tắt mở nhanh Sản phẩm, Danh sách Kho, Đơn hàng SO, Khách hàng, Nhà cung cấp và Gia hạn thiết bị.")
+            ],
+            Steps:
+            [
+                "Mở menu 'Dashboard' ở đầu thanh điều hướng bên trái để kiểm tra các chỉ số đầu ngày.",
+                "Quan sát mục 'Điểm cần chú ý': bấm 'Xử lý' tại dòng 'Thiết bị sắp gia hạn' để chuyển sang màn hình nhắc gia hạn cho khách, hoặc bấm 'Xử lý' tại dòng 'Đơn hàng chưa kích hoạt' để điều phối & hoàn thành đơn.",
+                "Sử dụng các ô trong khu vực 'Đi nhanh đến nghiệp vụ' để truy cập thẳng vào phân hệ cần làm việc.",
+                "Bấm 'Xem báo cáo →' ở góc phải tiêu đề nếu cần tra cứu sâu bảng kê doanh thu, giá vốn và xuất file CSV."
+            ],
+            Notes:
+            [
+                "Các con số doanh thu, công nợ, lợi nhuận hiển thị tự động theo phân quyền của tài khoản đang đăng nhập.",
+                "Số liệu trên Dashboard tự động cập nhật ngay khi đơn hàng SO hoàn thành, khi nhập kho hoặc khi Kế toán lập phiếu thu/chi."
+            ],
+            DataFlow: "Tổng hợp trực tiếp từ các bảng invoices, payments, stock_units, activations và v7_orders."),
+
+        ["products"] = new(
+            Key: "products",
+            Category: "KINH DOANH",
+            Title: "Sản phẩm (Chi tiết | Nhóm sản phẩm)",
+            RouteLabel: "/products · /catalog/product-groups",
+            PrimaryHref: "/products",
+            TabBadge: "2 Tab",
+            Actor: "Quản lý / Admin / Kế toán kho",
+            Summary: "Quản lý danh mục sản phẩm (Hàng hóa có IMEI, Hàng hóa theo số lượng, Dịch vụ) và phân nhóm sản phẩm.",
+            Purpose: "Chuẩn hóa danh mục sản phẩm dùng chung cho toàn bộ hệ thống: Mua hàng NCC (PO), Nhập kho IMEI/Số lượng, Đơn hàng lắp đặt (SO), Định mức công lắp kỹ thuật và Bảng giá.",
+            Tabs:
+            [
+                new("Tab 1: Chi tiết Sản phẩm (/products)", "Quản lý mã SKU (VD: DX00002), tên sản phẩm, nhóm SP, loại sản phẩm (Hàng hóa có IMEI / Hàng hóa số lượng / Dịch vụ), giá nhập, giá bán lắp đặt, giá gia hạn và tổng tồn kho hiện tại."),
+                new("Tab 2: Nhóm sản phẩm (/catalog/product-groups)", "Khai báo và phân loại các nhóm sản phẩm (VD: Định vị GPS, Camera nghị định 10, Phụ kiện, Nhớt & Lọc...) để thống kê và lọc báo cáo.")
+            ],
+            Steps:
+            [
+                "Chọn mục 'Sản phẩm' trên menu Kinh doanh. Chuyển đổi qua lại giữa 2 tab 'Chi tiết Sản phẩm' và 'Nhóm sản phẩm' ngay đầu trang.",
+                "Để tạo nhóm mới: Chọn tab 'Nhóm sản phẩm' → bấm '+ Thêm mới' → nhập Mã nhóm & Tên nhóm → bấm 'Lưu' và xác nhận trên hộp thoại.",
+                "Để thêm sản phẩm mới: Chọn tab 'Chi tiết Sản phẩm' → bấm '+ Thêm sản phẩm' → chọn Nhóm SP, loại hình (tick 'Quản lý theo từng mã IMEI' nếu là thiết bị định vị/camera cần theo dõi seri/IMEI), nhập đơn giá chuẩn → bấm 'Lưu sản phẩm'.",
+                "Để chỉnh sửa hoặc ngừng bán: Bấm nút 'Sửa' hoặc 'Ngừng bán' / 'Xóa' trên dòng sản phẩm tương ứng và xác nhận thao tác."
+            ],
+            Notes:
+            [
+                "Sản phẩm có tick 'Quản lý theo từng mã IMEI' sẽ bắt buộc nhập/chọn mã IMEI khi hoàn thành đơn hàng lắp đặt (SO) và tự động tạo hồ sơ theo dõi hạn thuê bao tại mục Thiết bị & gia hạn.",
+                "Sản phẩm không tick IMEI (quản lý theo số lượng) sẽ tự động trừ theo số lượng khi hoàn thành đơn."
+            ],
+            DataFlow: "Dữ liệu lưu tại bảng products & product_groups → Cấp dữ liệu cho Kho (/inventory), Bảng giá (/catalog/buy-prices), Đơn giá lắp (/catalog/installers) và Đơn hàng (/sales-orders)."),
+
+        ["suppliers"] = new(
+            Key: "suppliers",
+            Category: "KINH DOANH",
+            Title: "Nhà cung cấp (Chi tiết / Đơn vị NCC | Nhóm NCC)",
+            RouteLabel: "/catalog/suppliers · /catalog/supplier-groups",
+            PrimaryHref: "/catalog/suppliers",
+            TabBadge: "2 Tab",
+            Actor: "Quản lý / Thu mua / Kế toán",
+            Summary: "Quản lý thông tin các đơn vị Nhà cung cấp / Hãng thiết bị và phân nhóm NCC để thiết lập bảng giá nhập.",
+            Purpose: "Lưu trữ danh sách đối tác cung cấp thiết bị/hàng hóa (VD: NCC Nasa, Chemtec...) phục vụ nhập kho, theo dõi công nợ phải trả NCC, bảo hành thiết bị và chọn nhanh 'Hãng lắp đặt' trên đơn hàng SO.",
+            Tabs:
+            [
+                new("Tab 1: Chi tiết / Đơn vị NCC (/catalog/suppliers)", "Khai báo Mã NCC, Tên công ty/đơn vị cung cấp, thuộc Nhóm NCC nào, Số điện thoại và Mã số thuế."),
+                new("Tab 2: Nhóm NCC (/catalog/supplier-groups)", "Phân nhóm các nhà cung cấp để áp dụng biểu giá nhập hàng theo từng nhóm tại mục Giá & chương trình.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Nhà cung cấp' trên menu Kinh doanh.",
+                "Nếu cần tạo nhóm NCC mới: Bấm sang tab 'Nhóm NCC' → bấm '+ Thêm mới' → điền mã và tên nhóm → bấm 'Lưu'.",
+                "Tại tab 'Chi tiết / Đơn vị NCC': Bấm '+ Thêm mới' → chọn Nhóm NCC, nhập Mã, Tên đơn vị NCC, SĐT, MST → bấm 'Lưu' và xác nhận.",
+                "Có thể tìm kiếm nhanh, chọn nhiều dòng để bấm 'Xuất dữ liệu' ra file CSV tiếng Việt hoặc bấm 'Lịch sử' để xem nhật ký thay đổi."
+            ],
+            Notes:
+            [
+                "Tên Nhà cung cấp khai báo tại đây cũng sẽ xuất hiện trong danh sách chọn nhanh 'Hãng lắp đặt' khi điều phối đơn hàng SO (trường hợp Hãng đi lắp trực tiếp không trừ tồn kho công ty)."
+            ],
+            DataFlow: "Lưu tại bảng supplier_groups & suppliers → Liên kết với Bảng giá nhập NCC (/catalog/buy-prices), Nhập kho (/inventory), Mua hàng (/purchases) và Công nợ NCC (/finance)."),
+
+        ["customers"] = new(
+            Key: "customers",
+            Category: "KINH DOANH",
+            Title: "Khách hàng (Chi tiết Khách hàng | Nhóm khách hàng)",
+            RouteLabel: "/catalog/customers · /catalog/customer-groups",
+            PrimaryHref: "/catalog/customers",
+            TabBadge: "2 Tab",
+            Actor: "CSKH / Nhân viên bán hàng / Kế toán",
+            Summary: "Quản lý hồ sơ Khách hàng (HTX, Đại lý B2B, Khách lẻ), người đại diện, nhân viên bán hàng phụ trách và nhóm khách hàng.",
+            Purpose: "Quản lý tập trung thông tin Đơn vị (HTX/Đại lý) và khách hàng, tự động cấp mã KH, gắn kết chặt chẽ từng khách hàng với Nhân viên bán hàng phụ trách và Nhóm bảng giá tương ứng.",
+            Tabs:
+            [
+                new("Tab 1: Chi tiết Khách hàng (/catalog/customers)", "Khai báo Tên khách hàng/Đơn vị (HTX, Đại lý), Người đại diện B2B, SĐT, Địa chỉ và chọn Nhân viên bán hàng phụ trách (mã KH tự động cấp theo chuẩn KH000xx)."),
+                new("Tab 2: Nhóm khách hàng (/catalog/customer-groups)", "Phân loại khách hàng (VD: Hợp tác xã, Đại lý cấp 1, Khách lẻ...) để tự động áp giá bán và chương trình khuyến mãi khi lên đơn SO.")
+            ],
+            Steps:
+            [
+                "Mở mục 'Khách hàng' trên menu Kinh doanh.",
+                "Tại tab 'Chi tiết Khách hàng', bấm nút '+ Thêm mới' ở góc phải.",
+                "Chọn 'Nhóm khách hàng', nhập 'Tên khách hàng / Đơn vị', 'Người đại diện (B2B)' (nếu là HTX/Công ty), 'Số điện thoại' và chọn 'Nhân viên bán hàng phụ trách' từ danh sách.",
+                "Bấm 'Lưu' và xác nhận trên hộp thoại để hoàn tất."
+            ],
+            Notes:
+            [
+                "Khi tạo Đơn hàng lắp đặt (SO) và chọn Khách hàng/HTX, hệ thống sẽ tự động điền sẵn SĐT, Địa chỉ, Nhân viên bán hàng phụ trách và tự động tra cứu đúng đơn giá bán áp dụng cho Nhóm của khách hàng đó."
+            ],
+            DataFlow: "Lưu tại bảng customer_groups & customers → Liên kết trực tiếp với Nhân viên bán hàng (/catalog/sellers), Bảng giá khách hàng (/catalog/sale-prices), Đơn hàng (/sales-orders) và Công nợ phải thu (/finance)."),
+
+        ["sellers"] = new(
+            Key: "sellers",
+            Category: "KINH DOANH",
+            Title: "Nhân viên bán hàng",
+            RouteLabel: "/catalog/sellers",
+            PrimaryHref: "/catalog/sellers",
+            TabBadge: "Quản lý & Hoa hồng",
+            Actor: "Quản lý kinh doanh / Kế toán / Admin",
+            Summary: "Khai báo danh sách Nhân viên bán hàng, cấu hình định mức hoa hồng bán mới / gia hạn và thống kê doanh số cuối kỳ.",
+            Purpose: "Đồng bộ danh sách Nhân viên bán hàng xuyên suốt từ hồ sơ Khách hàng → Đơn hàng lắp đặt (SO) → Gia hạn thiết bị (/devices) → Quyết toán hoa hồng tại trang Kế toán (/finance).",
+            Tabs:
+            [
+                new("Danh sách & Thống kê Nhân viên bán hàng", "Hiển thị Mã NV bán hàng (SL...), Họ tên, Bộ phận, SĐT, Số lượng KH phụ trách, Số đơn SO hoàn thành, Số thiết bị gia hạn và Tổng hoa hồng dự kiến.")
+            ],
+            Steps:
+            [
+                "Mở mục 'Nhân viên bán hàng' trên menu Kinh doanh.",
+                "Bấm '+ Khai báo nhân viên bán hàng' ở góc trên bên phải.",
+                "Nhập Họ tên nhân viên bán hàng, SĐT, chọn Bộ phận kinh doanh và thiết lập Định mức hoa hồng bán mới (VND/thiết bị), Hoa hồng gia hạn (VND/lần) hoặc Tỷ lệ % hoa hồng doanh thu.",
+                "Bấm 'Lưu' và xác nhận trên hộp thoại. Khi cần điều chỉnh định mức của nhân viên nào, bấm nút 'Sửa' tại dòng của nhân viên đó."
+            ],
+            Notes:
+            [
+                "Mỗi đơn hàng SO hoàn thành hoặc mỗi lần gia hạn thiết bị có gắn tên Nhân viên bán hàng sẽ tự động cộng dồn vào chỉ tiêu doanh số & hoa hồng cuối kỳ của nhân viên đó."
+            ],
+            DataFlow: "Lưu tại bảng v7_sellers → Đồng bộ sang Khách hàng, Đơn hàng SO (/sales-orders), Gia hạn thiết bị (/devices) và Bảng tổng hợp hoa hồng Kế toán (/finance)."),
+
+        ["installers"] = new(
+            Key: "installers",
+            Category: "KINH DOANH",
+            Title: "Người lắp đặt (Chi tiết | Đơn giá theo sản phẩm)",
+            RouteLabel: "/catalog/installers · /catalog/installer-rates",
+            PrimaryHref: "/catalog/installers",
+            TabBadge: "2 Tab",
+            Actor: "Quản lý kỹ thuật / Điều phối CSKH / Kế toán",
+            Summary: "Khai báo hồ sơ Kỹ thuật viên / Đơn vị lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm.",
+            Purpose: "Quản lý danh sách nhân sự/đối tác lắp đặt và tự động hóa việc tính tiền công lắp đặt trên từng đơn hàng SO cũng như tự động lên bảng kê công nợ tiền công kỹ thuật cho Kế toán.",
+            Tabs:
+            [
+                new("Tab 1: Chi tiết Người lắp đặt (/catalog/installers)", "Khai báo thông tin người lắp đặt (Mã KT, Họ tên, SĐT, Phân loại Nội bộ/CTV/Đối tác) kèm bảng cấu hình nhanh đơn giá công lắp cho toàn bộ sản phẩm ngay trong cùng 1 màn hình."),
+                new("Tab 2: Đơn giá theo sản phẩm (/catalog/installer-rates)", "Xem bảng tổng hợp toàn bộ định mức đơn giá đi lắp của từng kỹ thuật viên ứng với từng sản phẩm, hỗ trợ lọc nhanh và chỉnh sửa từng dòng.")
+            ],
+            Steps:
+            [
+                "Mở mục 'Người lắp đặt' trên menu Kinh doanh.",
+                "Tại tab 'Chi tiết Người lắp đặt', bấm '+ Khai báo người lắp đặt' (hoặc bấm 'Cấu hình & Sửa' ở dòng kỹ thuật viên hiện có).",
+                "Nhập thông tin Họ tên, SĐT, Phân loại. Ở bảng 'Định mức đơn giá công lắp theo sản phẩm' bên dưới, có thể bấm nút áp dụng nhanh (100k, 150k, 200k) cho tất cả sản phẩm hoặc nhập số tiền riêng cho từng sản phẩm.",
+                "Bấm 'Lưu' và xác nhận để hệ thống ghi nhận toàn bộ bảng giá công lắp của kỹ thuật viên đó."
+            ],
+            Notes:
+            [
+                "Khi CSKH chọn Đơn vị lắp đặt trên đơn hàng SO và bấm Hoàn thành đơn, hệ thống tự động nhân đơn giá công lắp của kỹ thuật viên đó với số lượng sản phẩm lắp thực tế và tự động tạo khoản Công nợ Kỹ thuật (SERVICE) bên trang Kế toán."
+            ],
+            DataFlow: "Lưu tại bảng employees & v7_installer_product_rates → Tự động tính phí lắp đặt tại Đơn hàng SO (/sales-orders) và sinh Công nợ Kỹ thuật tại (/finance)."),
+
+        ["prices"] = new(
+            Key: "prices",
+            Category: "KINH DOANH",
+            Title: "Giá & chương trình (Giá nhập NCC | Giá khách hàng | Ưu đãi)",
+            RouteLabel: "/catalog/buy-prices · /catalog/sale-prices · /catalog/campaigns",
+            PrimaryHref: "/catalog/buy-prices",
+            TabBadge: "3 Tab",
+            Actor: "Ban giám đốc / Quản lý kinh doanh / Kế toán",
+            Summary: "Quản lý tập trung 3 chính sách giá trên cùng một trang: Bảng giá nhập NCC, Bảng giá bán theo nhóm khách hàng và Chương trình ưu đãi.",
+            Purpose: "Tự động hóa việc áp giá mua khi nhập kho/tạo PO và áp giá bán (kèm chiết khấu ưu đãi nếu có) khi CSKH tạo đơn hàng lắp đặt SO hoặc khi gia hạn thuê bao.",
+            Tabs:
+            [
+                new("Tab 1: Bảng giá nhập NCC (/catalog/buy-prices)", "Thiết lập đơn giá mua vào theo từng Nhóm nhà cung cấp + Sản phẩm + Ngày bắt đầu hiệu lực."),
+                new("Tab 2: Bảng giá khách hàng (/catalog/sale-prices)", "Thiết lập 3 mức giá cho từng Nhóm khách hàng + Sản phẩm: Giá chưa lắp (Standard), Giá có lắp (Installed) và Giá gia hạn (Renewal)."),
+                new("Tab 3: Chương trình ưu đãi (/catalog/campaigns)", "Thiết lập chương trình giảm giá (%) theo Nhóm khách hàng trong khoảng thời gian Từ ngày – Đến ngày.")
+            ],
+            Steps:
+            [
+                "Chọn mục 'Giá & chương trình' trên menu Kinh doanh.",
+                "Chọn 1 trong 3 tab: 'Bảng giá nhập NCC', 'Bảng giá khách hàng' hoặc 'Chương trình ưu đãi'.",
+                "Bấm '+ Thêm mới' ở góc phải → chọn Nhóm đối tượng, chọn Sản phẩm, nhập mức giá (hoặc % chiết khấu) và ngày hiệu lực → bấm 'Lưu' và xác nhận.",
+                "Khi bảng giá thay đổi trong tương lai, chỉ cần thêm dòng giá mới với ngày hiệu lực mới hoặc bấm 'Sửa' dòng hiện tại."
+            ],
+            Notes:
+            [
+                "Đơn hàng SO đã hoàn thành trước đó sẽ luôn giữ nguyên mức giá lịch sử tại thời điểm tạo đơn, không bị biến động khi bạn cập nhật bảng giá mới."
+            ],
+            DataFlow: "Lưu tại v7_supplier_group_prices, v7_group_prices, v7_group_campaigns → Tự động báo giá cho Đơn hàng SO (/sales-orders), Mua hàng PO (/purchases) và Gia hạn (/devices)."),
+
+        ["sales-orders"] = new(
+            Key: "sales-orders",
+            Category: "KINH DOANH",
+            Title: "Đơn hàng & Điều phối lắp đặt (SO)",
+            RouteLabel: "/sales-orders",
+            PrimaryHref: "/sales-orders",
+            TabBadge: "Tạo đơn & Dialog xử lý",
+            Actor: "CSKH / Điều phối kho / Quản lý",
+            Summary: "Tiếp nhận thông tin từ Nhân viên bán hàng, tạo đơn hàng SO, và bấm nút trên từng dòng đơn để mở Dialog điều phối, nhập IMEI & hoàn thành đơn.",
+            Purpose: "Quản lý trọn vẹn vòng đời đơn hàng lắp đặt từ lúc Nhân viên bán hàng gửi thông tin khách lắp → CSKH điều phối kho & kỹ thuật → Kỹ thuật gửi IMEI & biển số về → CSKH kích hoạt IMEI & hoàn thành đơn (trừ tồn kho và sinh công nợ).",
+            Tabs:
+            [
+                new("Phần 1: Tạo đơn hàng & Điều sản phẩm ở kho (Trên trang chính)", "Hỗ trợ nút '📋 Dán nhanh tin nhắn NV bán hàng' để tự động điền thông tin khách, chọn Đơn vị/KH, Nhân viên bán hàng, Kho xuất, ĐV lắp đặt hoặc Hãng lắp đặt (có tùy chọn Không trừ tồn kho) và danh sách sản phẩm."),
+                new("Phần 2: Bảng Danh sách đơn hàng lắp đặt (SO)", "Hiển thị gọn gàng trạng thái từng đơn hàng kèm cột 'Thao tác' ở cuối mỗi dòng (⚙ Điều chỉnh / Xử lý, Nhập IMEI, Hủy đơn, 👁 Xem chi tiết)."),
+                new("Phần 3: Dialog Điều chỉnh & Xử lý đơn hàng (Mở khi bấm nút trên dòng đơn)", "Hộp thoại tập trung đầy đủ thao tác cho đơn đang chọn: (1) Lưu thông tin & Điều phối kho / ĐV lắp, (2) Nhập Số IMEI, Biển số xe & Thông tin phụ, (3) Chọn Ngày kích hoạt IMEI & bấm Hoàn thành đơn.")
+            ],
+            Steps:
+            [
+                "Bước 1 (Tạo đơn): Tại mục 1, bấm '📋 Dán nhanh tin nhắn NV bán hàng' (hoặc chọn Khách hàng, nhập tên/SĐT khách lắp, địa chỉ, thời gian lắp), chọn Kho, ĐV lắp đặt, chọn Sản phẩm và bấm '+ Tạo đơn hàng (SO)'. Lúc này tồn kho CHƯA bị trừ.",
+                "Bước 2 (Điều chỉnh / Điều phối): Trong bảng 'Danh sách đơn hàng lắp đặt (SO)', tìm đơn hàng và bấm nút '⚙ Điều chỉnh / Xử lý' ở cột Thao tác để mở Dialog của đơn đó. Kiểm tra/cập nhật Kho xuất, ĐV lắp đặt và bấm '1. Lưu thông tin & Điều phối kho / ĐV lắp'.",
+                "Bước 3 (Nhập IMEI từ kỹ thuật gửi về): Khi kỹ thuật lắp xong và báo mã IMEI + biển số xe về, bấm nút 'Nhập IMEI' (hoặc '⚙ Điều chỉnh / Xử lý') trên dòng đơn hàng → nhập hoặc chọn mã IMEI từ danh sách tồn kho, nhập Biển số xe, Thông tin phụ → bấm '2. Lưu Số IMEI & Thông tin phụ'.",
+                "Bước 4 (Hoàn thành & Kích hoạt IMEI): Kiểm tra '📅 Ngày kích hoạt IMEI' trong Dialog và bấm nút cam '3. Hoàn thành đơn & Kích hoạt IMEI' → Xác nhận trên hộp thoại. Hệ thống lập tức trừ tồn kho, kích hoạt hạn bảo hành/thuê bao cho IMEI và tự động tạo công nợ bên Kế toán."
+            ],
+            Notes:
+            [
+                "Chỉ khi chọn loại đơn vị lắp đặt là 'Hãng lắp đặt' thì mới được phép bật tích 'Không trừ tồn kho'. Nếu là ĐV lắp đặt nội bộ/CTV/đại lý thì hệ thống bắt buộc trừ tồn kho khi hoàn thành đơn.",
+                "Sau khi đơn hàng đã chuyển sang trạng thái COMPLETED (Hoàn thành), mọi thông tin giá bán, giá vốn, công lắp và IMEI đều được khóa bảo toàn lịch sử (bấm '👁 Xem chi tiết' để xem lại)."
+            ],
+            DataFlow: "Cập nhật v7_orders & v7_order_lines → Khi COMPLETED: trừ kho tại stock_units / quantity_balances + tạo thuê bao tại activations + tự động sinh Hóa đơn phải thu KH (SALE) và Công nợ công lắp kỹ thuật (SERVICE) tại /finance."),
+
+        ["purchases"] = new(
+            Key: "purchases",
+            Category: "KINH DOANH",
+            Title: "Mua hàng Nhà cung cấp (PO)",
+            RouteLabel: "/purchases",
+            PrimaryHref: "/purchases",
+            TabBadge: "Đơn mua PO",
+            Actor: "Thu mua / Thủ kho / Kế toán",
+            Summary: "Lập đơn đặt hàng Nhà cung cấp (PO), duyệt đơn mua và xác nhận nhận đủ hàng vào kho.",
+            Purpose: "Theo dõi quy trình đặt mua hàng từ Nhà cung cấp trước khi hàng về kho, hỗ trợ tạo nhanh nhà cung cấp mới ngay trên màn hình tạo PO nếu chưa có trong danh mục.",
+            Tabs:
+            [
+                new("Biểu mẫu Tạo đơn mua hàng (PO)", "Chọn Nhà cung cấp, Kho nhận hàng, Sản phẩm, Số lượng và Đơn giá nhập dự kiến."),
+                new("Danh sách Đơn mua hàng (PO)", "Theo dõi trạng thái PO (DRAFT / APPROVED / RECEIVED) và bấm 'Nhận đủ' khi hàng về kho.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Mua hàng NCC' trên menu Kinh doanh.",
+                "Bấm mở biểu mẫu tạo PO → chọn Nhà cung cấp (hoặc bấm '+ Tạo nhà cung cấp mới' ngay bên cạnh nếu NCC mới), chọn Kho nhận, Sản phẩm, Số lượng, Đơn giá → bấm '+ Tạo PO'.",
+                "Trong danh sách PO bên dưới, khi hàng thực tế về tới kho, bấm nút 'Nhận đủ' trên dòng PO và xác nhận để hệ thống cộng tồn kho và ghi nhận công nợ phải trả NCC."
+            ],
+            Notes:
+            [
+                "Đối với lô thiết bị định vị/camera cần nhập kèm danh sách mã IMEI chi tiết, bạn có thể nhập trực tiếp tại mục 'Kho → Tab Kho IMEI' để dán hàng loạt mã IMEI cùng lúc."
+            ],
+            DataFlow: "Lưu tại purchase_orders → Khi nhận hàng sẽ tăng tồn kho và tự động sinh Công nợ Sản phẩm (PURCHASE) tại trang Công nợ & thanh toán (/finance)."),
+
+        ["inventory"] = new(
+            Key: "inventory",
+            Category: "KHO & THIẾT BỊ",
+            Title: "Kho (Kho IMEI | Kho số lượng)",
+            RouteLabel: "/inventory · /warehouse-ops",
+            PrimaryHref: "/inventory",
+            TabBadge: "2 Tab",
+            Actor: "Thủ kho / Quản lý kho / Điều phối",
+            Summary: "Trung tâm vận hành kho đặt ở vị trí số 1 của mục Kho & Thiết bị, gom 2 tab: Kho IMEI và Kho số lượng.",
+            Purpose: "Quản lý toàn diện cả 2 loại hình tồn kho trong cùng một màn hình: (1) Thiết bị quản lý theo từng mã IMEI/Seri duy nhất và (2) Hàng hóa/vật tư quản lý theo số lượng.",
+            Tabs:
+            [
+                new("Tab 1: Kho IMEI", "Nhập lô thiết bị IMEI mới từ NCC (hỗ trợ dán danh sách nhiều IMEI mỗi dòng 1 mã hoặc tự sinh theo số lượng), Xuất ký gửi cho khách hàng, Giao thiết bị cho kỹ thuật viên, Hoàn trả về kho, xem Bảng tổng hợp tồn kho theo sản phẩm và Danh sách tra cứu từng mã IMEI."),
+                new("Tab 2: Kho số lượng", "Xem tồn kho số lượng theo từng Kho & Vị trí, lập phiếu Nhập kho (IN), Xuất kho (OUT), Điều chuyển giữa các kho (TRANSFER) và xuất file CSV sổ kho số lượng.")
+            ],
+            Steps:
+            [
+                "Mở mục 'Kho' ở đầu nhóm Kho & Thiết bị trên menu trái.",
+                "Để nhập lô thiết bị có IMEI: Ở tab 'Kho IMEI' → chọn Nhà cung cấp, Sản phẩm có IMEI, Kho nhận → dán danh sách mã IMEI vào ô (mỗi dòng 1 mã) → bấm '+ Nhập kho & Ghi nhận công nợ NCC' và xác nhận.",
+                "Để ký gửi hoặc giao kỹ thuật: Kéo xuống mục 'Xuất ký gửi / Giao kỹ thuật / Hoàn trả kho', chọn IMEI đang trong kho, chọn thao tác tương ứng và bấm thực hiện.",
+                "Để nhập/xuất/chuyển kho hàng số lượng: Bấm sang tab 'Kho số lượng' ở đầu trang → bấm '+ Ghi nhận Nhập / Xuất / Chuyển kho' → chọn Loại giao dịch (IN / OUT / TRANSFER), chọn Kho, Sản phẩm, Số lượng → bấm 'Ghi phiếu'."
+            ],
+            Notes:
+            [
+                "Hệ thống đã tích hợp cơ chế chống lỗi trùng mã IMEI thông minh: nếu danh sách dán vào có các dòng IMEI trùng nhau hoặc trùng với IMEI đã xóa mềm trước đó, hệ thống tự động lọc trùng và khôi phục lại bản ghi mà không báo lỗi SQLite UNIQUE.",
+                "Mỗi lần nhập kho IMEI từ NCC, hệ thống tự động tính tiền theo Bảng giá nhập NCC và sinh hóa đơn Công nợ Sản phẩm (PURCHASE) bên Kế toán."
+            ],
+            DataFlow: "Cập nhật stock_units, inventory_transactions (Tab Kho IMEI) và quantity_balances, quantity_movements (Tab Kho số lượng) → Đồng bộ tồn kho sang Đơn hàng SO (/sales-orders) và Công nợ NCC (/finance)."),
+
+        ["warehouses-catalog"] = new(
+            Key: "warehouses-catalog",
+            Category: "KHO & THIẾT BỊ",
+            Title: "Danh sách Kho (Chi tiết Kho | Khu vực)",
+            RouteLabel: "/catalog/warehouses · /catalog/areas",
+            PrimaryHref: "/catalog/warehouses",
+            TabBadge: "2 Tab",
+            Actor: "Quản lý kho / Admin",
+            Summary: "Khai báo danh sách các Kho hàng (Kho công ty, Kho HTX, Kho đại lý) và phân vùng Khu vực địa lý.",
+            Purpose: "Tổ chức mạng lưới kho lưu trữ hàng hóa và thiết bị theo từng khu vực (Miền Nam, Cần Thơ, TP.HCM, Kiên Giang...), đồng thời thống kê nhanh số lượng IMEI đang nằm tại từng kho.",
+            Tabs:
+            [
+                new("Tab 1: Chi tiết Kho (/catalog/warehouses)", "Hiển thị danh sách tất cả các kho, mã kho (VD: KHO-TNM, KHO-NT...), thuộc khu vực nào, địa chỉ kho và thống kê trực tiếp tổng số IMEI (bao nhiêu trong kho / bao nhiêu đã kích hoạt)."),
+                new("Tab 2: Khu vực (/catalog/areas)", "Quản lý danh mục các Khu vực địa lý và tổng số kho trực thuộc mỗi khu vực.")
+            ],
+            Steps:
+            [
+                "Chọn mục 'Danh sách Kho' (vị trí số 2 trong nhóm Kho & Thiết bị).",
+                "Nếu muốn tạo Khu vực mới trước: Bấm tab 'Khu vực' → bấm '+ Thêm Khu vực' → nhập Mã & Tên khu vực → bấm 'Lưu'.",
+                "Tại tab 'Chi tiết Kho': Bấm '+ Thêm Kho mới' → chọn Khu vực, nhập Mã kho, Tên kho, Địa chỉ kho → bấm 'Lưu' và xác nhận.",
+                "Bấm nút 'Sửa' hoặc 'Xóa' trên từng dòng kho khi cần cập nhật thông tin."
+            ],
+            Notes:
+            [
+                "Các kho được khai báo tại đây sẽ xuất hiện trong danh sách 'Kho nhận' khi nhập hàng và 'Kho điều sản phẩm' khi CSKH tạo/xử lý đơn hàng lắp đặt SO."
+            ],
+            DataFlow: "Lưu tại bảng warehouse_areas & warehouses → Phân quyền phạm vi kho tại (/admin/warehouses) và điều phối xuất/nhập tại (/inventory), (/sales-orders)."),
+
+        ["quantity-counts"] = new(
+            Key: "quantity-counts",
+            Category: "KHO & THIẾT BỊ",
+            Title: "Kiểm kê tồn kho",
+            RouteLabel: "/quantity-counts",
+            PrimaryHref: "/quantity-counts",
+            TabBadge: "Kiểm đếm & Duyệt",
+            Actor: "Thủ kho / Kế toán kho / Quản lý",
+            Summary: "Chốt số lượng tồn kho tại thời điểm kiểm đếm thực tế và duyệt tạo bút toán điều chỉnh chênh lệch tự động.",
+            Purpose: "Đảm bảo số liệu tồn kho trên phần mềm luôn khớp 100% với số lượng hàng thực tế trong kho thông qua quy trình kiểm đếm và phê duyệt minh bạch.",
+            Tabs:
+            [
+                new("Mở phiên kiểm kê & Ghi thực kiểm", "Tạo phiên kiểm kê mới theo Kho & Vị trí, sau đó nhập số lượng đếm thực tế cho từng sản phẩm."),
+                new("Danh sách Phiên kiểm kê & Chi tiết chênh lệch", "Đối chiếu Tồn hệ thống vs Thực kiểm, xem độ lệch (+/-) và bấm Duyệt phiên kiểm kê.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Kiểm kê tồn kho' trên menu Kho & Thiết bị.",
+                "Bấm '+ Mở kiểm kê' → chọn Kho & Vị trí cần kiểm đếm → bấm '+ Mở phiên'.",
+                "Bấm 'Ghi thực kiểm' (hoặc chọn phiên vừa mở) → nhập số lượng đếm thực tế ngoài kho cho sản phẩm → bấm lưu.",
+                "Kiểm tra bảng chi tiết chênh lệch bên dưới. Khi số liệu đã chính xác, Quản lý bấm nút 'Duyệt' và xác nhận để hệ thống tự động tạo giao dịch cân bằng tồn kho."
+            ],
+            Notes:
+            [
+                "Sau khi phiên kiểm kê đã chuyển sang trạng thái APPROVED (Đã duyệt), số liệu của phiên đó được khóa cố định và lưu vết vào lịch sử sổ kho."
+            ],
+            DataFlow: "Lưu tại stock_take_sessions & stock_take_lines → Khi duyệt sẽ tự động sinh bút toán điều chỉnh tại quantity_movements và cập nhật quantity_balances."),
+
+        ["devices"] = new(
+            Key: "devices",
+            Category: "KHO & THIẾT BỊ",
+            Title: "Thiết bị & gia hạn",
+            RouteLabel: "/devices",
+            PrimaryHref: "/devices",
+            TabBadge: "Theo dõi hạn & Gia hạn",
+            Actor: "CSKH / Nhân viên bán hàng / Kế toán",
+            Summary: "Quản lý toàn bộ thiết bị IMEI đang hoạt động, biển số xe, cảnh báo sắp hết hạn/quá hạn và thực hiện gia hạn thuê bao.",
+            Purpose: "Giúp CSKH và Nhân viên bán hàng theo dõi sát sao ngày kích hoạt, ngày hết hạn của từng thiết bị đã lắp cho khách; chủ động liên hệ khách gia hạn đúng hạn và ghi nhận doanh số/hoa hồng gia hạn cho Nhân viên bán hàng.",
+            Tabs:
+            [
+                new("Biểu mẫu + Gia hạn thiết bị", "Chọn thiết bị/biển số cần gia hạn, chọn Nhân viên bán hàng phụ trách gia hạn (tính hoa hồng), nguồn gia hạn và hình thức thanh toán (Ghi công nợ / Thanh toán ngay)."),
+                new("Biểu mẫu Cập nhật Thời gian gia hạn & Ngày kích hoạt", "Cho phép điều chỉnh Ngày kích hoạt IMEI, tính nhanh theo thời hạn (6/12/24/36 tháng), sửa Ngày hết hạn, Biển số xe, Thông tin phụ và Nhân viên bán hàng phụ trách."),
+                new("Bảng Danh sách kích hoạt & Lịch sử gia hạn", "Bộ lọc theo trạng thái hạn (Tất cả, Còn hạn, Sắp hết hạn, Quá hạn D+10/30/60) và bảng lịch sử chi tiết từng lần gia hạn.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Thiết bị & gia hạn' trên menu Kho & Thiết bị.",
+                "Sử dụng các nút lọc ('Sắp hết hạn', 'Quá hạn D+10', 'Quá hạn D+30'...) hoặc ô tìm kiếm IMEI / Biển số xe để lọc các xe cần nhắc gia hạn.",
+                "Để gia hạn: Bấm nút '+ Gia hạn' ngay trên dòng thiết bị đó (hoặc trên thanh công cụ) → chọn 'Nhân viên bán hàng gia hạn (Tính hoa hồng)' → chọn 'Ghi công nợ' hoặc 'Thanh toán ngay' → bấm '+ Gia hạn 12 tháng' và xác nhận.",
+                "Để sửa ngày kích hoạt / hạn thiết bị / biển số xe: Bấm nút 'Sửa hạn / TT' trên dòng thiết bị → chỉnh lại Ngày kích hoạt hoặc Ngày hết hạn, Biển số, Thông tin phụ → bấm 'Lưu Thời gian gia hạn & Thông tin thiết bị'."
+            ],
+            Notes:
+            [
+                "Mọi điều chỉnh về Ngày kích hoạt, Ngày hết hạn và Nhân viên bán hàng đều được phép cập nhật linh hoạt cho đến khi Kế toán bấm 'Chốt số / Khóa sổ' kỳ đó.",
+                "Nếu lỡ bấm gia hạn nhầm, bạn có thể bấm nút 'Xóa' ở bảng 'Lịch sử gia hạn' bên dưới (khi kỳ kế toán chưa khóa sổ) để hoàn tác lại hạn cũ và hủy hóa đơn gia hạn tương ứng."
+            ],
+            DataFlow: "Cập nhật bảng activations & renewals → Tự động sinh Công nợ Gia hạn (RENEWAL) và cộng chỉ tiêu hoa hồng gia hạn cho Nhân viên bán hàng tại trang Kế toán (/finance)."),
+
+        ["warranties"] = new(
+            Key: "warranties",
+            Category: "KHO & THIẾT BỊ",
+            Title: "Bảo hành thiết bị (RMA)",
+            RouteLabel: "/warranties",
+            PrimaryHref: "/warranties",
+            TabBadge: "Quy trình 3 bước",
+            Actor: "Kỹ thuật / CSKH / Thủ kho",
+            Summary: "Theo dõi quy trình bảo hành thiết bị theo mã IMEI qua 3 bước: Nhận từ khách → Gửi hãng bảo hành → Trả khách.",
+            Purpose: "Kiểm soát chặt chẽ các thiết bị gặp sự cố kỹ thuật cần thu hồi về bảo hành, tránh thất lạc thiết bị khi gửi đi Nhà cung cấp/Hãng.",
+            Tabs:
+            [
+                new("Biểu mẫu tạo & cập nhật phiếu bảo hành", "Nhập mã IMEI cần bảo hành, mô tả lỗi và chuyển trạng thái theo 3 bước."),
+                new("Danh sách hồ sơ bảo hành (RMA)", "Theo dõi trạng thái hiện tại của từng thiết bị đang bảo hành.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Bảo hành' trên menu Kho & Thiết bị.",
+                "Bước 1 (Tiếp nhận từ khách): Chọn mã IMEI của khách báo lỗi, nhập mô tả tình trạng lỗi và bấm tạo phiếu tiếp nhận bảo hành.",
+                "Bước 2 (Gửi hãng/NCC): Khi gửi thiết bị về hãng sửa chữa, bấm chuyển trạng thái sang 'Gửi hãng'.",
+                "Bước 3 (Hoàn tất trả khách): Khi nhận lại thiết bị từ hãng và lắp trả cho khách, bấm hoàn tất bảo hành để thiết bị quay lại trạng thái hoạt động bình thường."
+            ],
+            Notes:
+            [
+                "Toàn bộ lịch sử luân chuyển IMEI trong quá trình bảo hành đều được ghi vào sổ giao dịch kho IMEI."
+            ],
+            DataFlow: "Cập nhật bảng warranties & trạng thái stock_units (WARRANTY ↔ INSTALLED/IN_STOCK)."),
+
+        ["finance"] = new(
+            Key: "finance",
+            Category: "TÀI CHÍNH & BÁO CÁO",
+            Title: "Công nợ, Sổ Thu/Chi & Chốt số Kế toán",
+            RouteLabel: "/finance",
+            PrimaryHref: "/finance",
+            TabBadge: "4 Phân mục Công nợ & Sổ quỹ",
+            Actor: "Kế toán / Chủ sở hữu (Owner) / Quản lý",
+            Summary: "Quản lý 4 nhóm Công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật & Hoa hồng NV bán hàng), lập Phiếu Thu/Chi, Sổ quỹ và Khóa sổ cuối kỳ.",
+            Purpose: "Trung tâm tài chính – kế toán của hệ thống: tự động tập hợp mọi khoản phải thu/phải trả phát sinh từ Kho, Đơn hàng SO và Gia hạn; quản lý dòng tiền Thu – Chi – Tồn quỹ và đối soát hoa hồng nhân viên bán hàng.",
+            Tabs:
+            [
+                new("4 Tab Phân mục Công nợ", "(1) Tất cả công nợ, (2) 1. Công nợ Sản phẩm (Nhập NCC - Phải trả), (3) 2. Công nợ Khách hàng (Đơn lắp đặt - Phải thu), (4) 3. Công nợ Gia hạn (Phải thu), (5) 4. Công nợ Khác (Phí lắp kỹ thuật & Hoa hồng NV bán hàng - Phải trả)."),
+                new("Lập Phiếu Thu (PT-) / Phiếu Chi (PC-) & Sổ quỹ", "Thanh toán từng phần hoặc tất toán 100% cho từng chứng từ công nợ, theo dõi Sổ quỹ Thu – Chi – Tồn lũy kế và xuất file CSV."),
+                new("Bảng Thống kê Doanh số & Hoa hồng Nhân viên bán hàng cuối kỳ", "Tự động tổng hợp theo khoảng thời gian (Từ ngày – Đến ngày): số đơn lắp mới, số thiết bị gia hạn, doanh thu và số tiền hoa hồng của từng Nhân viên bán hàng, hỗ trợ nút '+ Lập công nợ hoa hồng' chỉ với 1 cú nhấp chuột."),
+                new("Chốt số & Khóa sổ Kế toán", "Khóa dữ liệu kỳ kế toán sau khi đã đối soát xong để ngăn chặn việc chỉnh sửa ngược về quá khứ.")
+            ],
+            Steps:
+            [
+                "Mở mục 'Công nợ & thanh toán' trên menu Tài chính & Báo cáo.",
+                "Chọn tab phân mục công nợ cần xử lý (VD: '2. Công nợ Khách hàng' để thu tiền khách, hoặc '1. Công nợ Sản phẩm' để trả tiền NCC).",
+                "Bấm nút 'Thu khách' / 'Chi nhập hàng' / 'Chi trả' ngay trên dòng công nợ → hệ thống tự động chọn chứng từ đó vào biểu mẫu Phiếu Thu/Chi → bấm 'Tất toán 100%' (hoặc nhập số tiền thu/chi 1 phần), chọn Tiền mặt/Chuyển khoản → bấm '+ Ghi nhận Phiếu Thu / Phiếu Chi' và xác nhận.",
+                "Để tính và chi hoa hồng cho Nhân viên bán hàng: Kéo xuống bảng 'Thống kê Doanh số & Hoa hồng Nhân viên bán hàng', chọn kỳ Từ ngày – Đến ngày → bấm nút '+ Lập công nợ hoa hồng' tại dòng nhân viên để tạo chứng từ chi hoa hồng.",
+                "Sau khi đối soát xong toàn bộ số liệu cuối kỳ, Kế toán trưởng / Owner chọn ngày chốt và bấm 'Chốt số Kế toán'."
+            ],
+            Notes:
+            [
+                "Bạn có thể bấm nút '🔄 Đồng bộ công nợ từ Kho & Đơn hàng' bất cứ lúc nào để hệ thống rà soát và đảm bảo 100% các lô nhập kho, đơn hàng hoàn thành và lần gia hạn đều đã có chứng từ công nợ khớp tuyệt đối."
+            ],
+            DataFlow: "Lưu tại invoices, payments, payment_allocations, accounting_locks → Xuất báo cáo CSV Công nợ & Sổ quỹ."),
+
+        ["reports-activity"] = new(
+            Key: "reports-activity",
+            Category: "HOẠT ĐỘNG & KIỂM TOÁN",
+            Title: "Báo cáo & Nhật ký hoạt động (Audit Trail)",
+            RouteLabel: "/reports · /activity",
+            PrimaryHref: "/reports",
+            TabBadge: "Báo cáo & Kiểm toán",
+            Actor: "Ban giám đốc / Kế toán / Admin",
+            Summary: "Tra cứu báo cáo tổng hợp doanh thu – lợi nhuận – lịch sử IMEI (/reports) và nhật ký kiểm toán Trước/Sau (/activity).",
+            Purpose: "Đảm bảo tính minh bạch tuyệt đối: mọi thao tác Thêm mới, Cập nhật hay Xóa mềm của bất kỳ tài khoản nào trên hệ thống đều được lưu vết kèm dữ liệu Trước và Sau khi sửa.",
+            Tabs:
+            [
+                new("Báo cáo & Nhật ký (/reports)", "Tổng hợp doanh thu, giá vốn, lợi nhuận gộp ước tính và lịch sử giao dịch xuất/nhập/kích hoạt IMEI."),
+                new("Nhật ký hoạt động (/activity)", "Bộ lọc theo phân hệ/bảng dữ liệu, từ khóa và nút 'Trước / Sau' để xem chi tiết trường dữ liệu nào đã bị thay đổi, ai là người thực hiện và vào thời điểm nào.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Báo cáo & nhật ký' (/reports) để xem tổng hợp tài chính và lịch sử luân chuyển thiết bị.",
+                "Vào mục 'Nhật ký hoạt động' (/activity) khi cần kiểm tra lịch sử chỉnh sửa dữ liệu.",
+                "Tại trang Nhật ký hoạt động, chọn phân hệ cần tra cứu (VD: Đơn hàng, Kho IMEI, Khách hàng, Hóa đơn...) và bấm nút 'Trước / Sau' trên dòng sự kiện để mở bảng so sánh giá trị cũ và giá trị mới."
+            ],
+            Notes:
+            [
+                "Nhật ký kiểm toán (activity_events) là bảng chỉ ghi thêm (append-only), không một ai có thể xóa hoặc sửa lại lịch sử kiểm toán."
+            ],
+            DataFlow: "Đọc từ bảng activity_events, inventory_transactions, invoices và v7_orders."),
+
+        ["admin-security"] = new(
+            Key: "admin-security",
+            Category: "THIẾT LẬP & QUẢN TRỊ",
+            Title: "Phạm vi Kho, Tài khoản & Phân quyền, Kiểm thử luồng",
+            RouteLabel: "/admin/warehouses · /admin/users · /admin/flow-tester",
+            PrimaryHref: "/admin/users",
+            TabBadge: "RBAC & Bảo mật",
+            Actor: "Chủ sở hữu hệ thống (Owner / Admin)",
+            Summary: "Quản lý tài khoản nhân viên, phân quyền chi tiết theo vai trò (RBAC), giới hạn phạm vi kho được phép truy cập và chạy kiểm thử tự động.",
+            Purpose: "Kiểm soát bảo mật chặt chẽ: mỗi nhân sự chỉ nhìn thấy menu và thực hiện được các thao tác cũng như các kho hàng nằm trong phạm vi quyền hạn được cấp.",
+            Tabs:
+            [
+                new("Phạm vi kho (/admin/warehouses)", "Cấu hình giới hạn cho từng tài khoản nhân viên chỉ được phép xem và xuất/nhập trên một hoặc một số kho nhất định."),
+                new("Tài khoản & quyền (/admin/users)", "Tạo tài khoản mới, đặt lại mật khẩu, gán 6 vai trò chuẩn (ADMIN, MANAGER, ACCOUNTANT, WAREHOUSE, CSKH, TECHNICIAN) và tùy chỉnh từng quyền (Allow / Inherit / Deny) cho từng người."),
+                new("Kiểm thử luồng (/admin/flow-tester)", "Công cụ tự động chạy kiểm tra toàn bộ các luồng nghiệp vụ từ đầu đến cuối trên môi trường cô lập để xác nhận hệ thống hoạt động hoàn hảo.")
+            ],
+            Steps:
+            [
+                "Để tạo tài khoản hoặc phân quyền: Vào 'Tài khoản & quyền' (/admin/users) → tạo user hoặc bấm 'Phân quyền / Sửa' trên dòng user → tích chọn Vai trò và tinh chỉnh quyền chi tiết bên dưới → bấm 'Lưu quyền'.",
+                "Để giới hạn kho cho nhân viên: Vào 'Phạm vi kho' (/admin/warehouses) → chọn tài khoản nhân viên → tích chọn các kho mà nhân viên đó được phép quản lý → bấm Lưu.",
+                "Để kiểm tra sức khỏe toàn bộ phần mềm: Vào 'Kiểm thử luồng' (/admin/flow-tester) → bấm chạy kiểm thử để xem kết quả PASS/FAIL của từng bước nghiệp vụ."
+            ],
+            Notes:
+            [
+                "Ngay khi Admin thay đổi quyền hoặc khóa tài khoản của một nhân viên, hiệu lực bảo mật sẽ áp dụng tức thì nhờ cơ chế kiểm tra Security Stamp trực tiếp."
+            ],
+            DataFlow: "Lưu tại users, roles, user_roles, role_permissions, user_permissions và user_warehouse_scopes."),
+
+        // Core Modules 01-06 mapped to detailed guides
+        ["mod-01"] = new(
+            Key: "mod-01",
+            Category: "PHÂN HỆ CỐT LÕI 01",
+            Title: "01. Danh mục & Chính sách giá",
+            RouteLabel: "/products · /catalog/*",
+            PrimaryHref: "/products",
+            TabBadge: "6 Mục Menu Kinh doanh",
+            Actor: "Admin / Quản lý kinh doanh / Kế toán",
+            Summary: "Thiết lập dữ liệu nền tảng: Sản phẩm (2 tab), Nhà cung cấp (2 tab), Khách hàng (2 tab), Nhân viên bán hàng, Người lắp đặt (2 tab) và Giá & chương trình (3 tab).",
+            Purpose: "Chuẩn hóa toàn bộ danh mục đầu vào và biểu giá để khi vận hành đơn hàng hoặc nhập kho, hệ thống tự động nội suy đúng giá mua, giá bán, chiết khấu, công kỹ thuật và hoa hồng nhân viên bán hàng.",
+            Tabs:
+            [
+                new("Sản phẩm & Nhà cung cấp", "Gom gọn thành các tab Chi tiết | Nhóm ngay trong từng mục, giúp tra cứu và khai báo nhanh mà không phải chuyển nhiều menu."),
+                new("Khách hàng & Nhân viên bán hàng", "Mỗi khách hàng/HTX được gắn với Nhóm KH và Nhân viên bán hàng phụ trách."),
+                new("Người lắp đặt & Giá chương trình", "Định mức công lắp theo từng SP và 3 bảng giá: Giá nhập NCC, Giá bán KH, Chương trình ưu đãi.")
+            ],
+            Steps:
+            [
+                "Bước 1: Khai báo Khu vực & Kho tại 'Danh sách Kho' (/catalog/warehouses).",
+                "Bước 2: Khai báo Nhóm SP & Sản phẩm tại 'Sản phẩm' (/products) và Nhóm NCC & Đơn vị NCC tại 'Nhà cung cấp' (/catalog/suppliers).",
+                "Bước 3: Khai báo 'Nhân viên bán hàng' (/catalog/sellers), sau đó khai báo 'Khách hàng' (/catalog/customers) và gắn Nhân viên bán hàng phụ trách.",
+                "Bước 4: Khai báo 'Người lắp đặt' (/catalog/installers) kèm định mức công lắp, và thiết lập 'Giá & chương trình' (/catalog/buy-prices)."
+            ],
+            Notes:
+            [
+                "Tất cả các nút Thêm mới, Lưu cập nhật, Xóa trong các trang danh mục đều có hộp thoại xác nhận lại trước khi thực thi để tránh thao tác nhầm."
+            ],
+            DataFlow: "Cung cấp dữ liệu chuẩn cho toàn bộ các phân hệ Kho, Đơn hàng SO, Gia hạn và Kế toán."),
+
+        ["mod-02"] = new(
+            Key: "mod-02",
+            Category: "PHÂN HỆ CỐT LÕI 02",
+            Title: "02. Nhập kho, Tồn kho IMEI / Số lượng & Bảo hành RMA",
+            RouteLabel: "/inventory · /quantity-counts · /warranties",
+            PrimaryHref: "/inventory",
+            TabBadge: "Kho IMEI & Kho số lượng",
+            Actor: "Thủ kho / Quản lý kho / Kỹ thuật",
+            Summary: "Quản lý nhập kho lô IMEI, xuất ký gửi/giao kỹ thuật, nhập/xuất/chuyển kho số lượng, kiểm kê và bảo hành 3 bước.",
+            Purpose: "Kiểm soát chính xác từng thiết bị theo mã IMEI cũng như từng mặt hàng phụ kiện/vật tư theo số lượng tại từng kho.",
+            Tabs:
+            [
+                new("Kho (/inventory)", "Gồm 2 tab: 'Kho IMEI' (quản lý từng seri thiết bị) và 'Kho số lượng' (nhập/xuất/chuyển kho theo số lượng)."),
+                new("Kiểm kê (/quantity-counts) & Bảo hành (/warranties)", "Đối chiếu tồn thực tế định kỳ và theo dõi thiết bị lỗi gửi bảo hành hãng.")
+            ],
+            Steps:
+            [
+                "Nhập thiết bị có IMEI tại mục 'Kho → Tab Kho IMEI': chọn NCC, Sản phẩm, Kho nhận và dán danh sách IMEI.",
+                "Nhập/Xuất/Chuyển kho hàng hóa theo số lượng tại mục 'Kho → Tab Kho số lượng'.",
+                "Định kỳ mở phiên kiểm kê tại 'Kiểm kê tồn kho' để cân bằng tồn thực tế.",
+                "Khi có thiết bị lỗi cần thu hồi sửa chữa, tạo hồ sơ tại mục 'Bảo hành'."
+            ],
+            Notes:
+            [
+                "Khi nhập kho IMEI từ NCC, hệ thống tự động lọc bỏ các mã IMEI bị trùng trong danh sách dán và tự động khôi phục nếu IMEI đó từng bị xóa mềm trước đây."
+            ],
+            DataFlow: "Tự động tăng tồn kho và sinh Công nợ Sản phẩm (PURCHASE) bên phân hệ Kế toán."),
+
+        ["mod-03"] = new(
+            Key: "mod-03",
+            Category: "PHÂN HỆ CỐT LÕI 03",
+            Title: "03. Đơn hàng & Điều phối lắp đặt (SO)",
+            RouteLabel: "/sales-orders",
+            PrimaryHref: "/sales-orders",
+            TabBadge: "Tạo đơn & Dialog xử lý",
+            Actor: "CSKH / Điều phối / Kỹ thuật",
+            Summary: "Quy trình xử lý đơn hàng lắp đặt SO gọn gàng: Tạo đơn ở mục 1 → Bấm nút trên từng dòng đơn ở bảng dưới để mở Dialog điều chỉnh, nhập IMEI & hoàn thành.",
+            Purpose: "Tách biệt rõ bước Tiếp nhận tạo đơn (chưa trừ kho) và bước Xử lý / Hoàn thành đơn trong Dialog (chỉ trừ tồn kho và kích hoạt IMEI khi lắp đặt thành công).",
+            Tabs:
+            [
+                new("Tạo đơn mới + Dán nhanh tin nhắn NV bán hàng", "Bóc tách tự động nội dung tin nhắn của Nhân viên bán hàng gửi về thành các trường thông tin đơn hàng."),
+                new("Dialog Điều chỉnh & Xử lý đơn hàng", "Mở ra khi bấm nút '⚙ Điều chỉnh / Xử lý' hoặc 'Nhập IMEI' trên dòng đơn hàng trong danh sách.")
+            ],
+            Steps:
+            [
+                "Tạo đơn hàng mới tại Mục 1 (hoặc dùng nút Dán nhanh tin nhắn NV bán hàng) → bấm '+ Tạo đơn hàng (SO)'.",
+                "Tại bảng 'Danh sách đơn hàng lắp đặt (SO)', bấm nút '⚙ Điều chỉnh / Xử lý' trên dòng đơn cần xử lý.",
+                "Trong Dialog hiện ra: điều chỉnh thông tin/kho/ĐV lắp đặt (Bước 1), nhập Số IMEI & Biển số xe (Bước 2), chọn Ngày kích hoạt IMEI và bấm '3. Hoàn thành đơn & Kích hoạt IMEI' (Bước 3)."
+            ],
+            Notes:
+            [
+                "Bảng danh sách đơn hàng đã được tinh gọn (ẩn cột IMEI dài dòng ra khỏi bảng ngoài) để dễ quan sát và thao tác nhanh trên các nút chức năng của từng đơn."
+            ],
+            DataFlow: "Khi bấm Hoàn thành đơn: trừ tồn kho + kích hoạt thuê bao tại /devices + sinh Công nợ KH (SALE) & Công kỹ thuật (SERVICE) tại /finance."),
+
+        ["mod-04"] = new(
+            Key: "mod-04",
+            Category: "PHÂN HỆ CỐT LÕI 04",
+            Title: "04. Thiết bị đang hoạt động & Gia hạn thuê bao",
+            RouteLabel: "/devices",
+            PrimaryHref: "/devices",
+            TabBadge: "Thuê bao & Gia hạn",
+            Actor: "CSKH / Nhân viên bán hàng / Kế toán",
+            Summary: "Theo dõi vòng đời thuê bao sau lắp đặt, cảnh báo hết hạn và gia hạn 12 tháng gắn với Nhân viên bán hàng.",
+            Purpose: "Chăm sóc khách hàng tái tục thuê bao định kỳ hàng năm và tính chính xác hoa hồng gia hạn cho Nhân viên bán hàng phụ trách.",
+            Tabs:
+            [
+                new("Danh sách kích hoạt & Bộ lọc hạn", "Theo dõi Còn hạn, Sắp hết hạn (trong 30 ngày), Quá hạn D+10, D+30, D+60."),
+                new("Gia hạn & Cập nhật hạn thiết bị", "Gia hạn thêm 12 tháng hoặc điều chỉnh lại ngày kích hoạt / ngày hết hạn / biển số xe.")
+            ],
+            Steps:
+            [
+                "Mở mục 'Thiết bị & gia hạn' (/devices) để lọc các xe sắp hết hạn hoặc quá hạn.",
+                "Khi khách đồng ý gia hạn: bấm '+ Gia hạn' → chọn thiết bị, chọn Nhân viên bán hàng phụ trách gia hạn → bấm '+ Gia hạn 12 tháng'.",
+                "Nếu cần điều chỉnh lại ngày kích hoạt hoặc ngày hết hạn thực tế: bấm 'Sửa hạn / TT' trên dòng thiết bị → chọn ngày mới và bấm Lưu."
+            ],
+            Notes:
+            [
+                "Mỗi lần gia hạn sẽ cộng thêm 12 tháng vào hạn hiện tại của thiết bị, đồng thời lưu vào bảng Lịch sử gia hạn bên dưới."
+            ],
+            DataFlow: "Tự động sinh hóa đơn Công nợ Gia hạn (RENEWAL) và cộng doanh số gia hạn cho Nhân viên bán hàng tại /finance."),
+
+        ["mod-05"] = new(
+            Key: "mod-05",
+            Category: "PHÂN HỆ CỐT LÕI 05",
+            Title: "05. Kế toán Công nợ, Sổ Thu/Chi & Hoa hồng",
+            RouteLabel: "/finance",
+            PrimaryHref: "/finance",
+            TabBadge: "Công nợ & Sổ quỹ",
+            Actor: "Kế toán / Chủ sở hữu (Owner)",
+            Summary: "Quản lý toàn bộ công nợ Phải thu / Phải trả, lập Phiếu Thu/Chi, đối soát hoa hồng Nhân viên bán hàng và khóa sổ kế toán.",
+            Purpose: "Khép kín chu trình tài chính: mọi nghiệp vụ phát sinh ở Kho, Đơn hàng, Gia hạn đều hội tụ về bảng Công nợ và Sổ quỹ Kế toán.",
+            Tabs:
+            [
+                new("4 Nhóm Công nợ & Sổ quỹ Thu – Chi – Tồn", "Phân tách rõ Công nợ Sản phẩm (NCC), Công nợ Khách hàng, Công nợ Gia hạn và Công nợ Khác (Kỹ thuật/Hoa hồng)."),
+                new("Thống kê Hoa hồng Nhân viên bán hàng & Khóa sổ", "Tính hoa hồng tự động theo kỳ và chốt khóa sổ kế toán.")
+            ],
+            Steps:
+            [
+                "Vào mục 'Công nợ & thanh toán' (/finance).",
+                "Chọn phân mục công nợ → bấm nút 'Thu khách' hoặc 'Chi trả' trên dòng chứng từ → lập Phiếu Thu (PT-) hoặc Phiếu Chi (PC-).",
+                "Kiểm tra bảng 'Thống kê Doanh số & Hoa hồng Nhân viên bán hàng' cuối kỳ và bấm '+ Lập công nợ hoa hồng' để hạch toán chi hoa hồng.",
+                "Bấm 'Chốt số Kế toán' khi đã hoàn tất đối soát kỳ."
+            ],
+            Notes:
+            [
+                "Khi kỳ kế toán đã được Khóa sổ, các đơn hàng và thiết bị thuộc kỳ đã khóa sẽ được bảo vệ không cho sửa/xóa ngược."
+            ],
+            DataFlow: "Tổng hợp từ toàn bộ hệ thống và xuất báo cáo CSV Kế toán chuẩn UTF-8."),
+
+        ["mod-06"] = new(
+            Key: "mod-06",
+            Category: "PHÂN HỆ CỐT LÕI 06",
+            Title: "06. Phân quyền RBAC, Phạm vi Kho & Kiểm toán",
+            RouteLabel: "/admin/users · /admin/warehouses · /activity",
+            PrimaryHref: "/admin/users",
+            TabBadge: "Bảo mật & Audit",
+            Actor: "Chủ sở hữu hệ thống (Owner / Admin)",
+            Summary: "Kiểm soát quyền truy cập theo vai trò + quyền riêng từng User, giới hạn phạm vi kho và lưu vết kiểm toán 100% thao tác.",
+            Purpose: "Bảo vệ an toàn dữ liệu doanh nghiệp, phân tách rõ quyền hạn giữa các bộ phận và truy vết được mọi thay đổi dữ liệu.",
+            Tabs:
+            [
+                new("Tài khoản & quyền (/admin/users)", "Quản lý user, mật khẩu và ma trận phân quyền chi tiết."),
+                new("Phạm vi kho (/admin/warehouses) & Nhật ký (/activity)", "Giới hạn kho theo user và tra cứu lịch sử Trước/Sau.")
+            ],
+            Steps:
+            [
+                "Cấp tài khoản và gán vai trò tại '/admin/users'.",
+                "Giới hạn kho phụ trách (nếu cần) tại '/admin/warehouses'.",
+                "Kiểm tra lịch sử tác động dữ liệu bất kỳ lúc nào tại '/activity'."
+            ],
+            Notes:
+            [
+                "Hệ thống áp dụng cơ chế Xóa mềm (Soft Delete) toàn diện: dữ liệu bị xóa trên giao diện chỉ được đánh dấu deleted_at và lưu vào nhật ký kiểm toán, không bao giờ mất dữ liệu gốc."
+            ],
+            DataFlow: "Bảo vệ toàn bộ các trang Razor và API xuất dữ liệu thông qua PermissionGate & LivePermissionHandler."),
+
+        // Integrity Rules R1-R5
+        ["rule-1"] = new(
+            Key: "rule-1",
+            Category: "QUY TẮC TOÀN VẸN DỮ LIỆU",
+            Title: "Quy tắc 1: Quản lý vòng đời IMEI duy nhất & Khử trùng thông minh",
+            RouteLabel: "Services/DemoDb.cs · Services/V7Orders.cs",
+            PrimaryHref: "/inventory",
+            TabBadge: "Chuẩn hóa IMEI",
+            Actor: "Hệ thống tự động kiểm soát",
+            Summary: "Mỗi thiết bị IMEI chỉ ở 1 trạng thái duy nhất tại 1 thời điểm (IN_STOCK, CONSIGNED, TECHNICIAN, INSTALLED, WARRANTY).",
+            Purpose: "Ngăn chặn tuyệt đối việc xuất trùng 1 mã IMEI cho 2 đơn hàng khác nhau hoặc lỗi xung đột khóa UNIQUE khi nhập lại mã IMEI từng bị xóa mềm.",
+            Tabs: [],
+            Steps:
+            [
+                "Khi nhập kho danh sách IMEI tại '/inventory': Hệ thống tự động cắt khoảng trắng, khử các dòng IMEI trùng nhau trong cùng lần dán.",
+                "Nếu mã IMEI nhập vào trùng với một bản ghi đã xóa mềm trước đây (deleted_at IS NOT NULL) hoặc đang ở trong kho, hệ thống tự động khôi phục và cập nhật về kho mới mà không gây lỗi SQLite Error 19.",
+                "Nếu mã IMEI đang ở trạng thái Đã lắp đặt (INSTALLED) hoặc Đang ký gửi (CONSIGNED), hệ thống sẽ cảnh báo rõ mã IMEI nào đang được sử dụng để thủ kho kiểm tra."
+            ],
+            Notes:
+            [
+                "Khi hoàn thành đơn hàng SO có thiết bị IMEI, nếu mã IMEI kỹ thuật báo về chưa có sẵn trong danh mục kho, hệ thống cũng tự động khởi tạo/cập nhật vào kho xuất của đơn để kích hoạt liền mạch."
+            ],
+            DataFlow: "Kiểm soát trực tiếp trên bảng stock_units và inventory_transactions."),
+
+        ["rule-2"] = new(
+            Key: "rule-2",
+            Category: "QUY TẮC TOÀN VẸN DỮ LIỆU",
+            Title: "Quy tắc 2: Trừ tồn kho đúng thời điểm Hoàn thành đơn (COMPLETED)",
+            RouteLabel: "Services/V7Orders.cs",
+            PrimaryHref: "/sales-orders",
+            TabBadge: "Kiểm soát Tồn kho",
+            Actor: "CSKH / Điều phối kho",
+            Summary: "Tạo đơn và điều phối chưa trừ kho. Tồn kho chỉ giảm khi đơn hàng chuyển sang COMPLETED (hỗ trợ chế độ Không trừ tồn kho khi Hãng lắp đặt).",
+            Purpose: "Đảm bảo số lượng tồn kho trong kho luôn phản ánh đúng lượng hàng thực tế chưa lắp; tránh việc đơn hàng mới tạo hoặc bị hủy làm sai lệch tồn kho.",
+            Tabs: [],
+            Steps:
+            [
+                "Khi tạo đơn hàng mới (PENDING) hoặc lưu điều phối (DISPATCHED / REPORTED): Hệ thống ghi nhận thông tin điều phối nhưng chưa trừ số lượng tồn kho.",
+                "Khi CSKH mở Dialog xử lý đơn và bấm '3. Hoàn thành đơn & Kích hoạt IMEI': Nếu đơn đang ở chế độ 'Trừ tồn kho', hệ thống kiểm tra tồn kho và thực hiện trừ kho chính thức.",
+                "Trường hợp đơn hàng do 'Hãng lắp đặt' thực hiện và CSKH tích chọn 'Không trừ tồn kho': Hệ thống cho phép hoàn thành đơn, kích hoạt theo dõi IMEI và ghi nhận doanh thu mà không làm giảm tồn kho của công ty."
+            ],
+            Notes:
+            [
+                "Hệ thống tự động ràng buộc: chỉ khi chọn Phân loại Đơn vị lắp đặt là 'Hãng lắp đặt' thì mới bật được tùy chọn 'Không trừ tồn kho'."
+            ],
+            DataFlow: "Ghi nhận hiệu ứng tồn kho tại bảng v7_stock_effects, stock_units và quantity_balances."),
+
+        ["rule-3"] = new(
+            Key: "rule-3",
+            Category: "QUY TẮC TOÀN VẸN DỮ LIỆU",
+            Title: "Quy tắc 3: Bảo toàn đơn giá lịch sử (Historical Price Snapshot)",
+            RouteLabel: "Services/V7Orders.cs",
+            PrimaryHref: "/sales-orders",
+            TabBadge: "Chốt giá lịch sử",
+            Actor: "Hệ thống tự động kiểm soát",
+            Summary: "Đơn hàng đã hoàn thành giữ nguyên đơn giá bán, giá vốn, công lắp đặt và Nhân viên bán hàng tại thời điểm phát sinh.",
+            Purpose: "Giúp báo cáo doanh thu, giá vốn, lợi nhuận gộp và hoa hồng của các tháng trước luôn cố định, không bị nhảy số khi Quản lý thay đổi bảng giá sản phẩm ở tháng hiện tại.",
+            Tabs: [],
+            Steps:
+            [
+                "Khi tạo đơn hàng và thêm sản phẩm: Hệ thống tra cứu Bảng giá khách hàng + Chương trình ưu đãi đang có hiệu lực để lấy đơn giá bán.",
+                "Khi hoàn thành đơn hàng: Hệ thống lưu cứng (snapshot) Đơn giá bán (unit_price), Giá vốn (cost_snapshot), Công lắp đặt (installer_fee) và Nhân viên bán hàng vào từng dòng đơn hàng.",
+                "Sau khi đơn hàng ở trạng thái COMPLETED, toàn bộ các trường trong Dialog của đơn hàng được chuyển sang chế độ chỉ đọc (Read-only) để bảo vệ dữ liệu lịch sử."
+            ],
+            Notes:
+            [
+                "Bạn luôn có thể bấm nút '👁 Xem chi tiết' trên các đơn hàng đã hoàn thành để xem lại đầy đủ giá bán, giá vốn, công lắp và danh sách IMEI đã chốt."
+            ],
+            DataFlow: "Lưu cố định tại v7_orders và v7_order_lines."),
+
+        ["rule-4"] = new(
+            Key: "rule-4",
+            Category: "QUY TẮC TOÀN VẸN DỮ LIỆU",
+            Title: "Quy tắc 4: Đồng bộ Kế toán tự động 2 chiều",
+            RouteLabel: "Services/DemoDb.cs · Services/V7Orders.cs",
+            PrimaryHref: "/finance",
+            TabBadge: "Tự động hạch toán",
+            Actor: "Hệ thống tự động & Kế toán",
+            Summary: "Mọi nghiệp vụ Nhập kho, Hoàn thành đơn lắp đặt và Gia hạn thiết bị đều tự động sinh chứng từ Công nợ tương ứng bên Kế toán.",
+            Purpose: "Loại bỏ việc Kế toán phải nhập liệu thủ công lại các hóa đơn mua/bán, chống bỏ sót công nợ phải thu khách hàng hoặc công nợ phải trả NCC / Kỹ thuật.",
+            Tabs: [],
+            Steps:
+            [
+                "Khi Nhập kho IMEI / Nhận PO: Tự động tạo hóa đơn Công nợ Sản phẩm (PURCHASE - Phải trả NCC).",
+                "Khi Hoàn thành đơn hàng SO: Tự động tạo hóa đơn Công nợ Khách hàng (SALE - Phải thu khách) VÀ tạo chứng từ Công nợ Kỹ thuật (SERVICE - Phải trả tiền công lắp cho kỹ thuật viên nếu có).",
+                "Khi Gia hạn thiết bị 12 tháng: Tự động tạo hóa đơn Công nợ Gia hạn (RENEWAL - Phải thu khách) và ghi nhận doanh số gia hạn cho Nhân viên bán hàng."
+            ],
+            Notes:
+            [
+                "Tại trang Công nợ & thanh toán (/finance), nút '🔄 Đồng bộ công nợ từ Kho & Đơn hàng' cho phép rà soát và bù đắp tự động bất kỳ chứng từ nào nếu dữ liệu được import từ bên ngoài."
+            ],
+            DataFlow: "Kết nối tự động từ stock_units, purchase_orders, v7_orders, renewals sang bảng invoices."),
+
+        ["rule-5"] = new(
+            Key: "rule-5",
+            Category: "QUY TẮC TOÀN VẸN DỮ LIỆU",
+            Title: "Quy tắc 5: Hộp thoại Xác nhận thao tác & Kiểm toán Xóa mềm (Soft Delete)",
+            RouteLabel: "wwwroot/js/catalog-export.js · Services/AuditTrail.cs",
+            PrimaryHref: "/activity",
+            TabBadge: "An toàn thao tác",
+            Actor: "Toàn bộ người dùng",
+            Summary: "Tất cả các nút Thêm / Sửa / Xóa trên toàn bộ ứng dụng đều hiển thị Dialog xác nhận lại trước khi thực thi + Lưu vết Trước/Sau.",
+            Purpose: "Ngăn ngừa tối đa việc người dùng bấm nhầm nút Xóa, Hủy đơn hoặc Lưu nhầm thông tin, đồng thời đảm bảo khả năng kiểm tra và khôi phục dữ liệu 100%.",
+            Tabs: [],
+            Steps:
+            [
+                "Khi người dùng bấm bất kỳ nút thao tác Thêm mới (+ Tạo..., + Nhập kho...), Cập nhật (Lưu..., Hoàn thành..., Duyệt...) hoặc Xóa/Hủy (Xóa, Ngừng bán, Hủy đơn): Hệ thống bật hộp thoại xác nhận ở giữa màn hình.",
+                "Chỉ khi người dùng bấm 'Xác nhận thực hiện' trên hộp thoại thì lệnh mới được gửi về máy chủ để cập nhật cơ sở dữ liệu.",
+                "Khi thực hiện Xóa bản ghi, hệ thống chỉ đánh dấu thời gian xóa (deleted_at) và ghi toàn bộ trạng thái Trước/Sau vào bảng kiểm toán activity_events."
+            ],
+            Notes:
+            [
+                "Các nút chỉ dùng để mở khung xem/chỉnh sửa hoặc chuyển tab, tìm kiếm, phân trang sẽ mở ngay lập tức mà không làm phiền người dùng bằng hộp thoại xác nhận."
+            ],
+            DataFlow: "Ghi nhận toàn bộ lịch sử tại bảng activity_events (/activity).")
+    };
+
+    private static readonly List<MenuGroupVm> MenuGroups =
+    [
+        new("1. TỔNG QUAN",
+        [
+            AllGuides["dashboard"]
+        ]),
+        new("2. KINH DOANH (7 MỤC)",
+        [
+            AllGuides["products"],
+            AllGuides["suppliers"],
+            AllGuides["customers"],
+            AllGuides["sellers"],
+            AllGuides["installers"],
+            AllGuides["prices"],
+            AllGuides["sales-orders"],
+            AllGuides["purchases"]
+        ]),
+        new("3. KHO & THIẾT BỊ (5 MỤC — KHO ĐẶT VỊ TRÍ SỐ 1)",
+        [
+            AllGuides["inventory"],
+            AllGuides["warehouses-catalog"],
+            AllGuides["quantity-counts"],
+            AllGuides["devices"],
+            AllGuides["warranties"]
+        ]),
+        new("4. TÀI CHÍNH, BÁO CÁO &THIẾT LẬP QUẢN TRỊ",
+        [
+            AllGuides["finance"],
+            AllGuides["reports-activity"],
+            AllGuides["admin-security"]
+        ])
+    ];
+
+    private static readonly List<CoreModuleVm> CoreModules =
+    [
+        new("mod-01", "01", "Danh mục & Chính sách giá", "Sản phẩm (2 tab), Nhà cung cấp (2 tab), Khách hàng (2 tab), Nhân viên bán hàng, Người lắp đặt (2 tab), Giá & chương trình (3 tab)"),
+        new("mod-02", "02", "Nhập kho, Tồn kho IMEI / Số lượng & Bảo hành RMA", "Kho (Tab Kho IMEI | Tab Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Kiểm kê tồn kho, Bảo hành 3 bước"),
+        new("mod-03", "03", "Đơn hàng & Điều phối lắp đặt (SO)", "Nhận đơn từ Nhân viên bán hàng → Tạo đơn (chưa trừ kho) → Mở Dialog trên từng dòng đơn để điều phối, nhập IMEI & Hoàn thành"),
+        new("mod-04", "04", "Thiết bị đang hoạt động & Gia hạn thuê bao", "Theo dõi hạn thuê bao (Còn hạn, Sắp hết hạn, Quá hạn D+10/30/60), gia hạn 12 tháng gắn Nhân viên bán hàng phụ trách"),
+        new("mod-05", "05", "Kế toán Công nợ, Sổ Thu/Chi & Hoa hồng", "4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng NV bán hàng), Phiếu Thu/Chi & Khóa sổ cuối kỳ"),
+        new("mod-06", "06", "Phân quyền RBAC, Phạm vi Kho & Kiểm toán", "6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, hộp thoại xác nhận Thêm/Sửa/Xóa & lưu vết Trước/Sau")
+    ];
+
+    private static readonly List<CoreModuleVm> IntegrityRules =
+    [
+        new("rule-1", "R1", "Quản lý IMEI duy nhất & Khử trùng thông minh", "Mỗi thiết bị chỉ ở 1 trạng thái tại 1 thời điểm; tự động lọc trùng và khôi phục IMEI xóa mềm khi nhập kho"),
+        new("rule-2", "R2", "Trừ tồn kho đúng thời điểm Hoàn thành đơn", "Tạo đơn & điều phối chưa trừ kho; chỉ trừ kho khi bấm Hoàn thành đơn (cho phép Không trừ kho nếu Hãng lắp đặt)"),
+        new("rule-3", "R3", "Bảo toàn đơn giá lịch sử (Historical Snapshot)", "Đơn hàng đã hoàn thành giữ nguyên giá bán, giá vốn, công lắp và Nhân viên bán hàng tại thời điểm phát sinh"),
+        new("rule-4", "R4", "Đồng bộ Kế toán tự động 2 chiều", "Nhập kho sinh Công nợ NCC; Hoàn thành đơn sinh Công nợ KH & Công kỹ thuật; Gia hạn sinh Công nợ Gia hạn"),
+        new("rule-5", "R5", "Dialog Xác nhận thao tác & Xóa mềm (Soft Delete)", "Mọi nút Thêm/Sửa/Xóa đều hiển thị Dialog xác nhận lại trước khi thực thi; cấm xóa vật lý & lưu vết Trước/Sau")
+    ];
+
+    private static readonly List<WorkflowStageVm> WorkflowStages =
+    [
+        new("mod-01", 1, "B1. Danh mục & Giá", "Admin / Quản lý khai báo tại các mục Kinh doanh & Danh sách Kho", "InputCatalog, ProductMaster", "products, customers, suppliers, v7_sellers, employees, v7_group_prices, v7_installer_product_rates", "Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn"),
+        new("inventory", 2, "B2. Nhập kho & Kho IMEI", "Thủ kho nhập lô IMEI hoặc nhập số lượng tại /inventory (2 tab)", "DemoDb.Receive, V6Ops.ReceivePurchase, V6Ops.MoveQuantity", "stock_units, inventory_transactions, purchase_orders, quantity_movements", "Tăng tồn kho + Tự động sinh Công nợ Sản phẩm (PURCHASE)"),
+        new("sales-orders", 3, "B3. Tạo đơn & Điều phối", "Nhân viên bán hàng gửi thông tin → CSKH tạo đơn tại /sales-orders", "V7Orders.CreateMulti, UpdateOrderInfo, Approve, Dispatch", "v7_orders (PENDING → DISPATCHED), v7_order_lines", "Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho"),
+        new("sales-orders", 4, "B4. Mở Dialog Nhập IMEI & Hoàn thành", "CSKH bấm nút '⚙ Điều chỉnh / Xử lý' trên dòng đơn → Nhập IMEI & bấm Hoàn thành", "V7Orders.ReportLines, V7Orders.Complete", "v7_orders (COMPLETED), stock_units (INSTALLED), v7_stock_effects, activations", "Trừ tồn kho + Sinh Công nợ KH (SALE) & Công kỹ thuật (SERVICE)"),
+        new("devices", 5, "B5. Theo dõi & Gia hạn TB", "CSKH gia hạn thiết bị 12 tháng & chọn Nhân viên bán hàng tại /devices", "DemoDb.Renew, DemoDb.UpdateActivationSchedule", "renewals, activations.expires_at, invoices", "Sinh Công nợ Gia hạn (RENEWAL) + Cộng chỉ tiêu hoa hồng NV bán hàng"),
+        new("finance", 6, "B6. Quyết toán & Hoa hồng", "Kế toán thu/chi công nợ, tính hoa hồng & khóa sổ cuối kỳ tại /finance", "DemoDb.PayInvoice, SellerPeriodStats, LockAccounting", "invoices (OPEN → PARTIAL → PAID), payments, payment_allocations", "Sổ Phiếu Thu (PT-) / Phiếu Chi (PC-), Báo cáo Lợi nhuận & Hoa hồng")
+    ];
 }
