@@ -327,3 +327,9 @@ static string ReadPasswordNoEcho(string prompt)
         if (!char.IsControl(key.KeyChar)) characters.Add(key.KeyChar);
     }
 }
+
+public static class CircuitHealthInterop
+{
+    [Microsoft.JSInterop.JSInvokable("TnmPing")]
+    public static string Ping() => "ok";
+}

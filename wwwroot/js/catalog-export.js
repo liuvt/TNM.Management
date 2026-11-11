@@ -404,6 +404,140 @@ window.tnmScrollCatalogEditor = function () {
         }
     }, true);
 
+    function normPath(p) {
+        if (!p) return '/';
+        const clean = String(p).split('?')[0].split('#')[0].replace(/\/+$/, '');
+        return clean.startsWith('/') ? (clean || '/') : ('/' + clean);
+    }
+
+    function getRenderedPath() {
+        const mainEl = document.querySelector('main.content[data-rendered-path]');
+        if (!mainEl) return null;
+        return normPath(mainEl.getAttribute('data-rendered-path'));
+    }
+
+    let navWatchdogTimer1 = null;
+    let navWatchdogTimer2 = null;
+
+    function clearNavWatchdogs() {
+        if (navWatchdogTimer1) { clearTimeout(navWatchdogTimer1); navWatchdogTimer1 = null; }
+        if (navWatchdogTimer2) { clearTimeout(navWatchdogTimer2); navWatchdogTimer2 = null; }
+    }
+
+    function verifyRouteSyncedOrReload(expectedHref) {
+        const currentPath = normPath(window.location.pathname);
+        const renderedPath = getRenderedPath();
+        let expectedPath = currentPath;
+        if (expectedHref) {
+            try {
+                expectedPath = normPath(new URL(expectedHref, window.location.origin).pathname);
+            } catch {
+                expectedPath = currentPath;
+            }
+        }
+        if (!window.__tnmConnected) {
+            window.location.replace(expectedHref || window.location.href);
+            return true;
+        }
+        if (renderedPath && (renderedPath !== currentPath || renderedPath !== expectedPath)) {
+            window.location.replace(expectedHref || window.location.href);
+            return true;
+        }
+        return false;
+    }
+
+    let lastPingOkAt = Date.now();
+    let pingInFlight = false;
+
+    async function verifyCircuitAlive(pendingBtn) {
+        if (!window.__tnmConnected) {
+            triggerImmediateReconnect();
+            return false;
+        }
+        if (!window.DotNet || typeof window.DotNet.invokeMethodAsync !== 'function') {
+            return true;
+        }
+        if (pingInFlight) return true;
+        pingInFlight = true;
+        try {
+            const res = await Promise.race([
+                window.DotNet.invokeMethodAsync('TNM.Management', 'TnmPing'),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('ping-timeout')), 1500))
+            ]);
+            if (res === 'ok') {
+                lastPingOkAt = Date.now();
+                return true;
+            }
+        } catch {
+            // Circuit is dead or unresponsive
+        } finally {
+            pingInFlight = false;
+        }
+
+        window.__tnmConnected = false;
+        if (pendingBtn && !pendingBtn.disabled) {
+            document.querySelectorAll('input, select, textarea').forEach(el => {
+                if (!el.readOnly && !el.disabled) recordInputChange(el);
+            });
+            recordButtonClick(pendingBtn);
+        }
+        triggerImmediateReconnect();
+        return false;
+    }
+
+    function scheduleNavWatchdog(targetHref) {
+        clearNavWatchdogs();
+        navWatchdogTimer1 = setTimeout(() => {
+            if (!window.__tnmConnected) {
+                window.location.replace(targetHref || window.location.href);
+            }
+        }, 350);
+        navWatchdogTimer2 = setTimeout(() => {
+            verifyRouteSyncedOrReload(targetHref || window.location.href);
+        }, 850);
+    }
+
+    // Intercept internal navigation <a> clicks in capture phase so a sleeping/dead circuit never leaves URL and DOM out of sync
+    window.addEventListener('click', function (e) {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        const anchor = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!anchor) return;
+        if (anchor.target && anchor.target !== '_self') return;
+        if (anchor.hasAttribute('download') || anchor.getAttribute('rel') === 'external') return;
+
+        const rawHref = anchor.getAttribute('href') || '';
+        if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) return;
+
+        let targetUrl;
+        try {
+            targetUrl = new URL(anchor.href, window.location.origin);
+        } catch {
+            return;
+        }
+        if (targetUrl.origin !== window.location.origin) return;
+
+        // If circuit is currently disconnected, bypass Blazor's pushState interception and do a clean browser navigation
+        if (!window.__tnmConnected) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            window.location.assign(targetUrl.href);
+            return;
+        }
+
+        // Even if __tnmConnected appears true (e.g. tab just woke up from sleep), watch the route transition
+        // and force full navigation if the server circuit fails to render the new route within 850ms.
+        scheduleNavWatchdog(targetUrl.href);
+    }, true);
+
+    window.addEventListener('popstate', function () {
+        if (!window.__tnmConnected) {
+            window.location.replace(window.location.href);
+            return;
+        }
+        scheduleNavWatchdog(window.location.href);
+    });
+
     document.addEventListener('click', function (e) {
         if (isFlushingQueue || e.__tnmReplay) return;
         const btn = e.target && e.target.closest ? e.target.closest('button') : null;
@@ -415,6 +549,10 @@ window.tnmScrollCatalogEditor = function () {
             });
             recordButtonClick(btn);
             triggerImmediateReconnect();
+            return;
+        }
+        if (Date.now() - lastPingOkAt > 10000) {
+            verifyCircuitAlive(btn);
         }
     }, true);
 
@@ -471,24 +609,55 @@ window.tnmScrollCatalogEditor = function () {
         }
     }
 
+    function saveCurrentInputsForReload() {
+        try {
+            document.querySelectorAll('input, select, textarea').forEach(el => {
+                if (!el.readOnly && !el.disabled && el.value) recordInputChange(el);
+            });
+        } catch {
+            // ignore
+        }
+    }
+
+    async function reconnectWithTimeout(timeoutMs) {
+        if (!window.Blazor || typeof window.Blazor.reconnect !== 'function') return null;
+        return await Promise.race([
+            window.Blazor.reconnect(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs))
+        ]);
+    }
+
     async function triggerImmediateReconnect() {
         if (window.__tnmConnected || reconnectingLoop) return;
         reconnectingLoop = true;
+        let attempts = 0;
         try {
             while (!window.__tnmConnected) {
+                attempts++;
                 try {
-                    if (window.Blazor && typeof window.Blazor.reconnect === 'function') {
-                        const ok = await window.Blazor.reconnect();
-                        if (ok) {
-                            window.__tnmConnected = true;
-                            await flushOfflineQueue();
-                            return;
-                        }
+                    const ok = await reconnectWithTimeout(3500);
+                    if (ok === true) {
+                        window.__tnmConnected = true;
+                        verifyRouteSyncedOrReload(window.location.href);
+                        await flushOfflineQueue();
+                        return;
+                    }
+                    if (ok === false) {
+                        // Circuit was rejected/expired on the server (e.g., long idle or server restart).
+                        // Reload immediately so a fresh circuit is established at the current URL.
+                        saveCurrentInputsForReload();
+                        window.location.replace(window.location.href);
+                        return;
                     }
                 } catch {
-                    // ignore and retry silently
+                    // Network error or timeout
                 }
-                await new Promise(r => setTimeout(r, 1000));
+                if (attempts >= 3 && navigator.onLine !== false) {
+                    saveCurrentInputsForReload();
+                    window.location.replace(window.location.href);
+                    return;
+                }
+                await new Promise(r => setTimeout(r, 900));
             }
         } finally {
             reconnectingLoop = false;
@@ -503,19 +672,35 @@ window.tnmScrollCatalogEditor = function () {
         worker.onmessage = function () {
             if (!window.__tnmConnected) {
                 triggerImmediateReconnect();
+            } else if (document.visibilityState === 'visible' && Date.now() - lastPingOkAt > 20000) {
+                verifyCircuitAlive();
             }
         };
     } catch {
         // Fallback if Worker is restricted
     }
 
-    document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'visible' && !window.__tnmConnected) {
+    function onTabWakeUp() {
+        if (verifyRouteSyncedOrReload(window.location.href)) return;
+        if (!window.__tnmConnected) {
             triggerImmediateReconnect();
+            return;
+        }
+        verifyCircuitAlive();
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') {
+            onTabWakeUp();
         }
     });
-    window.addEventListener('focus', function () {
-        if (!window.__tnmConnected) triggerImmediateReconnect();
+    window.addEventListener('focus', onTabWakeUp);
+    window.addEventListener('pageshow', function (ev) {
+        if (ev.persisted) {
+            window.location.reload();
+            return;
+        }
+        onTabWakeUp();
     });
     window.addEventListener('online', function () {
         if (!window.__tnmConnected) triggerImmediateReconnect();
@@ -540,6 +725,7 @@ window.tnmScrollCatalogEditor = function () {
                     },
                     onConnectionUp: function () {
                         window.__tnmConnected = true;
+                        verifyRouteSyncedOrReload(window.location.href);
                         flushOfflineQueue();
                     }
                 }

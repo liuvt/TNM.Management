@@ -112,7 +112,7 @@
                 <NotAuthorized><a class="btn" href="/account/login">Đăng nhập</a></NotAuthorized>
             </AuthorizeView>
         </header>
-        <main class="content">
+        <main class="content" data-rendered-path="@CurrentRenderedPath">
             <div class="system-notice"><AppIcon Name="sparkles" Size="16" /><span><strong>TNM Workspace</strong> · Dữ liệu và chức năng hiển thị theo quyền tài khoản.</span></div>
             @Body
         </main>
@@ -121,6 +121,7 @@
 
 @code {
     private bool mobileMenuOpen;
+    private string CurrentRenderedPath => "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/');
     protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(() => { mobileMenuOpen = false; StateHasChanged(); });
     private void ToggleMenu() => mobileMenuOpen = !mobileMenuOpen;
