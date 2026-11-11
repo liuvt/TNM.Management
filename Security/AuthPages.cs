@@ -21,6 +21,7 @@ public static class AuthPages
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="theme-color" content="#faf9f9" />
+<link rel="icon" type="image/png" href="/imgs/logo.png" />
 <title>{{{E(title)}}} · TNM.Management</title>
 <style>
 :root{color-scheme:light;--coral:#ff614a;--coral-dark:#e64b36;--pink:#e84a78;--ink:#272737;--muted:#878895;--line:#e6e6ed}
@@ -54,7 +55,7 @@ button.primary:hover{background:var(--coral-dark);box-shadow:0 7px 19px #ff614a2
 <body>
 <div class="auth-shell">
 <header class="brand" aria-label="TNM Management">
-<span class="brand-logo" aria-hidden="true"><svg width="40" height="40" viewBox="0 0 40 40" fill="none"><path d="M9 20h11l8-10M20 20l8 10" stroke="currentColor" stroke-width="3.3" stroke-linecap="round"/><circle cx="8" cy="20" r="4.4" fill="#fff" stroke="currentColor" stroke-width="3"/><circle cx="29" cy="9" r="4.4" fill="#fff" stroke="currentColor" stroke-width="3"/><circle cx="29" cy="31" r="4.4" fill="#fff" stroke="currentColor" stroke-width="3"/></svg></span>
+<span class="brand-logo" aria-hidden="true"><img src="/imgs/logo.png" alt="Logo" style="width:44px;height:44px;object-fit:contain;border-radius:10px;background:#fff;border:1px solid #e6f4ea;padding:2px" /></span>
 <span class="brand-name">TNM<em>.</em>Management</span>
 </header>
 <section>{{{content}}}</section>

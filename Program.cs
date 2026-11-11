@@ -175,7 +175,9 @@ app.Use(async (http, next) =>
             path.StartsWithSegments("/_framework") ||
             path.StartsWithSegments("/_blazor") ||
             path.StartsWithSegments("/_content") ||
-            path.StartsWithSegments("/css");
+            path.StartsWithSegments("/css") ||
+            path.StartsWithSegments("/imgs") ||
+            path.StartsWithSegments("/js");
         if (!allowed)
         {
             var accounts = http.RequestServices.GetRequiredService<AuthRepository>();
