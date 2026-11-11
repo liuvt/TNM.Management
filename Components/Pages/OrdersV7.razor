@@ -400,15 +400,37 @@
                                     <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
                                         📝 Bổ sung IMEI (@o.MissingImeiCount)
                                     </button>
+                                    <div style="display:flex;gap:5px">
+                                        <button type="button" class="btn secondary btn-sm" style="flex:1" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                            👁 Xem
+                                        </button>
+                                        @if(isAdmin)
+                                        {
+                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" title="Admin: Hủy đơn đã hoàn thành & hoàn lại kho/công nợ" @onclick="() => QuickCancelOrder(o.Id)">
+                                                ↩ Hủy đơn
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else if(o.IsImmutable)
+                            {
+                                <div style="display:flex;flex-direction:column;gap:5px;min-width:148px">
                                     <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                        👁 Xem chi tiết
+                                        👁 Xem / Sửa IMEI
                                     </button>
+                                    @if(isAdmin)
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" title="Admin: Hủy đơn đã hoàn thành & hoàn lại kho/công nợ" @onclick="() => QuickCancelOrder(o.Id)">
+                                            ↩ Hủy đơn (Admin)
+                                        </button>
+                                    }
                                 </div>
                             }
                             else
                             {
                                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                    👁 Xem / Sửa IMEI
+                                    👁 Xem chi tiết
                                 </button>
                             }
                         </td>
@@ -651,6 +673,12 @@
                         <button type="button" class="btn" @onclick="SaveCompletedOrderImeis">
                             💾 @(SelectedOrder.HasMissingImei ? $"Lưu & Kích hoạt IMEI bổ sung ({SelectedOrder.MissingImeiCount} thiết bị)" : "Lưu cập nhật IMEI / Biển số / Ngày kích hoạt")
                         </button>
+                        @if(isAdmin)
+                        {
+                            <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" @onclick="Cancel">
+                                ↩ Hủy đơn đã hoàn thành (Admin: Hoàn tồn kho &amp; Hủy công nợ)
+                            </button>
+                        }
                     }
                 </div>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseOrderModal">Đóng</button>
@@ -675,7 +703,7 @@
     private readonly List<V7OrderLineDraft> draftLines = [];
     private readonly Dictionary<long, LineReportInput> lineReports = [];
 
-    private bool showQuickPaste;
+    private bool showQuickPaste, isAdmin;
     private string sellerRawText = "";
 
     // Create form state
@@ -695,8 +723,17 @@
     private CustomerVm? SelectedCustomer => customers.FirstOrDefault(x => x.Id == customer);
     private V7Order? SelectedOrder => orders.FirstOrDefault(x => x.Id == selected);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var actor = await Gate.RequireAsync(Permissions.OrdersView);
+            isAdmin = Orders.IsAdminActor(actor);
+        }
+        catch
+        {
+            isAdmin = false;
+        }
         customers = Db.Customers();
         warehouses = Ops.AllWarehouses();
         installers = Catalog.Installers();
@@ -968,9 +1005,12 @@
     private Task QuickCancelOrder(long id) => Act(actor =>
     {
         selected = id;
+        var wasCompleted = orders.FirstOrDefault(x => x.Id == id)?.Status == "COMPLETED";
         Orders.Cancel(actor, id);
         showOrderModal = false;
-        return $"Đã hủy đơn SO7-{id:000000}.";
+        return wasCompleted
+            ? $"Đã hủy đơn hoàn thành SO7-{id:000000} (Quyền Admin): Đã hoàn trả tồn kho, gỡ kích hoạt thiết bị và hủy toàn bộ chứng từ công nợ / kế toán liên quan."
+            : $"Đã hủy đơn SO7-{id:000000}.";
     });
 
     private void OnOrderSelected()
@@ -1211,8 +1251,11 @@
 
     private Task Cancel() => Act(actor =>
     {
+        var wasCompleted = SelectedOrder?.Status == "COMPLETED";
         Orders.Cancel(actor, selected);
         showOrderModal = false;
-        return $"Đã hủy đơn SO7-{selected:000000}.";
+        return wasCompleted
+            ? $"Đã hủy đơn hoàn thành SO7-{selected:000000} (Quyền Admin): Đã hoàn trả tồn kho, gỡ kích hoạt thiết bị và hủy toàn bộ chứng từ công nợ / kế toán liên quan."
+            : $"Đã hủy đơn SO7-{selected:000000}.";
     });
 }

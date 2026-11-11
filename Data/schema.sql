@@ -668,16 +668,18 @@ BEGIN SELECT RAISE(ABORT,'AUDIT_APPEND_ONLY'); END;
 CREATE TRIGGER IF NOT EXISTS legacy_audit_no_delete BEFORE DELETE ON audit_logs
 BEGIN SELECT RAISE(ABORT,'AUDIT_APPEND_ONLY'); END;
 
--- Khóa cố định đơn hàng đã hoàn thành (COMPLETED) & bảo vệ giá snapshot cố định
+-- Khóa cố định đơn hàng đã hoàn thành (COMPLETED) & bảo vệ giá snapshot cố định (cho phép bổ sung IMEI hoặc Admin chuyển sang CANCELLED)
+DROP TRIGGER IF EXISTS trg_v7_orders_lock_completed_update;
 CREATE TRIGGER IF NOT EXISTS trg_v7_orders_lock_completed_update
-BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, plate_no, vin_no, notes, imei, activated_at, completed_at ON v7_orders
-WHEN OLD.status = 'COMPLETED'
+BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, notes, completed_at ON v7_orders
+WHEN OLD.status = 'COMPLETED' AND NEW.status <> 'CANCELLED'
 BEGIN
   SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
 END;
 
+DROP TRIGGER IF EXISTS trg_v7_order_lines_lock_completed_update;
 CREATE TRIGGER IF NOT EXISTS trg_v7_order_lines_lock_completed_update
-BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd, imei, plate_no, vin_no ON v7_order_lines
+BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd ON v7_order_lines
 WHEN (SELECT status FROM v7_orders WHERE id = OLD.order_id) = 'COMPLETED'
 BEGIN
   SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Dòng sản phẩm của đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');

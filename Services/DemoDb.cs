@@ -235,7 +235,8 @@ public sealed class DemoDb
             END AS in_stock_qty,
             (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status IN ('CONSIGNED','TECHNICIAN') AND u.deleted_at IS NULL) AS consigned_tech_qty,
             (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status='INSTALLED' AND u.deleted_at IS NULL)
-              + COALESCE((SELECT ABS(SUM(qm.delta_qty)) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.movement_type='ISSUE' AND ($w=0 OR qm.warehouse_id=$w)), 0) AS installed_qty
+              + MAX(0, COALESCE((SELECT ABS(SUM(qm.delta_qty)) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.movement_type='ISSUE' AND ($w=0 OR qm.warehouse_id=$w)), 0)
+                     - COALESCE((SELECT SUM(qm2.delta_qty) FROM quantity_movements qm2 WHERE qm2.product_id=p.id AND qm2.ref_type='V7_ORDER_CANCEL' AND ($w=0 OR qm2.warehouse_id=$w)), 0)) AS installed_qty
             FROM products p
             LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
             WHERE p.is_active=1 AND p.deleted_at IS NULL AND COALESCE(m.product_kind,'GOODS')='GOODS'
@@ -1850,6 +1851,7 @@ public sealed class DemoDb
                 FROM quantity_movements q
                 JOIN products p ON p.id=q.product_id
                 WHERE q.deleted_at IS NULL AND p.is_serialized=0
+                  AND COALESCE(q.ref_type,'') <> 'V7_ORDER_CANCEL'
                   AND (q.movement_type IN ('OPENING','ADJUST') OR (q.movement_type IN ('RECEIVE','PURCHASE_RECEIVE') AND q.delta_qty > 0))
                 GROUP BY q.product_id
                 HAVING SUM(q.delta_qty) > 0",
