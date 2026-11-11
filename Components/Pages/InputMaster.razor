@@ -14,10 +14,9 @@
         <p>@Description</p>
     </div>
     <div class="button-group">
-        @if(CurrentSection=="installers")
+        @if(CurrentSection is "installers" or "installer-rates")
         {
             <a class="btn secondary" href="/sales-orders">Đơn hàng &amp; Điều phối →</a>
-            <a class="btn secondary" href="/catalog/installer-rates">Bảng tổng hợp đơn giá lắp →</a>
         }
         else if(CurrentSection=="sellers")
         {
@@ -32,7 +31,65 @@
     </div>
 </div>
 
-@if(CurrentSection is "warehouses" or "areas")
+@if(CurrentSection == "product-groups")
+{
+    <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a class="btn secondary" href="/products">
+            Chi tiết Sản phẩm (@products.Count)
+        </a>
+        <a class="btn" href="/catalog/product-groups">
+            Nhóm sản phẩm (@productGroups.Count)
+        </a>
+    </div>
+}
+else if(CurrentSection is "suppliers" or "supplier-groups")
+{
+    <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a class="btn @(CurrentSection == "suppliers" ? "" : "secondary")" href="/catalog/suppliers">
+            Chi tiết / Đơn vị NCC (@suppliers.Count)
+        </a>
+        <a class="btn @(CurrentSection == "supplier-groups" ? "" : "secondary")" href="/catalog/supplier-groups">
+            Nhóm NCC (@supplierGroups.Count)
+        </a>
+    </div>
+}
+else if(CurrentSection is "customers" or "customer-groups")
+{
+    <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a class="btn @(CurrentSection == "customers" ? "" : "secondary")" href="/catalog/customers">
+            Chi tiết Khách hàng (@customers.Count)
+        </a>
+        <a class="btn @(CurrentSection == "customer-groups" ? "" : "secondary")" href="/catalog/customer-groups">
+            Nhóm khách hàng (@customerGroups.Count)
+        </a>
+    </div>
+}
+else if(CurrentSection is "installers" or "installer-rates")
+{
+    <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a class="btn @(CurrentSection == "installers" ? "" : "secondary")" href="/catalog/installers">
+            Chi tiết Người lắp đặt (@installers.Count)
+        </a>
+        <a class="btn @(CurrentSection == "installer-rates" ? "" : "secondary")" href="/catalog/installer-rates">
+            Đơn giá theo sản phẩm (@installerRates.Count)
+        </a>
+    </div>
+}
+else if(CurrentSection is "buy-prices" or "sale-prices" or "campaigns")
+{
+    <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a class="btn @(CurrentSection == "buy-prices" ? "" : "secondary")" href="/catalog/buy-prices">
+            Bảng giá nhập NCC (@purchasePrices.Count)
+        </a>
+        <a class="btn @(CurrentSection == "sale-prices" ? "" : "secondary")" href="/catalog/sale-prices">
+            Bảng giá khách hàng (@salePrices.Count)
+        </a>
+        <a class="btn @(CurrentSection == "campaigns" ? "" : "secondary")" href="/catalog/campaigns">
+            Chương trình ưu đãi (@campaigns.Count)
+        </a>
+    </div>
+}
+else if(CurrentSection is "warehouses" or "areas")
 {
     <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
         <a class="btn @(CurrentSection == "warehouses" ? "" : "secondary")" href="/catalog/warehouses">
@@ -582,12 +639,12 @@ else
     private bool IsGroup => CurrentSection is "supplier-groups" or "product-groups" or "customer-groups" or "areas";
     private string GroupType => CurrentSection switch {"supplier-groups"=>"SUPPLIER","product-groups"=>"PRODUCT","customer-groups"=>"CUSTOMER",_=>"AREA"};
     private string Title => CurrentSection switch {
-        "supplier-groups"=>"Nhóm nhà cung cấp", "suppliers"=>"Đơn vị nhà cung cấp", "product-groups"=>"Nhóm sản phẩm",
-        "customer-groups"=>"Nhóm khách hàng", "customers"=>"Thông tin khách hàng",
+        "supplier-groups"=>"Nhà cung cấp — Nhóm NCC", "suppliers"=>"Nhà cung cấp — Chi tiết / Đơn vị NCC", "product-groups"=>"Sản phẩm — Nhóm sản phẩm",
+        "customer-groups"=>"Khách hàng — Nhóm khách hàng", "customers"=>"Khách hàng — Chi tiết Khách hàng",
         "sellers"=>"Quản lý Seller (Nhân viên bán hàng)",
-        "installers"=>"Khai báo: Người lắp đặt", "installer-rates"=>"Đơn giá đi lắp theo sản phẩm",
+        "installers"=>"Người lắp đặt — Chi tiết Người lắp đặt", "installer-rates"=>"Người lắp đặt — Đơn giá theo sản phẩm",
         "areas"=>"Danh sách Kho — Khu vực", "warehouses"=>"Danh sách Kho — Chi tiết Kho",
-        "buy-prices"=>"Bảng giá nhập theo nhóm NCC", "sale-prices"=>"Bảng giá bán theo nhóm khách hàng", "campaigns"=>"Chương trình ưu đãi",_=>"Danh mục đầu vào"};
+        "buy-prices"=>"Giá & Chương trình — Bảng giá nhập NCC", "sale-prices"=>"Giá & Chương trình — Bảng giá khách hàng", "campaigns"=>"Giá & Chương trình — Chương trình ưu đãi",_=>"Danh mục đầu vào"};
     private string Description => CurrentSection switch {
         "supplier-groups"=>"Phân loại các nhà cung cấp để thiết lập giá nhập riêng cho từng nhóm.",
         "product-groups"=>"Mỗi sản phẩm thuộc một nhóm; dữ liệu được dùng chung cho PO, SO và báo cáo.",
@@ -647,19 +704,19 @@ else
         // records into a product-only / customer-only page.
         switch(CurrentSection)
         {
-            case "supplier-groups":supplierGroups=Catalog.SupplierGroups();break;
+            case "supplier-groups":supplierGroups=Catalog.SupplierGroups();suppliers=Catalog.Suppliers();break;
             case "product-groups":productGroups=Catalog.ProductGroupChoices();products=Catalog.Products();break;
             case "customer-groups":customerGroups=Catalog.CustomerGroupChoices();customers=Catalog.Customers();break;
             case "areas":areas=Catalog.Areas();warehouses=Catalog.Warehouses();break;
-            case "suppliers":suppliers=Catalog.Suppliers();supplierGroupChoices=Catalog.SupplierGroupChoices();break;
+            case "suppliers":suppliers=Catalog.Suppliers();supplierGroups=Catalog.SupplierGroups();supplierGroupChoices=Catalog.SupplierGroupChoices();break;
             case "customers":customers=Catalog.Customers();customerGroups=Catalog.CustomerGroupChoices();sellerChoices=Catalog.SellerChoices();break;
             case "sellers":sellers=Catalog.Sellers();break;
-            case "installers":installers=Catalog.Installers();products=Catalog.Products();break;
-            case "installer-rates":installerRates=Catalog.InstallerRates();installerChoices=Catalog.InstallerChoices();products=Catalog.Products();break;
+            case "installers":installers=Catalog.Installers();installerRates=Catalog.InstallerRates();products=Catalog.Products();break;
+            case "installer-rates":installerRates=Catalog.InstallerRates();installers=Catalog.Installers();installerChoices=Catalog.InstallerChoices();products=Catalog.Products();break;
             case "warehouses":warehouses=Catalog.Warehouses();areas=Catalog.Areas();break;
-            case "buy-prices":purchasePrices=Catalog.PurchasePrices();supplierGroupChoices=Catalog.SupplierGroupChoices();products=Catalog.Products();break;
-            case "sale-prices":salePrices=Catalog.SalePrices();customerGroups=Catalog.CustomerGroupChoices();products=Catalog.Products();break;
-            case "campaigns":campaigns=Catalog.Campaigns();customerGroups=Catalog.CustomerGroupChoices();break;
+            case "buy-prices":purchasePrices=Catalog.PurchasePrices();salePrices=Catalog.SalePrices();campaigns=Catalog.Campaigns();supplierGroupChoices=Catalog.SupplierGroupChoices();products=Catalog.Products();break;
+            case "sale-prices":salePrices=Catalog.SalePrices();purchasePrices=Catalog.PurchasePrices();campaigns=Catalog.Campaigns();customerGroups=Catalog.CustomerGroupChoices();products=Catalog.Products();break;
+            case "campaigns":campaigns=Catalog.Campaigns();purchasePrices=Catalog.PurchasePrices();salePrices=Catalog.SalePrices();customerGroups=Catalog.CustomerGroupChoices();break;
         }
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)

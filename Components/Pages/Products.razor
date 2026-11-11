@@ -8,14 +8,22 @@
 
 <div class="page-head">
     <div>
-        <div class="eyebrow">DANH MỤC / SẢN PHẨM</div>
-        <h1>Quản lý sản phẩm</h1>
-        <p>Danh mục sử dụng chung cho PO, SO, kho, IMEI, bảng giá và gia hạn. Không sử dụng Excel kiểm kê làm sản phẩm mẫu.</p>
+        <div class="eyebrow">KINH DOANH / SẢN PHẨM</div>
+        <h1>Sản phẩm — Chi tiết Sản phẩm</h1>
+        <p>Danh mục sử dụng chung cho PO, SO, kho, IMEI, bảng giá và gia hạn.</p>
     </div>
     <div class="button-group">
         @if(canCreate){<button type="button" class="btn" @onclick="Create">+ Tạo sản phẩm</button>}
-        <a class="btn secondary" href="/catalog/product-groups">Nhóm sản phẩm</a>
     </div>
+</div>
+
+<div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    <a class="btn" href="/products">
+        Chi tiết Sản phẩm (@products.Count)
+    </a>
+    <a class="btn secondary" href="/catalog/product-groups">
+        Nhóm sản phẩm (@groups.Count)
+    </a>
 </div>
 
 @if(!string.IsNullOrWhiteSpace(message)) { <p class="feedback" role="status">@message</p> }

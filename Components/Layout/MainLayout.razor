@@ -32,45 +32,27 @@
                     <div class="nav-heading">Kinh doanh</div>
                     @if (Accounts.HasPermission(nav.User, Permissions.ProductsView))
                     {
-                        <div class="nav-group-label"><AppIcon Name="box" /> <span>Sản phẩm</span></div>
-                        <NavLink class="nav-child" href="/catalog/product-groups"><span>Nhóm sản phẩm</span></NavLink>
-                        <NavLink class="nav-child" href="/products"><span>Sản phẩm</span></NavLink>
+                        <NavLink href="/products"><AppIcon Name="box" /> <span>Sản phẩm</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
                     {
-                        <div class="nav-group-label"><AppIcon Name="users" /> <span>Nhà cung cấp</span></div>
-                        <NavLink class="nav-child" href="/catalog/supplier-groups"><span>Nhóm NCC</span></NavLink>
-                        <NavLink class="nav-child" href="/catalog/suppliers"><span>Đơn vị NCC</span></NavLink>
+                        <NavLink href="/catalog/suppliers"><AppIcon Name="users" /> <span>Nhà cung cấp</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.CustomersView))
                     {
-                        <div class="nav-group-label"><AppIcon Name="users" /> <span>Khách hàng</span></div>
-                        <NavLink class="nav-child" href="/catalog/customer-groups"><span>Nhóm khách hàng</span></NavLink>
-                        <NavLink class="nav-child" href="/catalog/customers"><span>Thông tin khách hàng</span></NavLink>
+                        <NavLink href="/catalog/customers"><AppIcon Name="users" /> <span>Khách hàng</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.CustomersView) || Accounts.HasPermission(nav.User, Permissions.OrdersView))
                     {
-                        <div class="nav-group-label"><AppIcon Name="users" /> <span>Seller (NV bán hàng)</span></div>
-                        <NavLink class="nav-child" href="/catalog/sellers"><span>Quản lý &amp; Thống kê Seller</span></NavLink>
+                        <NavLink href="/catalog/sellers"><AppIcon Name="users" /> <span>Seller (NV bán hàng)</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.PricesView))
                     {
-                        <div class="nav-group-label"><AppIcon Name="wrench" /> <span>Người lắp đặt</span></div>
-                        @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
-                        {
-                            <NavLink class="nav-child" href="/catalog/installers"><span>Khai báo người lắp đặt</span></NavLink>
-                        }
-                        @if (Accounts.HasPermission(nav.User, Permissions.PricesView))
-                        {
-                            <NavLink class="nav-child" href="/catalog/installer-rates"><span>Đơn giá đi lắp theo SP</span></NavLink>
-                        }
+                        <NavLink href="@(Accounts.HasPermission(nav.User, Permissions.MasterDataManage) ? "/catalog/installers" : "/catalog/installer-rates")"><AppIcon Name="wrench" /> <span>Người lắp đặt</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.PricesView))
                     {
-                        <div class="nav-group-label"><AppIcon Name="wallet" /> <span>Giá & chương trình</span></div>
-                        <NavLink class="nav-child" href="/catalog/buy-prices"><span>Bảng giá nhập NCC</span></NavLink>
-                        <NavLink class="nav-child" href="/catalog/sale-prices"><span>Bảng giá khách hàng</span></NavLink>
-                        <NavLink class="nav-child" href="/catalog/campaigns"><span>Chương trình ưu đãi</span></NavLink>
+                        <NavLink href="/catalog/buy-prices"><AppIcon Name="wallet" /> <span>Giá &amp; chương trình</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.OrdersView)) { <NavLink href="/sales-orders"><AppIcon Name="file" /> <span>Đơn hàng & lắp đặt</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.PurchaseView)) { <NavLink href="/purchases"><AppIcon Name="cart" /> <span>Mua hàng NCC</span></NavLink> }
