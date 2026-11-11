@@ -20,30 +20,30 @@ public static class AuthPages
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<meta name="theme-color" content="#faf9f9" />
+<meta name="theme-color" content="#f7f9f8" />
 <link rel="icon" type="image/png" href="/imgs/logo.png" />
 <title>{{{E(title)}}} · TNM.Management</title>
 <style>
-:root{color-scheme:light;--coral:#ff614a;--coral-dark:#e64b36;--pink:#e84a78;--ink:#272737;--muted:#878895;--line:#e6e6ed}
+:root{color-scheme:light;--coral:#2b9348;--coral-dark:#1e6b43;--pink:#1e6b43;--ink:#1f2924;--muted:#74827a;--line:#e2ebe5}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;font-family:Inter,"Segoe UI",ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;-webkit-font-smoothing:antialiased}
-body{min-height:100vh;min-height:100dvh;background:radial-gradient(ellipse at 2% 2%,#fff0f1 0%,transparent 28%),radial-gradient(ellipse at 98% 98%,#fff0e8 0%,transparent 30%),#faf9f9;color:var(--ink);display:grid;place-items:center;padding:30px 18px}
+body{min-height:100vh;min-height:100dvh;background:radial-gradient(ellipse at 2% 2%,#ebfbee 0%,transparent 28%),radial-gradient(ellipse at 98% 98%,#e6fcf5 0%,transparent 30%),#f7f9f8;color:var(--ink);display:grid;place-items:center;padding:30px 18px}
 a{color:var(--coral);text-decoration:none}a:hover{text-decoration:underline}
 .auth-shell{width:100%;max-width:405px;position:relative;z-index:1}
-.brand{display:flex;align-items:center;justify-content:center;gap:11px;margin-bottom:25px}.brand-logo{width:40px;height:40px;display:grid;place-items:center;color:var(--pink)}.brand-name{font-size:21px;font-weight:800;letter-spacing:-.85px;color:#272737}.brand-name em{font-style:normal;color:var(--coral)}
-section{background:#fff;border:1px solid #ecebf0;border-radius:16px;padding:32px;box-shadow:0 16px 60px #2624360b,0 2px 8px #26243604}
+.brand{display:flex;align-items:center;justify-content:center;gap:11px;margin-bottom:25px}.brand-logo{width:44px;height:44px;display:grid;place-items:center;color:var(--pink)}.brand-name{font-size:21px;font-weight:800;letter-spacing:-.85px;color:#1f2924}.brand-name em{font-style:normal;color:var(--coral)}
+section{background:#fff;border:1px solid #e2ebe5;border-radius:16px;padding:32px;box-shadow:0 16px 60px rgba(27,67,50,.06),0 2px 8px rgba(27,67,50,.03)}
 .overline{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;font-weight:770;color:var(--pink);margin-bottom:7px}
-h1{margin:0 0 6px;font-size:25px;font-weight:760;letter-spacing:-.9px;line-height:1.3;color:#272737}
+h1{margin:0 0 6px;font-size:25px;font-weight:760;letter-spacing:-.9px;line-height:1.3;color:#1f2924}
 p{font-size:12px;color:var(--muted);line-height:1.7;margin:0 0 23px}
-label{display:block;margin-bottom:17px;font-size:12px;font-weight:670;color:#484957}
+label{display:block;margin-bottom:17px;font-size:12px;font-weight:670;color:#3d4d44}
 .field-wrap{position:relative;margin-top:7px}
-input{width:100%;min-width:0;height:44px;border:1px solid #e0e1e8;border-radius:9px;padding:10px 12px 10px 39px;color:#292b3a;background:#fff;outline:none;font:500 12px Inter,"Segoe UI",system-ui,sans-serif;transition:border-color .16s,box-shadow .16s}
-input:focus{border-color:#ff9c89;box-shadow:0 0 0 3px #ff614a17}input::placeholder{color:#b0b1bb}input:disabled{background:#fafafa;color:#777987}
-.field-icon{position:absolute;left:13px;top:12px;color:#a7a8b3;pointer-events:none}
+input{width:100%;min-width:0;height:44px;border:1px solid #dce4df;border-radius:9px;padding:10px 12px 10px 39px;color:#1f2924;background:#fff;outline:none;font:500 12px Inter,"Segoe UI",system-ui,sans-serif;transition:border-color .16s,box-shadow .16s}
+input:focus{border-color:#40c057;box-shadow:0 0 0 3px rgba(43,147,72,.14)}input::placeholder{color:#9ca8a1}input:disabled{background:#f7faf8;color:#74827a}
+.field-icon{position:absolute;left:13px;top:12px;color:#92a098;pointer-events:none}
 .password-field input{padding-right:46px}
-.toggle-visibility{position:absolute;right:7px;top:6px;width:33px;height:33px;border:0;background:transparent;border-radius:7px;display:grid;place-items:center;color:#9b9ba8;cursor:pointer}.toggle-visibility:hover{background:#fff1ed;color:var(--coral)}
+.toggle-visibility{position:absolute;right:7px;top:6px;width:33px;height:33px;border:0;background:transparent;border-radius:7px;display:grid;place-items:center;color:#8c9a92;cursor:pointer}.toggle-visibility:hover{background:#ebfbee;color:var(--coral)}
 button.primary{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:6px;min-height:43px;border:1px solid var(--coral);border-radius:9px;background:var(--coral);color:#fff;font:720 12.5px Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;transition:.16s}
-button.primary:hover{background:var(--coral-dark);box-shadow:0 7px 19px #ff614a2d}button.primary:focus-visible,.toggle-visibility:focus-visible{outline:3px solid #ff614a55;outline-offset:2px}
+button.primary:hover{background:var(--coral-dark);border-color:var(--coral-dark);box-shadow:0 7px 19px rgba(43,147,72,.24)}button.primary:focus-visible,.toggle-visibility:focus-visible{outline:3px solid rgba(43,147,72,.35);outline-offset:2px}
 .assistance{margin:18px 0 0!important;text-align:center;font-size:11px!important}.assistance a{font-weight:700}
 .meta{margin-top:19px;text-align:center;color:#9b9ca6;font-size:10.5px}.meta strong{color:#72737e;font-weight:690}
 .success,.error{border-radius:8px;padding:11px 12px;font-size:11.8px;line-height:1.6;margin:0 0 18px}.success{background:#ebf9f0;color:#207751;border:1px solid #d6efdf}.error{background:#fff0ed;color:#a73a2d;border:1px solid #ffded7}
