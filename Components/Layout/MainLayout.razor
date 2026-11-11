@@ -80,7 +80,6 @@
                         @if (Accounts.HasPermission(nav.User, Permissions.ReportsAuditView)) { <NavLink href="/activity"><AppIcon Name="shield" /> <span>Nhật ký hoạt động</span></NavLink> }
                     }
                     <div class="nav-heading">Thiết lập</div>
-                    @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage)) { <NavLink href="/admin/master-data"><AppIcon Name="settings" /> <span>Danh mục nền</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.WarehouseScopeManage)) { <NavLink href="/admin/warehouses"><AppIcon Name="warehouse" /> <span>Phạm vi kho</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.UsersView)) { <NavLink href="/admin/users"><AppIcon Name="shield" /> <span>Tài khoản & quyền</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.ArchitectureView))
