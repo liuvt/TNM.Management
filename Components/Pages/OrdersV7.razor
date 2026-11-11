@@ -268,216 +268,6 @@
     </div>
 </section>
 
-<section class="panel">
-    <div class="panel-head">
-        <div>
-            <h2>2. Cập nhật thông tin từ ĐV lắp đặt, Kích hoạt IMEI &amp; Hoàn thành đơn (Trừ tồn kho)</h2>
-            <p>ĐV lắp đặt gửi số IMEI &amp; thông tin phụ về → CSKH cập nhật vào đơn, bổ sung Ngày kích hoạt IMEI và xác nhận Hoàn thành (chỉ trừ tồn kho khi đơn hàng thành công).</p>
-        </div>
-    </div>
-
-    <div class="form-grid">
-        <label style="grid-column:span 2">Chọn đơn hàng cần xử lý / cập nhật *
-            <select @bind="selected" @bind:after="OnOrderSelected">
-                <option value="0">— Chọn đơn hàng —</option>
-                @foreach(var o in orders)
-                {
-                    <option value="@o.Id">@o.Code — @o.Customer @(string.IsNullOrWhiteSpace(o.ContactName) ? "" : $"({o.ContactName})") · @o.Product [@o.Status]</option>
-                }
-            </select>
-        </label>
-        <label>Kho điều sản phẩm *
-            <select @bind="warehouse">
-                <option value="0">— Chọn kho xuất —</option>
-                @foreach(var w in warehouses)
-                {
-                    <option value="@w.Id">@w.Name (@w.Code)</option>
-                }
-            </select>
-        </label>
-        <label>Loại Đơn vị lắp đặt *
-            <select value="@source" @onchange="OnEditSourceChanged">
-                <option value="INTERNAL">ĐV lắp đặt (Nội bộ / CTV / Đại lý)</option>
-                <option value="PARTNER">Hãng lắp đặt</option>
-            </select>
-        </label>
-        @if(source == "INTERNAL")
-        {
-            <label>Chọn ĐV lắp đặt (đã khai báo)
-                <select @bind="installerEmployeeId" @bind:after="OnInstallerEmployeeChanged">
-                    <option value="0">— Chọn nhân sự / ĐV lắp đặt —</option>
-                    @foreach(var emp in installers)
-                    {
-                        <option value="@emp.Id">@emp.Code — @emp.Name (@GetRateLabel(emp.Id))</option>
-                    }
-                </select>
-            </label>
-            <label>Tên ĐV lắp đặt *
-                <input @bind="installer" placeholder="Tự động điền khi chọn hoặc nhập tên ĐV lắp đặt" />
-            </label>
-        }
-        else
-        {
-            <label>Chọn nhanh Hãng lắp đặt
-                <select @onchange="OnEditManufacturerPick">
-                    <option value="">— Chọn Hãng / NCC hoặc nhập tên bên cạnh —</option>
-                    @foreach(var s in suppliers)
-                    {
-                        <option value="@s.Name">Hãng/NCC: @s.Name</option>
-                    }
-                    @foreach(var emp in installers)
-                    {
-                        <option value="@emp.Name">@emp.Name (@emp.Department)</option>
-                    }
-                </select>
-            </label>
-            <label>Tên Hãng lắp đặt *
-                <input @bind="installer" placeholder="Bắt buộc nhập tên Hãng lắp đặt" />
-            </label>
-        }
-
-        <label class="checkbox-row" style="grid-column:span 2;padding:0.5rem 0.75rem;background:@(noDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(noDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
-            <input type="checkbox" checked="@noDeductStock" @onchange="OnEditNoDeductChanged" />
-            <span>
-                <strong>Không trừ tồn kho</strong>
-                <small style="display:block;color:#475569">
-                    @(noDeductStock
-                        ? "Đang bật KHÔNG TRỪ TỒN KHO (Chỉ hợp lệ khi Đơn vị lắp đặt là Hãng lắp đặt)."
-                        : "Đang bật TRỪ TỒN KHO: Số lượng tồn kho sẽ giảm ngay khi bấm Hoàn thành đơn hàng.")
-                </small>
-            </span>
-        </label>
-    </div>
-
-    @if(SelectedOrder is not null)
-    {
-        @if(SelectedOrder.IsImmutable)
-        {
-            <div style="margin-top:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
-                Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), NV bán hàng (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã chốt.
-            </div>
-        }
-        <div style="margin-top:0.85rem;padding:0.75rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px">
-            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, nhân viên bán hàng &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
-            <div class="form-grid">
-                <label>Họ tên khách (Chủ xe / Người liên hệ)
-                    <input @bind="editContactName" disabled="@SelectedOrder.IsImmutable" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
-                </label>
-                <label>Số điện thoại khách
-                    <input @bind="editCustomerPhone" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 0886287429" />
-                </label>
-                <label>Nhân viên bán hàng
-                    <select @bind="editSellerId" @bind:after="OnEditSellerChanged" disabled="@SelectedOrder.IsImmutable">
-                        <option value="0">— Chọn nhân viên bán hàng —</option>
-                        @foreach(var sl in sellerChoices)
-                        {
-                            <option value="@sl.Id">@sl.Code — @sl.Name</option>
-                        }
-                    </select>
-                </label>
-                <label>Nguồn KH / Ghi chú NV bán hàng
-                    <input @bind="editSaleSource" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi nhận người bán..." />
-                </label>
-                <label>Thời hạn
-                    <select @bind="editDurationMonths" disabled="@SelectedOrder.IsImmutable">
-                        <option value="12">1 năm (12 tháng)</option>
-                        <option value="24">2 năm (24 tháng)</option>
-                        <option value="36">3 năm (36 tháng)</option>
-                        <option value="6">6 tháng</option>
-                    </select>
-                </label>
-                <label>Thời gian lắp đặt
-                    <input @bind="editInstallAt" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 15g00 thứ 3 ( 20/10/2026)" />
-                </label>
-                <label>Địa chỉ lắp đặt
-                    <input @bind="editAddress" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 55 đường 30/4" />
-                </label>
-                <label>Ghi chú đơn hàng
-                    <input @bind="editNotes" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi chú..." />
-                </label>
-            </div>
-        </div>
-    }
-
-    @if(SelectedOrder is not null && SelectedOrder.Lines.Count > 0)
-    {
-        <div style="margin-top:1rem;border-top:1px solid var(--border,#e2e8f0);padding-top:0.85rem">
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.6rem">
-                <h3 style="font-size:0.95rem;margin:0">Thông tin ĐV lắp đặt gửi về (Số IMEI &amp; Thông tin phụ) + Kích hoạt IMEI</h3>
-                <div style="display:flex;align-items:center;gap:0.75rem;background:#eff6ff;padding:0.45rem 0.85rem;border-radius:8px;border:1px solid #bfdbfe">
-                    <label style="margin:0;display:flex;align-items:center;gap:0.4rem;font-weight:600;color:#1e3a8a">
-                        <span>📅 Ngày kích hoạt IMEI *:</span>
-                        <input type="date" @bind="activationDateInput" disabled="@SelectedOrder.IsImmutable" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
-                    </label>
-                    <span class="chip blue-chip">Hết hạn dự kiến: @activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy") (@(editDurationMonths == 12 ? "1 năm" : $"{editDurationMonths} tháng"))</span>
-                </div>
-            </div>
-
-            <datalist id="in-stock-imeis-list">
-                @foreach(var s in inStockUnits)
-                {
-                    <option value="@s.Imei">@s.Sku — @s.Product (@s.Holder)</option>
-                }
-            </datalist>
-
-            @{ var pagedOrderLines = orderLinePager.Slice(SelectedOrder.Lines, out var totalOrderLines); }
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>STT</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
-                    <tbody>
-                        @foreach(var (stt, ln) in pagedOrderLines)
-                        {
-                            var rep = GetOrCreateLineReport(ln);
-                            var prodInfo = products.FirstOrDefault(p => p.Id == ln.ProductId);
-                            <tr>
-                                <td><strong>@stt</strong></td>
-                                <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
-                                <td>
-                                    @if(prodInfo?.Kind == "GOODS")
-                                    {
-                                        <span class="chip @(prodInfo.StockInHand > 0 ? "green-chip" : "orange-chip")">Tồn: @prodInfo.StockInHand.ToString("N0")</span>
-                                    }
-                                    else
-                                    {
-                                        <span>—</span>
-                                    }
-                                </td>
-                                <td><strong>@ln.Quantity</strong></td>
-                                <td><strong>@ln.UnitPrice.ToString("N0") ₫</strong></td>
-                                <td>@ln.InstallerFee.ToString("N0") ₫</td>
-                                @if(ln.IsSerialized)
-                                {
-                                    <td>
-                                        <input list="in-stock-imeis-list" disabled="@SelectedOrder.IsImmutable" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @stt" />
-                                    </td>
-                                    <td>
-                                        <input disabled="@SelectedOrder.IsImmutable" value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
-                                    </td>
-                                    <td>
-                                        <input disabled="@SelectedOrder.IsImmutable" value="@rep.VinNo" @oninput="e => SetLineReport(ln.Id, null, null, e.Value?.ToString() ?? string.Empty)" placeholder="Thông tin phụ, số khung, xe Đỗ Văn Hội..." />
-                                    </td>
-                                }
-                                else
-                                {
-                                    <td colspan="3"><em>Sản phẩm quản lý theo số lượng (tự động trừ @ln.Quantity khi hoàn thành đơn)</em></td>
-                                }
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-            <TablePager Pager="orderLinePager" TotalCount="totalOrderLines" />
-        </div>
-    }
-
-    <div class="form-actions" style="flex-wrap:wrap;gap:0.5rem">
-        <button class="btn secondary" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
-        <button class="btn secondary" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
-        <button class="btn" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="Complete">3. Hoàn thành đơn &amp; Kích hoạt IMEI @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho)")</button>
-        <button class="btn secondary" disabled="@(SelectedOrder?.IsImmutable == true)" @onclick="Cancel">Hủy đơn</button>
-    </div>
-</section>
-
 @if(!string.IsNullOrEmpty(message))
 {
     <p class="feedback" style="font-weight:600;padding:0.75rem 1rem;border-radius:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a">@message</p>
@@ -487,7 +277,7 @@
     <div class="panel-head">
         <div>
             <h2>Danh sách đơn hàng lắp đặt (SO)</h2>
-            <p>Theo dõi trạng thái đơn, nhân viên bán hàng, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
+            <p>Theo dõi trạng thái đơn, nhân viên bán hàng, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI. Bấm nút <strong>Điều chỉnh / Xử lý</strong> ở từng đơn để cập nhật trạng thái, nhập IMEI hoặc hoàn thành đơn.</p>
         </div>
     </div>
     @{ var pagedOrders = orderPager.Slice(orders, out var totalOrders); }
@@ -506,12 +296,13 @@
                     <th>Kho &amp; Chế độ tồn kho</th>
                     <th>ĐV lắp đặt | Hãng lắp</th>
                     <th>IMEI / Thông tin phụ / Ngày kích hoạt</th>
+                    <th>Thao tác</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach(var (stt, o) in pagedOrders)
                 {
-                    <tr style="@(o.Id == selected ? "background:#f0f9ff" : "")" @onclick="() => SelectOrderRow(o.Id)">
+                    <tr style="@(o.Id == selected ? "background:#f0f9ff" : "")">
                         <td><strong>@stt</strong></td>
                         <td>
                             <div><strong>@o.Code</strong></div>
@@ -593,6 +384,30 @@
                                 <div><small style="color:#15803d;font-weight:600">Kích hoạt: @o.ActivatedAt</small></div>
                             }
                         </td>
+                        <td class="catalog-row-actions">
+                            @if(!o.IsImmutable && o.Status != "CANCELLED")
+                            {
+                                <div style="display:flex;flex-direction:column;gap:5px;min-width:148px">
+                                    <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                        ⚙ Điều chỉnh / Xử lý
+                                    </button>
+                                    <div style="display:flex;gap:5px">
+                                        <button type="button" class="btn secondary btn-sm" style="flex:1" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                            Nhập IMEI
+                                        </button>
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" @onclick="() => QuickCancelOrder(o.Id)">
+                                            Hủy đơn
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                    👁 Xem chi tiết
+                                </button>
+                            }
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -600,6 +415,227 @@
     </div>
     <TablePager Pager="orderPager" TotalCount="totalOrders" />
 </section>
+
+@if(showOrderModal && SelectedOrder is not null)
+{
+    <div class="so-modal-overlay" @onclick="CloseOrderModal">
+        <div class="so-modal-dialog" @onclick:stopPropagation="true">
+            <div class="so-modal-header">
+                <div>
+                    <h2>
+                        <span>Điều chỉnh &amp; Xử lý đơn hàng: @SelectedOrder.Code</span>
+                        <span class="chip @(SelectedOrder.Status == "COMPLETED" ? "green-chip" : SelectedOrder.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@SelectedOrder.Status</span>
+                        <span class="chip">@SelectedOrder.CustomerB2BDisplay</span>
+                    </h2>
+                    <p>Cập nhật thông tin từ ĐV lắp đặt, điều phối kho / ĐV lắp đặt, nhập Số IMEI &amp; thông tin phụ, chọn Ngày kích hoạt IMEI và xác nhận Hoàn thành đơn.</p>
+                </div>
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseOrderModal">✕ Đóng</button>
+            </div>
+
+            <div class="so-modal-body">
+                @if(!string.IsNullOrEmpty(message))
+                {
+                    <div style="margin-bottom:0.85rem;padding:0.7rem 0.95rem;border-radius:8px;background:@(message.StartsWith("Lỗi:") ? "#fef2f2" : "#eff6ff");border:1px solid @(message.StartsWith("Lỗi:") ? "#fecaca" : "#93c5fd");color:@(message.StartsWith("Lỗi:") ? "#b91c1c" : "#1e3a8a");font-weight:600;font-size:12px">
+                        @message
+                    </div>
+                }
+
+                @if(SelectedOrder.IsImmutable)
+                {
+                    <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
+                        Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), NV bán hàng (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã chốt.
+                    </div>
+                }
+
+                <div class="form-grid">
+                    <label>Kho điều sản phẩm *
+                        <select @bind="warehouse" disabled="@SelectedOrder.IsImmutable">
+                            <option value="0">— Chọn kho xuất —</option>
+                            @foreach(var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.Name (@w.Code)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>Loại Đơn vị lắp đặt *
+                        <select value="@source" @onchange="OnEditSourceChanged" disabled="@SelectedOrder.IsImmutable">
+                            <option value="INTERNAL">ĐV lắp đặt (Nội bộ / CTV / Đại lý)</option>
+                            <option value="PARTNER">Hãng lắp đặt</option>
+                        </select>
+                    </label>
+                    @if(source == "INTERNAL")
+                    {
+                        <label>Chọn ĐV lắp đặt (đã khai báo)
+                            <select @bind="installerEmployeeId" @bind:after="OnInstallerEmployeeChanged" disabled="@SelectedOrder.IsImmutable">
+                                <option value="0">— Chọn nhân sự / ĐV lắp đặt —</option>
+                                @foreach(var emp in installers)
+                                {
+                                    <option value="@emp.Id">@emp.Code — @emp.Name (@GetRateLabel(emp.Id))</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Tên ĐV lắp đặt *
+                            <input @bind="installer" disabled="@SelectedOrder.IsImmutable" placeholder="Tự động điền khi chọn hoặc nhập tên ĐV lắp đặt" />
+                        </label>
+                    }
+                    else
+                    {
+                        <label>Chọn nhanh Hãng lắp đặt
+                            <select @onchange="OnEditManufacturerPick" disabled="@SelectedOrder.IsImmutable">
+                                <option value="">— Chọn Hãng / NCC hoặc nhập tên bên cạnh —</option>
+                                @foreach(var s in suppliers)
+                                {
+                                    <option value="@s.Name">Hãng/NCC: @s.Name</option>
+                                }
+                                @foreach(var emp in installers)
+                                {
+                                    <option value="@emp.Name">@emp.Name (@emp.Department)</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Tên Hãng lắp đặt *
+                            <input @bind="installer" disabled="@SelectedOrder.IsImmutable" placeholder="Bắt buộc nhập tên Hãng lắp đặt" />
+                        </label>
+                    }
+
+                    <label class="checkbox-row" style="grid-column:span 2;padding:0.5rem 0.75rem;background:@(noDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(noDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
+                        <input type="checkbox" checked="@noDeductStock" disabled="@SelectedOrder.IsImmutable" @onchange="OnEditNoDeductChanged" />
+                        <span>
+                            <strong>Không trừ tồn kho</strong>
+                            <small style="display:block;color:#475569">
+                                @(noDeductStock
+                                    ? "Đang bật KHÔNG TRỪ TỒN KHO (Chỉ hợp lệ khi Đơn vị lắp đặt là Hãng lắp đặt)."
+                                    : "Đang bật TRỪ TỒN KHO: Số lượng tồn kho sẽ giảm ngay khi bấm Hoàn thành đơn hàng.")
+                            </small>
+                        </span>
+                    </label>
+                </div>
+
+                <div style="margin-top:0.85rem;padding:0.75rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px">
+                    <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, nhân viên bán hàng &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
+                    <div class="form-grid">
+                        <label>Họ tên khách (Chủ xe / Người liên hệ)
+                            <input @bind="editContactName" disabled="@SelectedOrder.IsImmutable" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
+                        </label>
+                        <label>Số điện thoại khách
+                            <input @bind="editCustomerPhone" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 0886287429" />
+                        </label>
+                        <label>Nhân viên bán hàng
+                            <select @bind="editSellerId" @bind:after="OnEditSellerChanged" disabled="@SelectedOrder.IsImmutable">
+                                <option value="0">— Chọn nhân viên bán hàng —</option>
+                                @foreach(var sl in sellerChoices)
+                                {
+                                    <option value="@sl.Id">@sl.Code — @sl.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Nguồn KH / Ghi chú NV bán hàng
+                            <input @bind="editSaleSource" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi nhận người bán..." />
+                        </label>
+                        <label>Thời hạn
+                            <select @bind="editDurationMonths" disabled="@SelectedOrder.IsImmutable">
+                                <option value="12">1 năm (12 tháng)</option>
+                                <option value="24">2 năm (24 tháng)</option>
+                                <option value="36">3 năm (36 tháng)</option>
+                                <option value="6">6 tháng</option>
+                            </select>
+                        </label>
+                        <label>Thời gian lắp đặt
+                            <input @bind="editInstallAt" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 15g00 thứ 3 ( 20/10/2026)" />
+                        </label>
+                        <label>Địa chỉ lắp đặt
+                            <input @bind="editAddress" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 55 đường 30/4" />
+                        </label>
+                        <label>Ghi chú đơn hàng
+                            <input @bind="editNotes" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi chú..." />
+                        </label>
+                    </div>
+                </div>
+
+                @if(SelectedOrder.Lines.Count > 0)
+                {
+                    <div style="margin-top:1rem;border-top:1px solid var(--border,#e2e8f0);padding-top:0.85rem">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.6rem">
+                            <h3 style="font-size:0.95rem;margin:0">Thông tin ĐV lắp đặt gửi về (Số IMEI &amp; Thông tin phụ) + Kích hoạt IMEI</h3>
+                            <div style="display:flex;align-items:center;gap:0.75rem;background:#eff6ff;padding:0.45rem 0.85rem;border-radius:8px;border:1px solid #bfdbfe">
+                                <label style="margin:0;display:flex;align-items:center;gap:0.4rem;font-weight:600;color:#1e3a8a">
+                                    <span>📅 Ngày kích hoạt IMEI *:</span>
+                                    <input type="date" @bind="activationDateInput" disabled="@SelectedOrder.IsImmutable" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
+                                </label>
+                                <span class="chip blue-chip">Hết hạn dự kiến: @activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy") (@(editDurationMonths == 12 ? "1 năm" : $"{editDurationMonths} tháng"))</span>
+                            </div>
+                        </div>
+
+                        <datalist id="in-stock-imeis-list">
+                            @foreach(var s in inStockUnits)
+                            {
+                                <option value="@s.Imei">@s.Sku — @s.Product (@s.Holder)</option>
+                            }
+                        </datalist>
+
+                        @{ var pagedOrderLines = orderLinePager.Slice(SelectedOrder.Lines, out var totalOrderLines); }
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr><th>STT</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
+                                <tbody>
+                                    @foreach(var (stt, ln) in pagedOrderLines)
+                                    {
+                                        var rep = GetOrCreateLineReport(ln);
+                                        var prodInfo = products.FirstOrDefault(p => p.Id == ln.ProductId);
+                                        <tr>
+                                            <td><strong>@stt</strong></td>
+                                            <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
+                                            <td>
+                                                @if(prodInfo?.Kind == "GOODS")
+                                                {
+                                                    <span class="chip @(prodInfo.StockInHand > 0 ? "green-chip" : "orange-chip")">Tồn: @prodInfo.StockInHand.ToString("N0")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>—</span>
+                                                }
+                                            </td>
+                                            <td><strong>@ln.Quantity</strong></td>
+                                            <td><strong>@ln.UnitPrice.ToString("N0") ₫</strong></td>
+                                            <td>@ln.InstallerFee.ToString("N0") ₫</td>
+                                            @if(ln.IsSerialized)
+                                            {
+                                                <td>
+                                                    <input list="in-stock-imeis-list" disabled="@SelectedOrder.IsImmutable" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @stt" />
+                                                </td>
+                                                <td>
+                                                    <input disabled="@SelectedOrder.IsImmutable" value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
+                                                </td>
+                                                <td>
+                                                    <input disabled="@SelectedOrder.IsImmutable" value="@rep.VinNo" @oninput="e => SetLineReport(ln.Id, null, null, e.Value?.ToString() ?? string.Empty)" placeholder="Thông tin phụ, số khung, xe Đỗ Văn Hội..." />
+                                                </td>
+                                            }
+                                            else
+                                            {
+                                                <td colspan="3"><em>Sản phẩm quản lý theo số lượng (tự động trừ @ln.Quantity khi hoàn thành đơn)</em></td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <TablePager Pager="orderLinePager" TotalCount="totalOrderLines" />
+                    </div>
+                }
+            </div>
+
+            <div class="so-modal-footer">
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+                    <button type="button" class="btn secondary" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
+                    <button type="button" class="btn secondary" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
+                    <button type="button" class="btn" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="Complete">3. Hoàn thành đơn &amp; Kích hoạt IMEI @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho)")</button>
+                    <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="Cancel">Hủy đơn</button>
+                </div>
+                <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseOrderModal">Đóng</button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private sealed class LineReportInput { public string Imei { get; set; } = ""; public string PlateNo { get; set; } = ""; public string VinNo { get; set; } = ""; }
@@ -629,7 +665,7 @@
 
     // Edit / Process form state
     private long selected, warehouse, installerEmployeeId, editDurationMonths = 12, editSellerId;
-    private bool noDeductStock, editCod;
+    private bool noDeductStock, editCod, showOrderModal;
     private string installer = "", source = "INTERNAL", message = "";
     private string editContactName = "", editCustomerPhone = "", editInstallAt = "", editAddress = "", editNotes = "", editSaleSource = "";
     private DateTime activationDateInput = DateTime.Today;
@@ -894,6 +930,27 @@
         OnOrderSelected();
     }
 
+    private void OpenOrderModal(long id)
+    {
+        selected = id;
+        message = "";
+        OnOrderSelected();
+        showOrderModal = true;
+    }
+
+    private void CloseOrderModal()
+    {
+        showOrderModal = false;
+    }
+
+    private Task QuickCancelOrder(long id) => Act(actor =>
+    {
+        selected = id;
+        Orders.Cancel(actor, id);
+        showOrderModal = false;
+        return $"Đã hủy đơn SO7-{id:000000}.";
+    });
+
     private void OnOrderSelected()
     {
         var o = SelectedOrder;
@@ -1101,6 +1158,7 @@
 
         var actDateStr = activationDateInput.ToString("yyyy-MM-dd");
         Orders.Complete(actor, selected, actDateStr);
+        showOrderModal = false;
         var expDateStr = activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy");
         var stockMsg = noDeductStock
             ? $"Không trừ tồn kho (Hãng lắp đặt: {effInstaller})"
@@ -1111,6 +1169,7 @@
     private Task Cancel() => Act(actor =>
     {
         Orders.Cancel(actor, selected);
+        showOrderModal = false;
         return $"Đã hủy đơn SO7-{selected:000000}.";
     });
 }
