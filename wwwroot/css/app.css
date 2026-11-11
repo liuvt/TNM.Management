@@ -149,5 +149,46 @@ h1:focus,h1:focus-visible,h2:focus,h2:focus-visible,h3:focus,h3:focus-visible,la
 .so-modal-header p{margin:0;font-size:11.8px;color:#64748b;line-height:1.5}
 .so-modal-body{padding:18px 22px;overflow-y:auto;flex:1;scrollbar-width:thin}
 .so-modal-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:14px 22px;border-top:1px solid #e5ece8;background:#f8faf9}
+/* Devices & Renewals: Sidebar Due-10 Badge, Warning Note & Summary Bar */
+.nav-due10-badge{font-size:11px;font-weight:750;padding:1px 6px;border-radius:10px;color:#84928a;background:#f1f5f3;font-variant-numeric:tabular-nums;margin-left:auto}
+.nav-due10-badge.has-alert{background:#fff0f0;color:#c92a2a;border:1px solid #ffc9c9;box-shadow:0 1px 4px rgba(201,42,42,.12)}
+.sidebar-nav>a.active .nav-due10-badge.has-alert{background:#c92a2a;color:#fff;border-color:#c92a2a}
+.device-due10-note{border-radius:11px;padding:14px 16px;margin:0 0 16px;border:1px solid #dce5df;background:#f8faf9}
+.device-due10-note.has-warning{background:#fff8f6;border-color:#ffc9c9;box-shadow:0 4px 16px rgba(201,42,42,.06)}
+.device-due10-note.no-warning{background:#f4fcf6;border-color:#b2f2bb}
+.device-due10-note-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.device-due10-note-title{display:flex;align-items:flex-start;gap:11px;flex:1;min-width:240px}
+.device-due10-badge-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:16px;background:#ffe3e3;border:1px solid #ffa8a8;flex:none}
+.device-due10-note.no-warning .device-due10-badge-icon{background:#d3f9d8;border-color:#8ce99a}
+.device-due10-note-title strong{display:block;font-size:13px;color:#1f2924;margin-bottom:3px}
+.device-due10-note-title strong span{color:#c92a2a;font-weight:800}
+.device-due10-note-title p{margin:0;font-size:11.7px;color:#526058;line-height:1.55}
+.device-due10-note-title p em{font-style:normal;color:#64748b;font-weight:600}
+.device-due10-preview-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px;padding-top:10px;border-top:1px dashed #ffc9c9}
+.device-due10-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;border:1px solid #ffd8a8;background:#fff;font-size:11.2px;color:#334155;transition:.14s}
+.device-due10-pill:hover{border-color:#fa5252;background:#fff5f5;transform:translateY(-1px)}
+.device-due10-pill strong{color:#0f172a;font-weight:750}
+.device-due10-pill span{color:#64748b;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.device-due10-pill b{color:#d9480f;font-weight:750;background:#fff4e6;padding:1px 6px;border-radius:4px;font-size:10.5px}
+.device-due10-pill b.urgent{color:#c92a2a;background:#ffe3e3}
+.device-due10-pill.more{background:#fff0f0;border-color:#ffc9c9;color:#c92a2a;font-weight:720}
+.device-summary-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 13px;margin:0 0 14px;background:#f7faf8;border:1px solid #e2ede5;border-radius:9px}
+.device-summary-item{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:7px;background:#fff;border:1px solid #dce5df;font-size:11.6px;color:#4e5c54;font-weight:600;transition:.14s}
+button.device-summary-item:hover{border-color:#8ce99a;background:#f4fcf6}
+.device-summary-item.active{border-color:var(--brand);background:#ebfbee;color:#1b653e;box-shadow:0 1px 4px rgba(43,147,72,.12)}
+.device-summary-item.total{background:#ebfbee;border-color:#b2f2bb;color:#1b4332;font-weight:700}
+.device-summary-item.total strong{font-size:13.5px;color:#1b653e}
+.device-summary-item.warn{border-color:#ffc9c9;background:#fff5f5;color:#991b1b}
+.device-summary-item.warn.active{border-color:#e03131;background:#ffe3e3;color:#c92a2a}
+.device-summary-item.showing{margin-left:auto;background:transparent;border-color:transparent;color:#68766e}
+.device-summary-item strong{font-weight:780;font-variant-numeric:tabular-nums}
+.device-summary-item .text-green{color:#2b9348}
+.device-summary-item .text-red{color:#c92a2a}
+.device-summary-item .text-purple{color:#9c36b5}
+.device-summary-item .text-blue{color:#1971c2}
+.device-summary-item .text-orange{color:#d9480f}
+.chip.red-warn-chip{background:#ffe3e3;color:#c92a2a;border:1px solid #ffc9c9}
+tr.row-due10-warn td{background:#fffafa}
+tr.row-due10-warn:hover td{background:#fff0f0}
 @keyframes tnmFadeIn{from{opacity:0}to{opacity:1}}
 @keyframes tnmPopIn{from{opacity:0;transform:scale(.95) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}

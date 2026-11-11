@@ -412,6 +412,33 @@ public sealed class DemoDb
         });
     }
 
+    public static event Action? OnDevicesChanged;
+    public static void NotifyDevicesChanged() => OnDevicesChanged?.Invoke();
+
+    public int Due10DevicesCount()
+    {
+        var today = DateTime.Today;
+        using var c = Open();
+        var dates = Query(c, @"SELECT a.expires_at
+          FROM activations a
+          JOIN stock_units u ON u.id=a.stock_unit_id
+          JOIN products p ON p.id=a.product_id
+          JOIN customers c ON c.id=a.customer_id
+          WHERE a.deleted_at IS NULL",
+          r => S(r, 0));
+        var count = 0;
+        foreach (var exp in dates)
+        {
+            if (DateTime.TryParse(exp, out var dt))
+            {
+                var days = (dt.Date - today).Days;
+                if (days >= 0 && days <= 10)
+                    count++;
+            }
+        }
+        return count;
+    }
+
     public List<DeviceVm> Devices()
     {
         using var c = Open();
@@ -490,6 +517,7 @@ public sealed class DemoDb
             Log(c,t,"UPDATE_ACTIVATION","ACTIVATION",activationId,$"Kích hoạt: {actStr} -> Hết hạn: {expStr}");
             return 0;
         });
+        NotifyDevicesChanged();
     }
 
     public List<RenewalVm> Renewals()
@@ -597,6 +625,7 @@ public sealed class DemoDb
             Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {nextStr}; {price} VND; {source}; Seller: {resolvedSellerName}");
             return 0;
         });
+        NotifyDevicesChanged();
     }
 
     public void UpdateRenewal(long renewalId, long? sellerId, string? sellerName, string source, string renewedAt, string previousExpiry, string newExpiry, long amountVnd, string paymentMethod)
@@ -730,6 +759,7 @@ public sealed class DemoDb
             Log(c, t, "UPDATE_RENEWAL", "RENEWAL", renewalId, $"Cập nhật gia hạn #{renewalId}: Hạn {prevExpStr}->{newExpStr}, {amountVnd:N0} VND ({paymentMethod}), Seller: {resolvedSellerName}");
             return 0;
         });
+        NotifyDevicesChanged();
     }
 
     public void DeleteRenewal(long renewalId)
@@ -782,6 +812,7 @@ public sealed class DemoDb
             Log(c, t, "DELETE_RENEWAL", "RENEWAL", renewalId, $"Xóa lịch sử gia hạn #{renewalId} ({cur.Amt:N0} VND, Seller: {cur.Seller}) · Hạn TB khôi phục về {revertedExp}");
             return 0;
         });
+        NotifyDevicesChanged();
     }
 
     public void SetRenewalLock(long renewalId, bool locked)

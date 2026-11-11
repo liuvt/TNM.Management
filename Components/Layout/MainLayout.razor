@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject AuthRepository Accounts
+@inject DemoDb Db
 @inject NavigationManager Navigation
 
 <div class="shell">
@@ -61,7 +62,14 @@
                         <NavLink href="/catalog/warehouses"><AppIcon Name="warehouse" /> <span>Danh sách Kho</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.QuantityCountView)) { <NavLink href="/quantity-counts"><AppIcon Name="clipboard" /> <span>Kiểm kê tồn kho</span></NavLink> }
-                    @if (Accounts.HasPermission(nav.User, Permissions.DevicesView)) { <NavLink href="/devices"><AppIcon Name="device" /> <span>Thiết bị & gia hạn</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.DevicesView))
+                    {
+                        <NavLink href="/devices">
+                            <AppIcon Name="device" />
+                            <span style="flex:1">Thiết bị &amp; gia hạn</span>
+                            <span class="nav-due10-badge @(due10Count > 0 ? "has-alert" : "")" title="@($"Note cảnh báo: Có {due10Count} thiết bị còn hạn từ 10 ngày trở xuống (đã loại bỏ thiết bị hết hạn)")">(@due10Count)</span>
+                        </NavLink>
+                    }
                     @if (Accounts.HasPermission(nav.User, Permissions.InventoryWarranty)) { <NavLink href="/warranties"><AppIcon Name="wrench" /> <span>Bảo hành</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.FinanceView))
                     {
@@ -115,12 +123,28 @@
 
 @code {
     private bool mobileMenuOpen;
+    private int due10Count;
     private string CurrentRenderedPath => "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/');
-    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(() => { mobileMenuOpen = false; StateHasChanged(); });
+    protected override void OnInitialized()
+    {
+        RefreshDue10Count();
+        Navigation.LocationChanged += OnLocationChanged;
+        DemoDb.OnDevicesChanged += OnDevicesChangedHandler;
+    }
+    private void RefreshDue10Count()
+    {
+        try { due10Count = Db.Due10DevicesCount(); }
+        catch { /* ignore db init timing */ }
+    }
+    private void OnDevicesChangedHandler() => _ = InvokeAsync(() => { RefreshDue10Count(); StateHasChanged(); });
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(() => { mobileMenuOpen = false; RefreshDue10Count(); StateHasChanged(); });
     private void ToggleMenu() => mobileMenuOpen = !mobileMenuOpen;
     private void CloseMenu() => mobileMenuOpen = false;
     private static string Initials(string? display) => string.Join("", (display ?? "U").Split(' ', StringSplitOptions.RemoveEmptyEntries).TakeLast(2).Select(x => x[..1].ToUpperInvariant()));
     private string PrimaryRole(ClaimsPrincipal principal) => Accounts.Roles(AuthRepository.PrincipalId(principal)).FirstOrDefault() ?? "Thành viên";
-    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        DemoDb.OnDevicesChanged -= OnDevicesChangedHandler;
+    }
 }

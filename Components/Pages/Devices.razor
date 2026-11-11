@@ -87,19 +87,169 @@
 <div class="form-actions"><button class="btn" @onclick="SaveActivationUpdate">Lưu Thời gian gia hạn &amp; Thông tin thiết bị</button><span class="feedback">@editMessage</span></div>
 </div>}
 
+@{
+    var searchedDevices = devices.Where(MatchSearch).ToList();
+    var countAll = searchedDevices.Count;
+    var countActive = searchedDevices.Count(x => DaysToExpiry(x) >= 0);
+    var countDue10 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return d >= 0 && d <= 10; });
+    var countDue30 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return d >= 0 && d <= 30; });
+    var countDue60 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return d >= 0 && d <= 60; });
+    var countOverdue = searchedDevices.Count(x => DaysToExpiry(x) < 0);
+
+    var due10WarningDevices = devices.Where(x => { var d = DaysToExpiry(x); return d >= 0 && d <= 10; }).OrderBy(DaysToExpiry).ToList();
+    var due0AllCount = due10WarningDevices.Count(x => DaysToExpiry(x) == 0);
+    var due1To10AllCount = due10WarningDevices.Count - due0AllCount;
+    var overdueAllCount = devices.Count(x => DaysToExpiry(x) < 0);
+    var pagedDevices = devicePager.Slice(searchedDevices.Where(MatchFilter), out var totalDevices);
+}
+
+@if (canDue10)
+{
+    <div class="device-due10-note @(due10WarningDevices.Count > 0 ? "has-warning" : "no-warning")">
+        <div class="device-due10-note-head">
+            <div class="device-due10-note-title">
+                <span class="device-due10-badge-icon">🔔</span>
+                <div>
+                    <strong>Note cảnh báo gia hạn (Còn hạn 10 ngày trở xuống): <span>@due10WarningDevices.Count thiết bị</span></strong>
+                    <p>
+                        @if (due10WarningDevices.Count > 0)
+                        {
+                            <span>Có <strong>@due10WarningDevices.Count thiết bị</strong> còn hạn từ 0 đến 10 ngày cần ưu tiên gia hạn (trong đó <strong>@due0AllCount</strong> thiết bị hết hạn hôm nay, <strong>@due1To10AllCount</strong> thiết bị còn 1–10 ngày). <em>Đã tự động loại bỏ @overdueAllCount thiết bị đã hết hạn ra khỏi danh sách cảnh báo này.</em></span>
+                        }
+                        else
+                        {
+                            <span>Hiện không có thiết bị nào còn hạn từ 10 ngày trở xuống. <em>(Đã loại bỏ @overdueAllCount thiết bị đã hết hạn).</em></span>
+                        }
+                    </p>
+                </div>
+            </div>
+            @if (due10WarningDevices.Count > 0)
+            {
+                <button type="button" class="btn btn-sm @(filter == "DUE10" ? "secondary" : "")" @onclick='() => SetFilter("DUE10")'>
+                    @(filter == "DUE10" ? $"Đang xem cảnh báo ≤ 10 ngày ({countDue10})" : $"Xem ngay DS cảnh báo ≤ 10 ngày ({due10WarningDevices.Count})")
+                </button>
+            }
+        </div>
+        @if (due10WarningDevices.Count > 0)
+        {
+            <div class="device-due10-preview-list">
+                @foreach (var w in due10WarningDevices.Take(6))
+                {
+                    var wd = DaysToExpiry(w);
+                    <button type="button" class="device-due10-pill" title="Bấm để gia hạn nhanh thiết bị @w.Imei" @onclick="() => OpenRenewFor(w)">
+                        <strong>@w.Imei</strong>
+                        <span>@(string.IsNullOrWhiteSpace(w.Plate) ? w.Customer : $"{w.Plate} · {w.Customer}")</span>
+                        <b class="@(wd == 0 ? "urgent" : "")">@(wd == 0 ? "Còn 0 ngày (Hôm nay)" : $"Còn {wd} ngày")</b>
+                    </button>
+                }
+                @if (due10WarningDevices.Count > 6)
+                {
+                    <button type="button" class="device-due10-pill more" @onclick='() => SetFilter("DUE10")'>
+                        +@((due10WarningDevices.Count - 6)) thiết bị khác →
+                    </button>
+                }
+            </div>
+        }
+    </div>
+}
+
 <section class="panel"><div class="panel-head"><div><h2>Danh sách kích hoạt</h2><p>Đặt hạn thực tế sau cùng, không ghi đè lịch sử gia hạn.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-<input class="search-input" @bind="search" @bind:event="oninput" placeholder="Tìm IMEI, biển số, KH, NV bán hàng..." />
+<input class="search-input" @bind="search" @bind:event="oninput" @bind:after="() => devicePager.Reset()" placeholder="Tìm IMEI, biển số, KH, NV bán hàng..." />
 <div class="tabs">
-@if(canActive){<button class="@(filter=="ACTIVE"?"selected":"")" @onclick='() => filter = "ACTIVE"'>Còn hạn</button>}
-@if(canDue10){<button class="@(filter=="DUE10"?"selected":"")" @onclick='() => filter = "DUE10"'>D+10</button>}
-@if(canDue30){<button class="@(filter=="DUE30"?"selected":"")" @onclick='() => filter = "DUE30"'>D+30</button>}
-@if(canDue60){<button class="@(filter=="DUE60"?"selected":"")" @onclick='() => filter = "DUE60"'>D+60</button>}
-@if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => filter = "OVERDUE"'>Quá hạn</button>}
+@if(canActive){<button class="@(filter=="ACTIVE"?"selected":"")" @onclick='() => SetFilter("ACTIVE")'>Còn hạn (@countActive)</button>}
+@if(canDue10){<button class="@(filter=="DUE10"?"selected":"")" @onclick='() => SetFilter("DUE10")'>D+10 (@countDue10)</button>}
+@if(canDue30){<button class="@(filter=="DUE30"?"selected":"")" @onclick='() => SetFilter("DUE30")'>D+30 (@countDue30)</button>}
+@if(canDue60){<button class="@(filter=="DUE60"?"selected":"")" @onclick='() => SetFilter("DUE60")'>D+60 (@countDue60)</button>}
+@if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => SetFilter("OVERDUE")'>Quá hạn (@countOverdue)</button>}
 </div></div></div>
-@{ var pagedDevices = devicePager.Slice(devices.Where(Match), out var totalDevices); }
+
+<div class="device-summary-bar">
+    <div class="device-summary-item total">
+        <span>Tổng số thiết bị:</span>
+        <strong>@countAll</strong>
+        @if (!string.IsNullOrWhiteSpace(search))
+        {
+            <small>/ @devices.Count</small>
+        }
+    </div>
+    @if (canActive)
+    {
+        <button type="button" class="device-summary-item @(filter == "ACTIVE" ? "active" : "")" @onclick='() => SetFilter("ACTIVE")'>
+            <span>Còn hạn:</span>
+            <strong class="text-green">@countActive</strong>
+        </button>
+    }
+    @if (canDue10)
+    {
+        <button type="button" class="device-summary-item warn @(filter == "DUE10" ? "active" : "")" @onclick='() => SetFilter("DUE10")'>
+            <span>⚠️ Cảnh báo ≤ 10 ngày (D+10):</span>
+            <strong class="text-red">@countDue10</strong>
+        </button>
+    }
+    @if (canDue30)
+    {
+        <button type="button" class="device-summary-item @(filter == "DUE30" ? "active" : "")" @onclick='() => SetFilter("DUE30")'>
+            <span>Hạn ≤ 30 ngày (D+30):</span>
+            <strong class="text-purple">@countDue30</strong>
+        </button>
+    }
+    @if (canDue60)
+    {
+        <button type="button" class="device-summary-item @(filter == "DUE60" ? "active" : "")" @onclick='() => SetFilter("DUE60")'>
+            <span>Hạn ≤ 60 ngày (D+60):</span>
+            <strong class="text-blue">@countDue60</strong>
+        </button>
+    }
+    @if (canOverdue)
+    {
+        <button type="button" class="device-summary-item muted @(filter == "OVERDUE" ? "active" : "")" title="Thiết bị đã quá hạn (đã loại bỏ khỏi Note cảnh báo ≤ 10 ngày)" @onclick='() => SetFilter("OVERDUE")'>
+            <span>Đã hết hạn (Loại bỏ cảnh báo):</span>
+            <strong class="text-orange">@countOverdue</strong>
+        </button>
+    }
+    <div class="device-summary-item showing">
+        <span>Đang hiển thị trên bảng:</span>
+        <strong>@totalDevices thiết bị</strong>
+    </div>
+</div>
+
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>SKU</th><th>KHÁCH HÀNG / CHỦ XE</th><th>NHÂN VIÊN BÁN HÀNG</th><th>BIỂN SỐ &amp; THÔNG TIN PHỤ</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
-@foreach(var (stt, x) in pagedDevices){<tr><td><strong>@stt</strong></td><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td class="wrap-cell"><div><strong>@x.Customer</strong></div>@if(!string.IsNullOrWhiteSpace(x.ContactName)){<small>Khách lắp: @x.ContactName</small>}</td><td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td><td class="wrap-cell"><div>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</div>@if(!string.IsNullOrWhiteSpace(x.VinNo)){<small>@x.VinNo</small>}</td><td><strong>@x.ActivatedAt</strong></td><td><strong>@x.ExpiresAt</strong></td><td><span class="chip @(DaysToExpiry(x)<0?"orange-chip":DaysToExpiry(x)<=30?"purple-chip":"green-chip")">@(DaysToExpiry(x)<0?"Quá hạn":DaysToExpiry(x)<=30?$"Còn {DaysToExpiry(x)} ngày":"Còn hạn")</span></td><td>@if(canRenew || canUpdateDevice){<div style="display:flex;gap:4px;flex-wrap:wrap">@if(canRenew){<button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button>}<button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button></div>}</td></tr>}
+@foreach(var (stt, x) in pagedDevices){
+    var d = DaysToExpiry(x);
+    <tr class="@(d >= 0 && d <= 10 ? "row-due10-warn" : "")">
+        <td><strong>@stt</strong></td>
+        <td><strong>@x.Imei</strong></td>
+        <td>@x.Sku</td>
+        <td class="wrap-cell"><div><strong>@x.Customer</strong></div>@if(!string.IsNullOrWhiteSpace(x.ContactName)){<small>Khách lắp: @x.ContactName</small>}</td>
+        <td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td>
+        <td class="wrap-cell"><div>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</div>@if(!string.IsNullOrWhiteSpace(x.VinNo)){<small>@x.VinNo</small>}</td>
+        <td><strong>@x.ActivatedAt</strong></td>
+        <td><strong>@x.ExpiresAt</strong></td>
+        <td>
+            @if (d < 0)
+            {
+                <span class="chip orange-chip" title="Thiết bị đã hết hạn (đã loại bỏ khỏi cảnh báo 10 ngày)">Hết hạn (@Math.Abs(d) ngày)</span>
+            }
+            else if (d <= 10)
+            {
+                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px">
+                    <span class="chip red-warn-chip">⚠️ Còn @d ngày</span>
+                    <small style="font-size:10px;color:#c92a2a;font-weight:700">Note: Cảnh báo ≤ 10 ngày</small>
+                </div>
+            }
+            else if (d <= 30)
+            {
+                <span class="chip purple-chip">Còn @d ngày</span>
+            }
+            else
+            {
+                <span class="chip green-chip">Còn hạn (@d ngày)</span>
+            }
+        </td>
+        <td>@if(canRenew || canUpdateDevice){<div style="display:flex;gap:4px;flex-wrap:wrap">@if(canRenew){<button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button>}<button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button></div>}</td>
+    </tr>
+}
 </tbody></table></div>
 <TablePager Pager="devicePager" TotalCount="totalDevices" />
 </section>
@@ -381,19 +531,28 @@
     : $"Đã mở khóa đợt gia hạn #{r.Id} (IMEI {r.Imei}).";
   }catch(Exception ex){historyMessage="Lỗi: "+ex.Message;}
  }
- private int DaysToExpiry(DeviceVm x)=> (DateTime.Parse(x.ExpiresAt).Date-DateTime.Today).Days;
- private bool Match(DeviceVm x)
+ private int DaysToExpiry(DeviceVm x) => DateTime.TryParse(x.ExpiresAt, out var dt) ? (dt.Date - DateTime.Today).Days : -9999;
+ private void SetFilter(string nextFilter)
  {
-  if (!string.IsNullOrWhiteSpace(search) && !(x.Imei + " " + x.Sku + " " + x.Customer + " " + x.Plate + " " + x.ContactName + " " + x.VinNo + " " + x.SellerName).Contains(search, StringComparison.OrdinalIgnoreCase))
-   return false;
-  var days=DaysToExpiry(x);
+  filter = nextFilter;
+  devicePager.Reset();
+ }
+ private bool MatchSearch(DeviceVm x)
+ {
+  if (string.IsNullOrWhiteSpace(search)) return true;
+  return (x.Imei + " " + x.Sku + " " + x.Customer + " " + x.Plate + " " + x.ContactName + " " + x.VinNo + " " + x.SellerName).Contains(search, StringComparison.OrdinalIgnoreCase);
+ }
+ private bool MatchFilter(DeviceVm x)
+ {
+  var days = DaysToExpiry(x);
   return filter switch {
-  "ACTIVE"=>canActive && days>=0,
-  "DUE10"=>canDue10 && days>=0 && days<=10,
-  "DUE30"=>canDue30 && days>=0 && days<=30,
-  "DUE60"=>canDue60 && days>=0 && days<=60,
-  "OVERDUE"=>canOverdue && days<0,
-  _=>false};
+   "ACTIVE" => canActive && days >= 0,
+   "DUE10" => canDue10 && days >= 0 && days <= 10,
+   "DUE30" => canDue30 && days >= 0 && days <= 30,
+   "DUE60" => canDue60 && days >= 0 && days <= 60,
+   "OVERDUE" => canOverdue && days < 0,
+   _ => false
+  };
  }
  private async Task Renew(){
   try{
