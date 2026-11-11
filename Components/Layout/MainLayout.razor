@@ -77,9 +77,9 @@
                     <div class="nav-heading">Thiết lập</div>
                     @if (Accounts.HasPermission(nav.User, Permissions.WarehouseScopeManage)) { <NavLink href="/admin/warehouses"><AppIcon Name="warehouse" /> <span>Phạm vi kho</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.UsersView)) { <NavLink href="/admin/users"><AppIcon Name="shield" /> <span>Tài khoản & quyền</span></NavLink> }
+                    <NavLink href="/architecture"><AppIcon Name="diagram" /> <span>Mô hình hệ thống</span></NavLink>
                     @if (Accounts.HasPermission(nav.User, Permissions.ArchitectureView))
                     {
-                        <NavLink href="/architecture"><AppIcon Name="diagram" /> <span>Mô hình hệ thống</span></NavLink>
                         <NavLink href="/admin/flow-tester"><AppIcon Name="clipboard" /> <span>Kiểm thử luồng</span></NavLink>
                     }
                 </Authorized>

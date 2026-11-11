@@ -1,57 +1,104 @@
-@attribute [Authorize(Policy = Permissions.ArchitectureView)]
+@attribute [Authorize]
 @page "/architecture"
+@using System.Security.Claims
+@inject AuthRepository Accounts
+@inject AuthenticationStateProvider AuthStateProvider
 <PageTitle>Mô hình hệ thống &amp; Hướng dẫn sử dụng · TNM.Management</PageTitle>
 
 <div class="page-head">
     <div>
-        <div class="eyebrow">SYSTEM ARCHITECTURE / INTERACTIVE USER GUIDE</div>
+        <div class="eyebrow">SYSTEM ARCHITECTURE / ROLE-BASED USER GUIDE</div>
         <h1>Mô hình hệ thống &amp; Hướng dẫn sử dụng</h1>
-        <p>Sơ đồ kiến trúc thực tế của hệ thống TNM.Management. <strong>Hãy bấm trực tiếp vào bất kỳ mục nào bên dưới</strong> để mở hộp thoại (Dialog) xem hướng dẫn sử dụng từng bước, cấu trúc các Tab và quy tắc nghiệp vụ của mục đó.</p>
+        <p>Hiển thị cá nhân hóa các hạng mục chức năng, quy trình và hướng dẫn sử dụng <strong>tương ứng với phân quyền của tài khoản</strong>. Hãy bấm vào từng mục bên dưới để mở hộp thoại (Dialog) xem hướng dẫn chi tiết.</p>
     </div>
 </div>
+
+<section class="panel" style="background:linear-gradient(180deg,#f4fcf6 0%,#ffffff 100%);border:1px solid #b2f2bb">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0">
+            <div style="width:42px;height:42px;border-radius:11px;background:#ebfbee;border:1px solid #8ce99a;color:#1b653e;display:grid;place-items:center;font-weight:800;font-size:15px;flex:none">
+                #@targetUserId
+            </div>
+            <div style="min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <strong style="font-size:14px;color:#1f2924">@targetUsername: ID #@targetUserId — @targetDisplayName</strong>
+                    @if (!string.IsNullOrWhiteSpace(targetRolesLabel))
+                    {
+                        <span class="chip green-chip">Vai trò: @targetRolesLabel</span>
+                    }
+                </div>
+                <div style="font-size:12px;color:#4e5c54;margin-top:3px">
+                    Đang mở khóa <strong>@VisibleMenuItemCount / @TotalMenuItemCount hạng mục chức năng</strong>
+                    · <strong>@effectivePermissions.Count quyền nghiệp vụ</strong> được phép truy cập và xem hướng dẫn sử dụng.
+                </div>
+            </div>
+        </div>
+
+        @if (canPreviewOtherUsers && allUsers.Count > 0)
+        {
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;padding:8px 12px;border:1px solid #dce5df;border-radius:10px">
+                <span style="font-size:11.5px;font-weight:700;color:#2b593f">Xem theo phân quyền tài khoản:</span>
+                <select value="@targetUserId" @onchange="OnTargetUserChanged" style="min-height:34px;padding:5px 10px;border:1px solid #b2f2bb;border-radius:7px;font-size:12px;font-weight:650;color:#1f2924;background:#fff">
+                    @foreach (var u in allUsers)
+                    {
+                        <option value="@u.Id">@u.Username : ID #@u.Id — @u.DisplayName (@GetUserRolesDisplay(u))</option>
+                    }
+                </select>
+            </div>
+        }
+    </div>
+</section>
 
 <section class="panel">
     <div class="panel-head">
         <div>
-            <h2>1. Sơ đồ các mục chức năng theo Cấu trúc Menu hiện hành (Bấm vào từng mục để xem Hướng dẫn)</h2>
-            <p>Đã đồng bộ 100% với cấu trúc gom Tab danh mục, Kho (Kho IMEI | Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Nhân viên bán hàng và Dialog xử lý Đơn hàng lắp đặt (SO).</p>
+            <h2>1. Các hạng mục chức năng được cấp quyền (@VisibleMenuItemCount mục — Bấm vào từng mục để mở Dialog Hướng dẫn)</h2>
+            <p>Chỉ hiển thị những phân hệ và màn hình mà tài khoản <strong>@targetUsername (#@targetUserId)</strong> có quyền truy cập và thao tác.</p>
         </div>
     </div>
 
-    @foreach (var grp in MenuGroups)
+    @if (VisibleMenuGroups.Count == 0)
     {
-        <div style="margin-bottom:1.15rem">
-            <div style="font-size:11px;font-weight:780;letter-spacing:.7px;color:#1e6b43;text-transform:uppercase;margin:0 0 8px;display:flex;align-items:center;gap:8px">
-                <span>▣ @grp.GroupTitle</span>
-                <span style="flex:1;height:1px;background:#e2ece5"></span>
-            </div>
-            <div class="stats-grid" style="margin-bottom:0">
-                @foreach (var item in grp.Items)
-                {
-                    <div class="panel catalog-shortcut"
-                         style="margin-bottom:0;padding:15px 16px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;gap:10px;border:1px solid #ececf2"
-                         @onclick="() => OpenGuide(item.Key)">
-                        <div>
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
-                                <span class="chip blue-chip" style="font-size:10px">@item.RouteLabel</span>
-                                @if (!string.IsNullOrWhiteSpace(item.TabBadge))
-                                {
-                                    <span class="chip orange-chip" style="font-size:10px">@item.TabBadge</span>
-                                }
+        <p class="panel-note">Tài khoản hiện tại chưa được cấp quyền truy cập hạng mục nghiệp vụ nào. Vui lòng liên hệ Quản trị viên để phân quyền.</p>
+    }
+    else
+    {
+        @foreach (var grp in VisibleMenuGroups)
+        {
+            <div style="margin-bottom:1.15rem">
+                <div style="font-size:11px;font-weight:780;letter-spacing:.7px;color:#1e6b43;text-transform:uppercase;margin:0 0 8px;display:flex;align-items:center;gap:8px">
+                    <span>▣ @grp.GroupTitle (@grp.Items.Count mục được phép)</span>
+                    <span style="flex:1;height:1px;background:#e2ece5"></span>
+                </div>
+                <div class="stats-grid" style="margin-bottom:0">
+                    @foreach (var item in grp.Items)
+                    {
+                        var grantedCount = CountGrantedDetailPermissions(item);
+                        <div class="panel catalog-shortcut"
+                             style="margin-bottom:0;padding:15px 16px;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;gap:10px;border:1px solid #e5ece8"
+                             @onclick="() => OpenGuide(item.Key)">
+                            <div>
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                                    <span class="chip blue-chip" style="font-size:10px">@item.RouteLabel</span>
+                                    @if (!string.IsNullOrWhiteSpace(item.TabBadge))
+                                    {
+                                        <span class="chip green-chip" style="font-size:10px">@item.TabBadge</span>
+                                    }
+                                </div>
+                                <h3 style="margin:0 0 5px;font-size:14px;font-weight:740;color:#1f2924">@item.Title</h3>
+                                <p style="margin:0;font-size:11.6px;color:#58665e;line-height:1.5">@item.Summary</p>
                             </div>
-                            <h3 style="margin:0 0 5px;font-size:14px;font-weight:740;color:#252637">@item.Title</h3>
-                            <p style="margin:0;font-size:11.6px;color:#686a77;line-height:1.5">@item.Summary</p>
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px dashed #e5ece8;gap:6px;flex-wrap:wrap">
+                                <small style="color:#1b653e;font-weight:700">✓ Đã cấp @grantedCount quyền thao tác</small>
+                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(item.Key)">
+                                    📖 Hướng dẫn sử dụng
+                                </button>
+                            </div>
                         </div>
-                        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px dashed #eeeef3">
-                            <small style="color:#8b8d99;font-weight:600">@item.Actor</small>
-                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(item.Key)">
-                                📖 Hướng dẫn sử dụng
-                            </button>
-                        </div>
-                    </div>
-                }
+                    }
+                </div>
             </div>
-        </div>
+        }
     }
 </section>
 
@@ -59,19 +106,19 @@
     <section class="panel">
         <div class="panel-head">
             <div>
-                <h2>2. 6 Phân hệ nghiệp vụ cốt lõi</h2>
-                <p>Bấm vào từng phân hệ để xem quy trình vận hành chuẩn và các màn hình liên quan.</p>
+                <h2>2. Phân hệ nghiệp vụ tương ứng quyền hạn (@VisibleCoreModules.Count phân hệ)</h2>
+                <p>Bấm vào từng phân hệ để xem quy trình vận hành chuẩn theo quyền được cấp.</p>
             </div>
         </div>
         <div class="step-list">
-            @foreach (var mod in CoreModules)
+            @foreach (var mod in VisibleCoreModules)
             {
-                <div style="padding:10px 12px;border:1px solid #eeeef4;border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s;justify-content:space-between"
+                <div style="padding:10px 12px;border:1px solid #e5ece8;border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s;justify-content:space-between"
                      @onclick="() => OpenGuide(mod.Key)">
                     <div style="display:flex;align-items:center;gap:12px;min-width:0">
                         <b>@mod.Code</b>
                         <span style="min-width:0">
-                            <strong style="color:#252637">@mod.Title</strong>
+                            <strong style="color:#1f2924">@mod.Title</strong>
                             <small style="line-height:1.45">@mod.Summary</small>
                         </span>
                     </div>
@@ -86,19 +133,19 @@
     <section class="panel">
         <div class="panel-head">
             <div>
-                <h2>3. Quy tắc toàn vẹn dữ liệu &amp; Kiểm soát nghiệp vụ</h2>
-                <p>Bấm vào từng quy tắc để xem cơ chế kiểm soát tự động trong mã nguồn.</p>
+                <h2>3. Quy tắc toàn vẹn dữ liệu &amp; Kiểm soát nghiệp vụ (@VisibleIntegrityRules.Count quy tắc)</h2>
+                <p>Bấm vào từng quy tắc để xem cơ chế kiểm soát tự động liên quan đến nghiệp vụ của bạn.</p>
             </div>
         </div>
         <div class="step-list">
-            @foreach (var rule in IntegrityRules)
+            @foreach (var rule in VisibleIntegrityRules)
             {
-                <div style="padding:10px 12px;border:1px solid #eeeef4;border-radius:10px;cursor:pointer;justify-content:space-between"
+                <div style="padding:10px 12px;border:1px solid #e5ece8;border-radius:10px;cursor:pointer;justify-content:space-between"
                      @onclick="() => OpenGuide(rule.Key)">
                     <div style="display:flex;align-items:center;gap:12px;min-width:0">
-                        <b style="background:#eff6ff;color:#0284c7">@rule.Code</b>
+                        <b style="background:#ebfbee;color:#1b653e">@rule.Code</b>
                         <span style="min-width:0">
-                            <strong style="color:#252637">@rule.Title</strong>
+                            <strong style="color:#1f2924">@rule.Title</strong>
                             <small style="line-height:1.45">@rule.Summary</small>
                         </span>
                     </div>
@@ -111,74 +158,97 @@
     </section>
 </div>
 
-<section class="panel">
-    <div class="panel-head">
-        <div>
-            <h2>4. Luồng đi dữ liệu xuyên suốt (End-to-End Workflow)</h2>
-            <p>Chu trình khép kín từ Khai báo Danh mục → Nhập kho → Đơn hàng lắp đặt → Kích hoạt thuê bao → Gia hạn → Kế toán &amp; Hoa hồng cuối kỳ. Bấm vào từng giai đoạn để xem hướng dẫn thực hành.</p>
+@if (VisibleWorkflowStages.Count > 0)
+{
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>4. Luồng đi dữ liệu theo phân quyền (@VisibleWorkflowStages.Count giai đoạn)</h2>
+                <p>Các bước quy trình nghiệp vụ mà tài khoản <strong>@targetUsername (#@targetUserId)</strong> tham gia xử lý. Bấm vào từng dòng để xem hướng dẫn.</p>
+            </div>
         </div>
-    </div>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>STT</th>
-                    <th>Giai đoạn</th>
-                    <th>Điểm đầu vào (UI / Tác nhân)</th>
-                    <th>Xử lý nghiệp vụ &amp; Dịch vụ C#</th>
-                    <th>Bảng dữ liệu SQLite cập nhật</th>
-                    <th>Kết quả đầu ra / Kế toán</th>
-                    <th>Hướng dẫn</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var wf in WorkflowStages)
-                {
-                    <tr style="cursor:pointer" @onclick="() => OpenGuide(wf.Key)">
-                        <td><strong>@wf.Stt</strong></td>
-                        <td><strong>@wf.Stage</strong></td>
-                        <td class="wrap-cell">@wf.EntryPoint</td>
-                        <td class="wrap-cell"><code>@wf.ServiceInfo</code></td>
-                        <td class="wrap-cell"><code>@wf.Tables</code></td>
-                        <td class="wrap-cell"><strong>@wf.Output</strong></td>
-                        <td class="catalog-row-actions">
-                            <button type="button" class="btn btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(wf.Key)">
-                                📖 Xem hướng dẫn
-                            </button>
-                        </td>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>STT</th>
+                        <th>Giai đoạn</th>
+                        <th>Điểm đầu vào (UI / Tác nhân)</th>
+                        <th>Xử lý nghiệp vụ &amp; Dịch vụ C#</th>
+                        <th>Bảng dữ liệu SQLite cập nhật</th>
+                        <th>Kết quả đầu ra / Kế toán</th>
+                        <th>Hướng dẫn</th>
                     </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-</section>
+                </thead>
+                <tbody>
+                    @foreach (var wf in VisibleWorkflowStages)
+                    {
+                        <tr style="cursor:pointer" @onclick="() => OpenGuide(wf.Key)">
+                            <td><strong>@wf.Stt</strong></td>
+                            <td><strong>@wf.Stage</strong></td>
+                            <td class="wrap-cell">@wf.EntryPoint</td>
+                            <td class="wrap-cell"><code>@wf.ServiceInfo</code></td>
+                            <td class="wrap-cell"><code>@wf.Tables</code></td>
+                            <td class="wrap-cell"><strong>@wf.Output</strong></td>
+                            <td class="catalog-row-actions">
+                                <button type="button" class="btn btn-sm" data-confirm="none" @onclick:stopPropagation="true" @onclick="() => OpenGuide(wf.Key)">
+                                    📖 Xem hướng dẫn
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
 
 @if (selectedGuide is not null)
 {
+    var grantedPerms = GetGrantedPermissionDefs(selectedGuide);
+    var ungrantedPerms = GetUngrantedPermissionDefs(selectedGuide);
+    var resolvedHref = ResolvePrimaryHref(selectedGuide);
+
     <div class="so-modal-overlay" @onclick="CloseGuide">
-        <div class="so-modal-dialog" style="max-width:860px" @onclick:stopPropagation="true">
+        <div class="so-modal-dialog" style="max-width:880px" @onclick:stopPropagation="true">
             <div class="so-modal-header">
                 <div>
                     <h2>
                         <span>📖 @selectedGuide.Title</span>
-                        <span class="chip blue-chip">@selectedGuide.Category</span>
+                        <span class="chip green-chip">@selectedGuide.Category</span>
                         @if (!string.IsNullOrWhiteSpace(selectedGuide.TabBadge))
                         {
-                            <span class="chip orange-chip">@selectedGuide.TabBadge</span>
+                            <span class="chip blue-chip">@selectedGuide.TabBadge</span>
                         }
                     </h2>
                     <p>
                         <strong>Đường dẫn:</strong> <code>@selectedGuide.RouteLabel</code>
-                        @if (!string.IsNullOrWhiteSpace(selectedGuide.Actor))
-                        {
-                            <span> · <strong>Vai trò thực hiện:</strong> @selectedGuide.Actor</span>
-                        }
+                        · <strong>Tài khoản đang xem:</strong> <code>@targetUsername (#@targetUserId — @targetDisplayName)</code>
                     </p>
                 </div>
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseGuide">✕ Đóng</button>
             </div>
 
             <div class="so-modal-body" style="display:flex;flex-direction:column;gap:14px">
+                @if (grantedPerms.Count > 0 || ungrantedPerms.Count > 0)
+                {
+                    <div style="padding:12px 14px;background:#f4fcf6;border:1px solid #b2f2bb;border-radius:10px">
+                        <strong style="color:#1b653e;display:block;margin-bottom:8px">
+                            🔑 Quyền hạn của tài khoản @targetUsername (#@targetUserId) trên hạng mục này (@grantedPerms.Count quyền được cấp):
+                        </strong>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px">
+                            @foreach (var p in grantedPerms)
+                            {
+                                <span class="chip green-chip" title="@p.Key">✓ @p.Label</span>
+                            }
+                            @foreach (var p in ungrantedPerms)
+                            {
+                                <span class="chip" style="opacity:0.65" title="Chưa cấp quyền: @p.Key">🔒 @p.Label (Chưa cấp)</span>
+                            }
+                        </div>
+                    </div>
+                }
+
                 <div style="padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;line-height:1.6;color:#334155">
                     <strong style="color:#0f172a;display:block;margin-bottom:4px">🎯 Mục đích &amp; Chức năng chính:</strong>
                     @selectedGuide.Purpose
@@ -186,13 +256,13 @@
 
                 @if (selectedGuide.Tabs.Count > 0)
                 {
-                    <div style="padding:12px 14px;background:#fffaf8;border:1px solid #ffdcd2;border-radius:10px">
-                        <strong style="color:#9a3412;display:block;margin-bottom:8px">🗂 Cấu trúc các Tab / Khu vực trong mục này:</strong>
+                    <div style="padding:12px 14px;background:#fff;border:1px solid #dce5df;border-radius:10px">
+                        <strong style="color:#1b653e;display:block;margin-bottom:8px">🗂 Cấu trúc các Tab / Khu vực trong mục này:</strong>
                         <div style="display:grid;gap:8px">
                             @foreach (var tab in selectedGuide.Tabs)
                             {
-                                <div style="padding:8px 10px;background:#fff;border:1px solid #fed7aa;border-radius:8px;font-size:12px;line-height:1.5">
-                                    <strong style="color:#c2410c">• @tab.Name:</strong> @tab.Detail
+                                <div style="padding:8px 10px;background:#f8faf9;border:1px solid #e2ebe5;border-radius:8px;font-size:12px;line-height:1.5">
+                                    <strong style="color:#1b653e">• @tab.Name:</strong> @tab.Detail
                                 </div>
                             }
                         </div>
@@ -236,9 +306,9 @@
 
             <div class="so-modal-footer">
                 <div>
-                    @if (!string.IsNullOrWhiteSpace(selectedGuide.PrimaryHref))
+                    @if (!string.IsNullOrWhiteSpace(resolvedHref))
                     {
-                        <a class="btn" href="@selectedGuide.PrimaryHref">Mở màn hình @selectedGuide.Title →</a>
+                        <a class="btn" href="@resolvedHref">Mở màn hình @selectedGuide.Title →</a>
                     }
                 </div>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseGuide">Đóng hướng dẫn</button>
@@ -259,20 +329,166 @@
         string Actor,
         string Summary,
         string Purpose,
+        string[] RequiredAnyPermissions,
+        string[] DetailPermissionKeys,
         List<TabGuide> Tabs,
         List<string> Steps,
         List<string> Notes,
         string DataFlow);
 
     private sealed record MenuGroupVm(string GroupTitle, List<GuideTopic> Items);
-    private sealed record CoreModuleVm(string Key, string Code, string Title, string Summary);
-    private sealed record WorkflowStageVm(string Key, int Stt, string Stage, string EntryPoint, string ServiceInfo, string Tables, string Output);
+    private sealed record CoreModuleVm(string Key, string Code, string Title, string Summary, string[] RequiredAnyPermissions);
+    private sealed record WorkflowStageVm(string Key, int Stt, string Stage, string EntryPoint, string ServiceInfo, string Tables, string Output, string[] RequiredAnyPermissions);
 
     private GuideTopic? selectedGuide;
+    private long loggedInUserId;
+    private long targetUserId;
+    private string targetUsername = "";
+    private string targetDisplayName = "";
+    private string targetRolesLabel = "";
+    private bool canPreviewOtherUsers;
+    private List<ManagedUser> allUsers = [];
+    private List<RoleInfo> allRoles = [];
+    private HashSet<string> effectivePermissions = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        loggedInUserId = AuthRepository.PrincipalId(user);
+        targetUserId = loggedInUserId;
+
+        allRoles = Accounts.AllRoles().ToList();
+        var myPerms = Accounts.AllowedPermissions(loggedInUserId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        canPreviewOtherUsers = myPerms.Contains(Permissions.UsersView) || myPerms.Contains(Permissions.ArchitectureView);
+
+        if (canPreviewOtherUsers)
+        {
+            allUsers = Accounts.AllUsers().Where(u => u.IsActive).ToList();
+        }
+
+        LoadTargetUserPermissions(targetUserId, user);
+    }
+
+    private void OnTargetUserChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var uid) && uid > 0)
+        {
+            targetUserId = uid;
+            LoadTargetUserPermissions(targetUserId, null);
+            if (selectedGuide is not null && !HasAccess(selectedGuide.RequiredAnyPermissions))
+            {
+                selectedGuide = null;
+            }
+        }
+    }
+
+    private void LoadTargetUserPermissions(long uid, ClaimsPrincipal? fallbackPrincipal)
+    {
+        effectivePermissions = Accounts.AllowedPermissions(uid).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var managed = allUsers.FirstOrDefault(u => u.Id == uid) ?? Accounts.AllUsers().FirstOrDefault(u => u.Id == uid);
+        if (managed is not null)
+        {
+            targetUsername = managed.Username;
+            targetDisplayName = managed.DisplayName;
+            targetRolesLabel = GetUserRolesDisplay(managed);
+        }
+        else if (fallbackPrincipal is not null)
+        {
+            targetUsername = fallbackPrincipal.FindFirst("tnm_username")?.Value ?? "user";
+            targetDisplayName = fallbackPrincipal.Identity?.Name ?? "Người dùng";
+            targetRolesLabel = string.Join(", ", Accounts.Roles(uid).Select(TranslateRoleCode));
+        }
+    }
+
+    private string GetUserRolesDisplay(ManagedUser u)
+    {
+        if (u.IsOwner) return "Chủ sở hữu (Owner)";
+        var names = u.RoleIds
+            .Select(rid => allRoles.FirstOrDefault(r => r.Id == rid))
+            .Where(r => r is not null)
+            .Select(r => TranslateRoleCode(r!.Code))
+            .ToList();
+        return names.Count > 0 ? string.Join(", ", names) : "Tùy chỉnh quyền";
+    }
+
+    private static string TranslateRoleCode(string code) => code.ToUpperInvariant() switch
+    {
+        "ADMIN" => "Quản trị",
+        "MANAGER" => "Quản lý",
+        "ACCOUNTANT" => "Kế toán",
+        "WAREHOUSE" => "Kho",
+        "CSKH" => "CSKH",
+        "TECHNICIAN" => "Kỹ thuật",
+        _ => code
+    };
+
+    private bool HasAccess(string[] requiredAny)
+    {
+        if (requiredAny.Length == 0) return true;
+        return requiredAny.Any(p => effectivePermissions.Contains(p));
+    }
+
+    private int TotalMenuItemCount => AllMenuGroups.Sum(g => g.Items.Count);
+    private int VisibleMenuItemCount => VisibleMenuGroups.Sum(g => g.Items.Count);
+
+    private List<MenuGroupVm> VisibleMenuGroups => AllMenuGroups
+        .Select(g => new MenuGroupVm(g.GroupTitle, g.Items.Where(i => HasAccess(i.RequiredAnyPermissions)).ToList()))
+        .Where(g => g.Items.Count > 0)
+        .ToList();
+
+    private List<CoreModuleVm> VisibleCoreModules => CoreModules
+        .Where(m => HasAccess(m.RequiredAnyPermissions))
+        .ToList();
+
+    private List<CoreModuleVm> VisibleIntegrityRules => IntegrityRules
+        .Where(r => HasAccess(r.RequiredAnyPermissions))
+        .ToList();
+
+    private List<WorkflowStageVm> VisibleWorkflowStages => WorkflowStages
+        .Where(w => HasAccess(w.RequiredAnyPermissions))
+        .ToList();
+
+    private int CountGrantedDetailPermissions(GuideTopic item)
+    {
+        var count = item.DetailPermissionKeys.Count(k => effectivePermissions.Contains(k));
+        return Math.Max(1, count);
+    }
+
+    private List<PermissionDefinition> GetGrantedPermissionDefs(GuideTopic item) =>
+        item.DetailPermissionKeys
+            .Where(k => effectivePermissions.Contains(k))
+            .Select(k => Permissions.Definitions.FirstOrDefault(d => d.Key == k))
+            .Where(d => d is not null)
+            .Select(d => d!)
+            .ToList();
+
+    private List<PermissionDefinition> GetUngrantedPermissionDefs(GuideTopic item) =>
+        item.DetailPermissionKeys
+            .Where(k => !effectivePermissions.Contains(k))
+            .Select(k => Permissions.Definitions.FirstOrDefault(d => d.Key == k))
+            .Where(d => d is not null)
+            .Select(d => d!)
+            .ToList();
+
+    private string ResolvePrimaryHref(GuideTopic item)
+    {
+        if (item.Key == "installers" && !effectivePermissions.Contains(Permissions.MasterDataManage) && effectivePermissions.Contains(Permissions.PricesView))
+            return "/catalog/installer-rates";
+        if (item.Key == "reports-activity" && !effectivePermissions.Contains(Permissions.ReportsView) && effectivePermissions.Contains(Permissions.ReportsAuditView))
+            return "/activity";
+        if (item.Key == "admin-security")
+        {
+            if (effectivePermissions.Contains(Permissions.UsersView)) return "/admin/users";
+            if (effectivePermissions.Contains(Permissions.WarehouseScopeManage)) return "/admin/warehouses";
+            if (effectivePermissions.Contains(Permissions.ArchitectureView)) return "/admin/flow-tester";
+        }
+        return item.PrimaryHref;
+    }
 
     private void OpenGuide(string key)
     {
-        if (AllGuides.TryGetValue(key, out var g))
+        if (AllGuides.TryGetValue(key, out var g) && HasAccess(g.RequiredAnyPermissions))
         {
             selectedGuide = g;
         }
@@ -292,9 +508,11 @@
             Actor: "Ban giám đốc / Quản lý / Kế toán / CSKH",
             Summary: "Theo dõi nhanh doanh thu, đã thu, công nợ phải thu, lợi nhuận gộp ước tính, vòng đời thiết bị IMEI và các cảnh báo cần xử lý ngay.",
             Purpose: "Cung cấp bức tranh tổng thể theo thời gian thực về sức khỏe vận hành của doanh nghiệp: từ tồn kho thiết bị IMEI, tiến độ đơn hàng lắp đặt chưa hoàn thành, thiết bị sắp đến hạn gia hạn trong 30 ngày cho tới công nợ phải thu.",
+            RequiredAnyPermissions: [Permissions.DashboardView],
+            DetailPermissionKeys: [Permissions.DashboardView, Permissions.DashboardRevenue, Permissions.DashboardProfit, Permissions.DashboardStock, Permissions.DashboardDebt, Permissions.DashboardOrders, Permissions.DashboardDevices, Permissions.DashboardRenewals],
             Tabs:
             [
-                new("Chỉ số tài chính (4 thẻ KPI)", "Hiển thị Doanh thu đã ghi nhận, Đã thu thực tế, Công nợ phải thu còn lại và Lợi nhuận gộp ước tính."),
+                new("Chỉ số tài chính (4 thẻ KPI)", "Hiển thị Doanh thu đã ghi nhận, Đã thu thực tế, Công nợ phải thu còn lại và Lợi nhuận gộp ước tính (tùy theo quyền xem từng chỉ số)."),
                 new("Vòng đời thiết bị & Điểm cần chú ý", "Biểu đồ tỷ lệ IMEI Tồn kho / Đang ký gửi / Đã kích hoạt và danh sách cảnh báo thiết bị sắp hết hạn, đơn hàng chờ điều phối."),
                 new("Đi nhanh đến nghiệp vụ", "Các lối tắt mở nhanh Sản phẩm, Danh sách Kho, Đơn hàng SO, Khách hàng, Nhà cung cấp và Gia hạn thiết bị.")
             ],
@@ -307,7 +525,7 @@
             ],
             Notes:
             [
-                "Các con số doanh thu, công nợ, lợi nhuận hiển thị tự động theo phân quyền của tài khoản đang đăng nhập.",
+                "Các con số doanh thu, công nợ, lợi nhuận hiển thị tự động theo phân quyền chi tiết của tài khoản đang đăng nhập.",
                 "Số liệu trên Dashboard tự động cập nhật ngay khi đơn hàng SO hoàn thành, khi nhập kho hoặc khi Kế toán lập phiếu thu/chi."
             ],
             DataFlow: "Tổng hợp trực tiếp từ các bảng invoices, payments, stock_units, activations và v7_orders."),
@@ -322,6 +540,8 @@
             Actor: "Quản lý / Admin / Kế toán kho",
             Summary: "Quản lý danh mục sản phẩm (Hàng hóa có IMEI, Hàng hóa theo số lượng, Dịch vụ) và phân nhóm sản phẩm.",
             Purpose: "Chuẩn hóa danh mục sản phẩm dùng chung cho toàn bộ hệ thống: Mua hàng NCC (PO), Nhập kho IMEI/Số lượng, Đơn hàng lắp đặt (SO), Định mức công lắp kỹ thuật và Bảng giá.",
+            RequiredAnyPermissions: [Permissions.ProductsView],
+            DetailPermissionKeys: [Permissions.ProductsView, Permissions.ProductsCreate, Permissions.ProductsUpdate, Permissions.ProductsExport],
             Tabs:
             [
                 new("Tab 1: Chi tiết Sản phẩm (/products)", "Quản lý mã SKU (VD: DX00002), tên sản phẩm, nhóm SP, loại sản phẩm (Hàng hóa có IMEI / Hàng hóa số lượng / Dịch vụ), giá nhập, giá bán lắp đặt, giá gia hạn và tổng tồn kho hiện tại."),
@@ -351,6 +571,8 @@
             Actor: "Quản lý / Thu mua / Kế toán",
             Summary: "Quản lý thông tin các đơn vị Nhà cung cấp / Hãng thiết bị và phân nhóm NCC để thiết lập bảng giá nhập.",
             Purpose: "Lưu trữ danh sách đối tác cung cấp thiết bị/hàng hóa (VD: NCC Nasa, Chemtec...) phục vụ nhập kho, theo dõi công nợ phải trả NCC, bảo hành thiết bị và chọn nhanh 'Hãng lắp đặt' trên đơn hàng SO.",
+            RequiredAnyPermissions: [Permissions.MasterDataManage],
+            DetailPermissionKeys: [Permissions.MasterDataManage],
             Tabs:
             [
                 new("Tab 1: Chi tiết / Đơn vị NCC (/catalog/suppliers)", "Khai báo Mã NCC, Tên công ty/đơn vị cung cấp, thuộc Nhóm NCC nào, Số điện thoại và Mã số thuế."),
@@ -379,6 +601,8 @@
             Actor: "CSKH / Nhân viên bán hàng / Kế toán",
             Summary: "Quản lý hồ sơ Khách hàng (HTX, Đại lý B2B, Khách lẻ), người đại diện, nhân viên bán hàng phụ trách và nhóm khách hàng.",
             Purpose: "Quản lý tập trung thông tin Đơn vị (HTX/Đại lý) và khách hàng, tự động cấp mã KH, gắn kết chặt chẽ từng khách hàng với Nhân viên bán hàng phụ trách và Nhóm bảng giá tương ứng.",
+            RequiredAnyPermissions: [Permissions.CustomersView],
+            DetailPermissionKeys: [Permissions.CustomersView, Permissions.CustomersCreate, Permissions.CustomersUpdate],
             Tabs:
             [
                 new("Tab 1: Chi tiết Khách hàng (/catalog/customers)", "Khai báo Tên khách hàng/Đơn vị (HTX, Đại lý), Người đại diện B2B, SĐT, Địa chỉ và chọn Nhân viên bán hàng phụ trách (mã KH tự động cấp theo chuẩn KH000xx)."),
@@ -404,9 +628,11 @@
             RouteLabel: "/catalog/sellers",
             PrimaryHref: "/catalog/sellers",
             TabBadge: "Quản lý & Hoa hồng",
-            Actor: "Quản lý kinh doanh / Kế toán / Admin",
+            Actor: "Quản lý kinh doanh / Kế toán / CSKH",
             Summary: "Khai báo danh sách Nhân viên bán hàng, cấu hình định mức hoa hồng bán mới / gia hạn và thống kê doanh số cuối kỳ.",
             Purpose: "Đồng bộ danh sách Nhân viên bán hàng xuyên suốt từ hồ sơ Khách hàng → Đơn hàng lắp đặt (SO) → Gia hạn thiết bị (/devices) → Quyết toán hoa hồng tại trang Kế toán (/finance).",
+            RequiredAnyPermissions: [Permissions.MasterDataManage, Permissions.CustomersView, Permissions.OrdersView],
+            DetailPermissionKeys: [Permissions.CustomersView, Permissions.CustomersCreate, Permissions.CustomersUpdate, Permissions.OrdersView, Permissions.MasterDataManage],
             Tabs:
             [
                 new("Danh sách & Thống kê Nhân viên bán hàng", "Hiển thị Mã NV bán hàng (SL...), Họ tên, Bộ phận, SĐT, Số lượng KH phụ trách, Số đơn SO hoàn thành, Số thiết bị gia hạn và Tổng hoa hồng dự kiến.")
@@ -434,6 +660,8 @@
             Actor: "Quản lý kỹ thuật / Điều phối CSKH / Kế toán",
             Summary: "Khai báo hồ sơ Kỹ thuật viên / Đơn vị lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm.",
             Purpose: "Quản lý danh sách nhân sự/đối tác lắp đặt và tự động hóa việc tính tiền công lắp đặt trên từng đơn hàng SO cũng như tự động lên bảng kê công nợ tiền công kỹ thuật cho Kế toán.",
+            RequiredAnyPermissions: [Permissions.MasterDataManage, Permissions.PricesView],
+            DetailPermissionKeys: [Permissions.MasterDataManage, Permissions.PricesView, Permissions.PricesUpdate],
             Tabs:
             [
                 new("Tab 1: Chi tiết Người lắp đặt (/catalog/installers)", "Khai báo thông tin người lắp đặt (Mã KT, Họ tên, SĐT, Phân loại Nội bộ/CTV/Đối tác) kèm bảng cấu hình nhanh đơn giá công lắp cho toàn bộ sản phẩm ngay trong cùng 1 màn hình."),
@@ -462,6 +690,8 @@
             Actor: "Ban giám đốc / Quản lý kinh doanh / Kế toán",
             Summary: "Quản lý tập trung 3 chính sách giá trên cùng một trang: Bảng giá nhập NCC, Bảng giá bán theo nhóm khách hàng và Chương trình ưu đãi.",
             Purpose: "Tự động hóa việc áp giá mua khi nhập kho/tạo PO và áp giá bán (kèm chiết khấu ưu đãi nếu có) khi CSKH tạo đơn hàng lắp đặt SO hoặc khi gia hạn thuê bao.",
+            RequiredAnyPermissions: [Permissions.PricesView],
+            DetailPermissionKeys: [Permissions.PricesView, Permissions.PricesUpdate],
             Tabs:
             [
                 new("Tab 1: Bảng giá nhập NCC (/catalog/buy-prices)", "Thiết lập đơn giá mua vào theo từng Nhóm nhà cung cấp + Sản phẩm + Ngày bắt đầu hiệu lực."),
@@ -491,6 +721,8 @@
             Actor: "CSKH / Điều phối kho / Quản lý",
             Summary: "Tiếp nhận thông tin từ Nhân viên bán hàng, tạo đơn hàng SO, và bấm nút trên từng dòng đơn để mở Dialog điều phối, nhập IMEI & hoàn thành đơn.",
             Purpose: "Quản lý trọn vẹn vòng đời đơn hàng lắp đặt từ lúc Nhân viên bán hàng gửi thông tin khách lắp → CSKH điều phối kho & kỹ thuật → Kỹ thuật gửi IMEI & biển số về → CSKH kích hoạt IMEI & hoàn thành đơn (trừ tồn kho và sinh công nợ).",
+            RequiredAnyPermissions: [Permissions.OrdersView],
+            DetailPermissionKeys: [Permissions.OrdersView, Permissions.OrdersCreate, Permissions.OrdersUpdate, Permissions.OrdersActivate, Permissions.OrdersCancel, Permissions.OrdersReportSource, Permissions.OrdersReportCustomer, Permissions.OrdersReportProduct],
             Tabs:
             [
                 new("Phần 1: Tạo đơn hàng & Điều sản phẩm ở kho (Trên trang chính)", "Hỗ trợ nút '📋 Dán nhanh tin nhắn NV bán hàng' để tự động điền thông tin khách, chọn Đơn vị/KH, Nhân viên bán hàng, Kho xuất, ĐV lắp đặt hoặc Hãng lắp đặt (có tùy chọn Không trừ tồn kho) và danh sách sản phẩm."),
@@ -502,7 +734,7 @@
                 "Bước 1 (Tạo đơn): Tại mục 1, bấm '📋 Dán nhanh tin nhắn NV bán hàng' (hoặc chọn Khách hàng, nhập tên/SĐT khách lắp, địa chỉ, thời gian lắp), chọn Kho, ĐV lắp đặt, chọn Sản phẩm và bấm '+ Tạo đơn hàng (SO)'. Lúc này tồn kho CHƯA bị trừ.",
                 "Bước 2 (Điều chỉnh / Điều phối): Trong bảng 'Danh sách đơn hàng lắp đặt (SO)', tìm đơn hàng và bấm nút '⚙ Điều chỉnh / Xử lý' ở cột Thao tác để mở Dialog của đơn đó. Kiểm tra/cập nhật Kho xuất, ĐV lắp đặt và bấm '1. Lưu thông tin & Điều phối kho / ĐV lắp'.",
                 "Bước 3 (Nhập IMEI từ kỹ thuật gửi về): Khi kỹ thuật lắp xong và báo mã IMEI + biển số xe về, bấm nút 'Nhập IMEI' (hoặc '⚙ Điều chỉnh / Xử lý') trên dòng đơn hàng → nhập hoặc chọn mã IMEI từ danh sách tồn kho, nhập Biển số xe, Thông tin phụ → bấm '2. Lưu Số IMEI & Thông tin phụ'.",
-                "Bước 4 (Hoàn thành & Kích hoạt IMEI): Kiểm tra '📅 Ngày kích hoạt IMEI' trong Dialog và bấm nút cam '3. Hoàn thành đơn & Kích hoạt IMEI' → Xác nhận trên hộp thoại. Hệ thống lập tức trừ tồn kho, kích hoạt hạn bảo hành/thuê bao cho IMEI và tự động tạo công nợ bên Kế toán."
+                "Bước 4 (Hoàn thành & Kích hoạt IMEI): Kiểm tra '📅 Ngày kích hoạt IMEI' trong Dialog và bấm nút '3. Hoàn thành đơn & Kích hoạt IMEI' → Xác nhận trên hộp thoại. Hệ thống lập tức trừ tồn kho, kích hoạt hạn bảo hành/thuê bao cho IMEI và tự động tạo công nợ bên Kế toán."
             ],
             Notes:
             [
@@ -521,6 +753,8 @@
             Actor: "Thu mua / Thủ kho / Kế toán",
             Summary: "Lập đơn đặt hàng Nhà cung cấp (PO), duyệt đơn mua và xác nhận nhận đủ hàng vào kho.",
             Purpose: "Theo dõi quy trình đặt mua hàng từ Nhà cung cấp trước khi hàng về kho, hỗ trợ tạo nhanh nhà cung cấp mới ngay trên màn hình tạo PO nếu chưa có trong danh mục.",
+            RequiredAnyPermissions: [Permissions.PurchaseView],
+            DetailPermissionKeys: [Permissions.PurchaseView, Permissions.PurchaseCreate, Permissions.PurchaseReceive],
             Tabs:
             [
                 new("Biểu mẫu Tạo đơn mua hàng (PO)", "Chọn Nhà cung cấp, Kho nhận hàng, Sản phẩm, Số lượng và Đơn giá nhập dự kiến."),
@@ -548,6 +782,8 @@
             Actor: "Thủ kho / Quản lý kho / Điều phối",
             Summary: "Trung tâm vận hành kho đặt ở vị trí số 1 của mục Kho & Thiết bị, gom 2 tab: Kho IMEI và Kho số lượng.",
             Purpose: "Quản lý toàn diện cả 2 loại hình tồn kho trong cùng một màn hình: (1) Thiết bị quản lý theo từng mã IMEI/Seri duy nhất và (2) Hàng hóa/vật tư quản lý theo số lượng.",
+            RequiredAnyPermissions: [Permissions.InventoryView, Permissions.QuantityStockView],
+            DetailPermissionKeys: [Permissions.InventoryView, Permissions.InventoryReceive, Permissions.InventoryConsignOut, Permissions.InventoryConsignReturn, Permissions.InventoryTechOut, Permissions.InventoryTechReturn, Permissions.InventoryLedgerView, Permissions.InventoryLedgerExport, Permissions.QuantityStockView, Permissions.QuantityMove],
             Tabs:
             [
                 new("Tab 1: Kho IMEI", "Nhập lô thiết bị IMEI mới từ NCC (hỗ trợ dán danh sách nhiều IMEI mỗi dòng 1 mã hoặc tự sinh theo số lượng), Xuất ký gửi cho khách hàng, Giao thiết bị cho kỹ thuật viên, Hoàn trả về kho, xem Bảng tổng hợp tồn kho theo sản phẩm và Danh sách tra cứu từng mã IMEI."),
@@ -577,6 +813,8 @@
             Actor: "Quản lý kho / Admin",
             Summary: "Khai báo danh sách các Kho hàng (Kho công ty, Kho HTX, Kho đại lý) và phân vùng Khu vực địa lý.",
             Purpose: "Tổ chức mạng lưới kho lưu trữ hàng hóa và thiết bị theo từng khu vực (Miền Nam, Cần Thơ, TP.HCM, Kiên Giang...), đồng thời thống kê nhanh số lượng IMEI đang nằm tại từng kho.",
+            RequiredAnyPermissions: [Permissions.MasterDataManage],
+            DetailPermissionKeys: [Permissions.MasterDataManage, Permissions.WarehouseLocationManage],
             Tabs:
             [
                 new("Tab 1: Chi tiết Kho (/catalog/warehouses)", "Hiển thị danh sách tất cả các kho, mã kho (VD: KHO-TNM, KHO-NT...), thuộc khu vực nào, địa chỉ kho và thống kê trực tiếp tổng số IMEI (bao nhiêu trong kho / bao nhiêu đã kích hoạt)."),
@@ -605,6 +843,8 @@
             Actor: "Thủ kho / Kế toán kho / Quản lý",
             Summary: "Chốt số lượng tồn kho tại thời điểm kiểm đếm thực tế và duyệt tạo bút toán điều chỉnh chênh lệch tự động.",
             Purpose: "Đảm bảo số liệu tồn kho trên phần mềm luôn khớp 100% với số lượng hàng thực tế trong kho thông qua quy trình kiểm đếm và phê duyệt minh bạch.",
+            RequiredAnyPermissions: [Permissions.QuantityCountView],
+            DetailPermissionKeys: [Permissions.QuantityCountView, Permissions.QuantityCountCreate, Permissions.QuantityCountApprove],
             Tabs:
             [
                 new("Mở phiên kiểm kê & Ghi thực kiểm", "Tạo phiên kiểm kê mới theo Kho & Vị trí, sau đó nhập số lượng đếm thực tế cho từng sản phẩm."),
@@ -633,6 +873,8 @@
             Actor: "CSKH / Nhân viên bán hàng / Kế toán",
             Summary: "Quản lý toàn bộ thiết bị IMEI đang hoạt động, biển số xe, cảnh báo sắp hết hạn/quá hạn và thực hiện gia hạn thuê bao.",
             Purpose: "Giúp CSKH và Nhân viên bán hàng theo dõi sát sao ngày kích hoạt, ngày hết hạn của từng thiết bị đã lắp cho khách; chủ động liên hệ khách gia hạn đúng hạn và ghi nhận doanh số/hoa hồng gia hạn cho Nhân viên bán hàng.",
+            RequiredAnyPermissions: [Permissions.DevicesView],
+            DetailPermissionKeys: [Permissions.DevicesView, Permissions.DevicesActiveView, Permissions.DevicesOverdueView, Permissions.DevicesDue10View, Permissions.DevicesDue30View, Permissions.DevicesDue60View, Permissions.DevicesRenew, Permissions.DevicesUpdate, Permissions.DevicesRenewalsView],
             Tabs:
             [
                 new("Biểu mẫu + Gia hạn thiết bị", "Chọn thiết bị/biển số cần gia hạn, chọn Nhân viên bán hàng phụ trách gia hạn (tính hoa hồng), nguồn gia hạn và hình thức thanh toán (Ghi công nợ / Thanh toán ngay)."),
@@ -663,6 +905,8 @@
             Actor: "Kỹ thuật / CSKH / Thủ kho",
             Summary: "Theo dõi quy trình bảo hành thiết bị theo mã IMEI qua 3 bước: Nhận từ khách → Gửi hãng bảo hành → Trả khách.",
             Purpose: "Kiểm soát chặt chẽ các thiết bị gặp sự cố kỹ thuật cần thu hồi về bảo hành, tránh thất lạc thiết bị khi gửi đi Nhà cung cấp/Hãng.",
+            RequiredAnyPermissions: [Permissions.InventoryWarranty],
+            DetailPermissionKeys: [Permissions.InventoryWarranty, Permissions.InventoryView],
             Tabs:
             [
                 new("Biểu mẫu tạo & cập nhật phiếu bảo hành", "Nhập mã IMEI cần bảo hành, mô tả lỗi và chuyển trạng thái theo 3 bước."),
@@ -691,6 +935,8 @@
             Actor: "Kế toán / Chủ sở hữu (Owner) / Quản lý",
             Summary: "Quản lý 4 nhóm Công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật & Hoa hồng NV bán hàng), lập Phiếu Thu/Chi, Sổ quỹ và Khóa sổ cuối kỳ.",
             Purpose: "Trung tâm tài chính – kế toán của hệ thống: tự động tập hợp mọi khoản phải thu/phải trả phát sinh từ Kho, Đơn hàng SO và Gia hạn; quản lý dòng tiền Thu – Chi – Tồn quỹ và đối soát hoa hồng nhân viên bán hàng.",
+            RequiredAnyPermissions: [Permissions.FinanceView],
+            DetailPermissionKeys: [Permissions.FinanceView, Permissions.FinanceSupplierView, Permissions.FinanceCustomerView, Permissions.FinanceRenewView, Permissions.FinanceOtherView, Permissions.FinancePay, Permissions.FinanceExport],
             Tabs:
             [
                 new("4 Tab Phân mục Công nợ", "(1) Tất cả công nợ, (2) 1. Công nợ Sản phẩm (Nhập NCC - Phải trả), (3) 2. Công nợ Khách hàng (Đơn lắp đặt - Phải thu), (4) 3. Công nợ Gia hạn (Phải thu), (5) 4. Công nợ Khác (Phí lắp kỹ thuật & Hoa hồng NV bán hàng - Phải trả)."),
@@ -722,6 +968,8 @@
             Actor: "Ban giám đốc / Kế toán / Admin",
             Summary: "Tra cứu báo cáo tổng hợp doanh thu – lợi nhuận – lịch sử IMEI (/reports) và nhật ký kiểm toán Trước/Sau (/activity).",
             Purpose: "Đảm bảo tính minh bạch tuyệt đối: mọi thao tác Thêm mới, Cập nhật hay Xóa mềm của bất kỳ tài khoản nào trên hệ thống đều được lưu vết kèm dữ liệu Trước và Sau khi sửa.",
+            RequiredAnyPermissions: [Permissions.ReportsView, Permissions.ReportsAuditView],
+            DetailPermissionKeys: [Permissions.ReportsView, Permissions.ReportsAuditView],
             Tabs:
             [
                 new("Báo cáo & Nhật ký (/reports)", "Tổng hợp doanh thu, giá vốn, lợi nhuận gộp ước tính và lịch sử giao dịch xuất/nhập/kích hoạt IMEI."),
@@ -749,6 +997,8 @@
             Actor: "Chủ sở hữu hệ thống (Owner / Admin)",
             Summary: "Quản lý tài khoản nhân viên, phân quyền chi tiết theo vai trò (RBAC), giới hạn phạm vi kho được phép truy cập và chạy kiểm thử tự động.",
             Purpose: "Kiểm soát bảo mật chặt chẽ: mỗi nhân sự chỉ nhìn thấy menu và thực hiện được các thao tác cũng như các kho hàng nằm trong phạm vi quyền hạn được cấp.",
+            RequiredAnyPermissions: [Permissions.WarehouseScopeManage, Permissions.UsersView, Permissions.ArchitectureView],
+            DetailPermissionKeys: [Permissions.UsersView, Permissions.UsersManage, Permissions.RolesManage, Permissions.UsersPermissions, Permissions.WarehouseScopeManage, Permissions.ArchitectureView],
             Tabs:
             [
                 new("Phạm vi kho (/admin/warehouses)", "Cấu hình giới hạn cho từng tài khoản nhân viên chỉ được phép xem và xuất/nhập trên một hoặc một số kho nhất định."),
@@ -765,7 +1015,7 @@
             [
                 "Ngay khi Admin thay đổi quyền hoặc khóa tài khoản của một nhân viên, hiệu lực bảo mật sẽ áp dụng tức thì nhờ cơ chế kiểm tra Security Stamp trực tiếp."
             ],
-            DataFlow: "Lưu tại users, roles, user_roles, role_permissions, user_permissions và user_warehouse_scopes."),
+            DataFlow: "Lưu tại app_users, roles, user_roles, role_permissions, user_permission_overrides và user_warehouse_scopes."),
 
         // Core Modules 01-06 mapped to detailed guides
         ["mod-01"] = new(
@@ -774,10 +1024,12 @@
             Title: "01. Danh mục & Chính sách giá",
             RouteLabel: "/products · /catalog/*",
             PrimaryHref: "/products",
-            TabBadge: "6 Mục Menu Kinh doanh",
-            Actor: "Admin / Quản lý kinh doanh / Kế toán",
+            TabBadge: "Danh mục Kinh doanh",
+            Actor: "Admin / Quản lý kinh doanh / Kế toán / CSKH",
             Summary: "Thiết lập dữ liệu nền tảng: Sản phẩm (2 tab), Nhà cung cấp (2 tab), Khách hàng (2 tab), Nhân viên bán hàng, Người lắp đặt (2 tab) và Giá & chương trình (3 tab).",
             Purpose: "Chuẩn hóa toàn bộ danh mục đầu vào và biểu giá để khi vận hành đơn hàng hoặc nhập kho, hệ thống tự động nội suy đúng giá mua, giá bán, chiết khấu, công kỹ thuật và hoa hồng nhân viên bán hàng.",
+            RequiredAnyPermissions: [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView, Permissions.OrdersView],
+            DetailPermissionKeys: [Permissions.ProductsView, Permissions.ProductsCreate, Permissions.ProductsUpdate, Permissions.CustomersView, Permissions.CustomersCreate, Permissions.CustomersUpdate, Permissions.PricesView, Permissions.PricesUpdate, Permissions.MasterDataManage],
             Tabs:
             [
                 new("Sản phẩm & Nhà cung cấp", "Gom gọn thành các tab Chi tiết | Nhóm ngay trong từng mục, giúp tra cứu và khai báo nhanh mà không phải chuyển nhiều menu."),
@@ -807,6 +1059,8 @@
             Actor: "Thủ kho / Quản lý kho / Kỹ thuật",
             Summary: "Quản lý nhập kho lô IMEI, xuất ký gửi/giao kỹ thuật, nhập/xuất/chuyển kho số lượng, kiểm kê và bảo hành 3 bước.",
             Purpose: "Kiểm soát chính xác từng thiết bị theo mã IMEI cũng như từng mặt hàng phụ kiện/vật tư theo số lượng tại từng kho.",
+            RequiredAnyPermissions: [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty, Permissions.PurchaseView],
+            DetailPermissionKeys: [Permissions.InventoryView, Permissions.InventoryReceive, Permissions.InventoryConsignOut, Permissions.InventoryTechOut, Permissions.InventoryWarranty, Permissions.QuantityStockView, Permissions.QuantityMove, Permissions.QuantityCountView, Permissions.QuantityCountCreate, Permissions.QuantityCountApprove],
             Tabs:
             [
                 new("Kho (/inventory)", "Gồm 2 tab: 'Kho IMEI' (quản lý từng seri thiết bị) và 'Kho số lượng' (nhập/xuất/chuyển kho theo số lượng)."),
@@ -835,6 +1089,8 @@
             Actor: "CSKH / Điều phối / Kỹ thuật",
             Summary: "Quy trình xử lý đơn hàng lắp đặt SO gọn gàng: Tạo đơn ở mục 1 → Bấm nút trên từng dòng đơn ở bảng dưới để mở Dialog điều chỉnh, nhập IMEI & hoàn thành.",
             Purpose: "Tách biệt rõ bước Tiếp nhận tạo đơn (chưa trừ kho) và bước Xử lý / Hoàn thành đơn trong Dialog (chỉ trừ tồn kho và kích hoạt IMEI khi lắp đặt thành công).",
+            RequiredAnyPermissions: [Permissions.OrdersView],
+            DetailPermissionKeys: [Permissions.OrdersView, Permissions.OrdersCreate, Permissions.OrdersUpdate, Permissions.OrdersActivate, Permissions.OrdersCancel],
             Tabs:
             [
                 new("Tạo đơn mới + Dán nhanh tin nhắn NV bán hàng", "Bóc tách tự động nội dung tin nhắn của Nhân viên bán hàng gửi về thành các trường thông tin đơn hàng."),
@@ -862,6 +1118,8 @@
             Actor: "CSKH / Nhân viên bán hàng / Kế toán",
             Summary: "Theo dõi vòng đời thuê bao sau lắp đặt, cảnh báo hết hạn và gia hạn 12 tháng gắn với Nhân viên bán hàng.",
             Purpose: "Chăm sóc khách hàng tái tục thuê bao định kỳ hàng năm và tính chính xác hoa hồng gia hạn cho Nhân viên bán hàng phụ trách.",
+            RequiredAnyPermissions: [Permissions.DevicesView],
+            DetailPermissionKeys: [Permissions.DevicesView, Permissions.DevicesActiveView, Permissions.DevicesOverdueView, Permissions.DevicesDue30View, Permissions.DevicesRenew, Permissions.DevicesUpdate],
             Tabs:
             [
                 new("Danh sách kích hoạt & Bộ lọc hạn", "Theo dõi Còn hạn, Sắp hết hạn (trong 30 ngày), Quá hạn D+10, D+30, D+60."),
@@ -889,6 +1147,8 @@
             Actor: "Kế toán / Chủ sở hữu (Owner)",
             Summary: "Quản lý toàn bộ công nợ Phải thu / Phải trả, lập Phiếu Thu/Chi, đối soát hoa hồng Nhân viên bán hàng và khóa sổ kế toán.",
             Purpose: "Khép kín chu trình tài chính: mọi nghiệp vụ phát sinh ở Kho, Đơn hàng, Gia hạn đều hội tụ về bảng Công nợ và Sổ quỹ Kế toán.",
+            RequiredAnyPermissions: [Permissions.FinanceView],
+            DetailPermissionKeys: [Permissions.FinanceView, Permissions.FinanceSupplierView, Permissions.FinanceCustomerView, Permissions.FinanceRenewView, Permissions.FinanceOtherView, Permissions.FinancePay, Permissions.FinanceExport],
             Tabs:
             [
                 new("4 Nhóm Công nợ & Sổ quỹ Thu – Chi – Tồn", "Phân tách rõ Công nợ Sản phẩm (NCC), Công nợ Khách hàng, Công nợ Gia hạn và Công nợ Khác (Kỹ thuật/Hoa hồng)."),
@@ -917,6 +1177,8 @@
             Actor: "Chủ sở hữu hệ thống (Owner / Admin)",
             Summary: "Kiểm soát quyền truy cập theo vai trò + quyền riêng từng User, giới hạn phạm vi kho và lưu vết kiểm toán 100% thao tác.",
             Purpose: "Bảo vệ an toàn dữ liệu doanh nghiệp, phân tách rõ quyền hạn giữa các bộ phận và truy vết được mọi thay đổi dữ liệu.",
+            RequiredAnyPermissions: [Permissions.UsersView, Permissions.WarehouseScopeManage, Permissions.ReportsAuditView, Permissions.ArchitectureView],
+            DetailPermissionKeys: [Permissions.UsersView, Permissions.UsersManage, Permissions.RolesManage, Permissions.UsersPermissions, Permissions.WarehouseScopeManage, Permissions.ReportsAuditView],
             Tabs:
             [
                 new("Tài khoản & quyền (/admin/users)", "Quản lý user, mật khẩu và ma trận phân quyền chi tiết."),
@@ -942,9 +1204,11 @@
             RouteLabel: "Services/DemoDb.cs · Services/V7Orders.cs",
             PrimaryHref: "/inventory",
             TabBadge: "Chuẩn hóa IMEI",
-            Actor: "Hệ thống tự động kiểm soát",
+            Actor: "Kho / CSKH / Kỹ thuật",
             Summary: "Mỗi thiết bị IMEI chỉ ở 1 trạng thái duy nhất tại 1 thời điểm (IN_STOCK, CONSIGNED, TECHNICIAN, INSTALLED, WARRANTY).",
             Purpose: "Ngăn chặn tuyệt đối việc xuất trùng 1 mã IMEI cho 2 đơn hàng khác nhau hoặc lỗi xung đột khóa UNIQUE khi nhập lại mã IMEI từng bị xóa mềm.",
+            RequiredAnyPermissions: [Permissions.InventoryView, Permissions.OrdersView, Permissions.DevicesView, Permissions.InventoryWarranty, Permissions.ArchitectureView],
+            DetailPermissionKeys: [Permissions.InventoryView, Permissions.InventoryReceive, Permissions.OrdersActivate, Permissions.DevicesView],
             Tabs: [],
             Steps:
             [
@@ -968,6 +1232,8 @@
             Actor: "CSKH / Điều phối kho",
             Summary: "Tạo đơn và điều phối chưa trừ kho. Tồn kho chỉ giảm khi đơn hàng chuyển sang COMPLETED (hỗ trợ chế độ Không trừ tồn kho khi Hãng lắp đặt).",
             Purpose: "Đảm bảo số lượng tồn kho trong kho luôn phản ánh đúng lượng hàng thực tế chưa lắp; tránh việc đơn hàng mới tạo hoặc bị hủy làm sai lệch tồn kho.",
+            RequiredAnyPermissions: [Permissions.OrdersView, Permissions.InventoryView, Permissions.QuantityStockView, Permissions.ArchitectureView],
+            DetailPermissionKeys: [Permissions.OrdersView, Permissions.OrdersCreate, Permissions.OrdersActivate, Permissions.InventoryView, Permissions.QuantityStockView],
             Tabs: [],
             Steps:
             [
@@ -988,9 +1254,11 @@
             RouteLabel: "Services/V7Orders.cs",
             PrimaryHref: "/sales-orders",
             TabBadge: "Chốt giá lịch sử",
-            Actor: "Hệ thống tự động kiểm soát",
+            Actor: "Kinh doanh / CSKH / Kế toán",
             Summary: "Đơn hàng đã hoàn thành giữ nguyên đơn giá bán, giá vốn, công lắp đặt và Nhân viên bán hàng tại thời điểm phát sinh.",
             Purpose: "Giúp báo cáo doanh thu, giá vốn, lợi nhuận gộp và hoa hồng của các tháng trước luôn cố định, không bị nhảy số khi Quản lý thay đổi bảng giá sản phẩm ở tháng hiện tại.",
+            RequiredAnyPermissions: [Permissions.OrdersView, Permissions.PricesView, Permissions.FinanceView, Permissions.ReportsView, Permissions.ArchitectureView],
+            DetailPermissionKeys: [Permissions.OrdersView, Permissions.PricesView, Permissions.FinanceView, Permissions.ReportsView],
             Tabs: [],
             Steps:
             [
@@ -1011,9 +1279,11 @@
             RouteLabel: "Services/DemoDb.cs · Services/V7Orders.cs",
             PrimaryHref: "/finance",
             TabBadge: "Tự động hạch toán",
-            Actor: "Hệ thống tự động & Kế toán",
+            Actor: "Kế toán / Kho / CSKH",
             Summary: "Mọi nghiệp vụ Nhập kho, Hoàn thành đơn lắp đặt và Gia hạn thiết bị đều tự động sinh chứng từ Công nợ tương ứng bên Kế toán.",
             Purpose: "Loại bỏ việc Kế toán phải nhập liệu thủ công lại các hóa đơn mua/bán, chống bỏ sót công nợ phải thu khách hàng hoặc công nợ phải trả NCC / Kỹ thuật.",
+            RequiredAnyPermissions: [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.PurchaseView, Permissions.ArchitectureView],
+            DetailPermissionKeys: [Permissions.FinanceView, Permissions.FinanceSupplierView, Permissions.FinanceCustomerView, Permissions.FinanceRenewView, Permissions.FinanceOtherView, Permissions.FinancePay],
             Tabs: [],
             Steps:
             [
@@ -1037,6 +1307,8 @@
             Actor: "Toàn bộ người dùng",
             Summary: "Tất cả các nút Thêm / Sửa / Xóa trên toàn bộ ứng dụng đều hiển thị Dialog xác nhận lại trước khi thực thi + Lưu vết Trước/Sau.",
             Purpose: "Ngăn ngừa tối đa việc người dùng bấm nhầm nút Xóa, Hủy đơn hoặc Lưu nhầm thông tin, đồng thời đảm bảo khả năng kiểm tra và khôi phục dữ liệu 100%.",
+            RequiredAnyPermissions: [],
+            DetailPermissionKeys: [Permissions.ReportsAuditView],
             Tabs: [],
             Steps:
             [
@@ -1051,13 +1323,13 @@
             DataFlow: "Ghi nhận toàn bộ lịch sử tại bảng activity_events (/activity).")
     };
 
-    private static readonly List<MenuGroupVm> MenuGroups =
+    private static readonly List<MenuGroupVm> AllMenuGroups =
     [
         new("1. TỔNG QUAN",
         [
             AllGuides["dashboard"]
         ]),
-        new("2. KINH DOANH (7 MỤC)",
+        new("2. KINH DOANH",
         [
             AllGuides["products"],
             AllGuides["suppliers"],
@@ -1068,7 +1340,7 @@
             AllGuides["sales-orders"],
             AllGuides["purchases"]
         ]),
-        new("3. KHO & THIẾT BỊ (5 MỤC — KHO ĐẶT VỊ TRÍ SỐ 1)",
+        new("3. KHO & THIẾT BỊ (KHO ĐẶT VỊ TRÍ SỐ 1)",
         [
             AllGuides["inventory"],
             AllGuides["warehouses-catalog"],
@@ -1076,7 +1348,7 @@
             AllGuides["devices"],
             AllGuides["warranties"]
         ]),
-        new("4. TÀI CHÍNH, BÁO CÁO &THIẾT LẬP QUẢN TRỊ",
+        new("4. TÀI CHÍNH, BÁO CÁO & THIẾT LẬP QUẢN TRỊ",
         [
             AllGuides["finance"],
             AllGuides["reports-activity"],
@@ -1086,30 +1358,30 @@
 
     private static readonly List<CoreModuleVm> CoreModules =
     [
-        new("mod-01", "01", "Danh mục & Chính sách giá", "Sản phẩm (2 tab), Nhà cung cấp (2 tab), Khách hàng (2 tab), Nhân viên bán hàng, Người lắp đặt (2 tab), Giá & chương trình (3 tab)"),
-        new("mod-02", "02", "Nhập kho, Tồn kho IMEI / Số lượng & Bảo hành RMA", "Kho (Tab Kho IMEI | Tab Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Kiểm kê tồn kho, Bảo hành 3 bước"),
-        new("mod-03", "03", "Đơn hàng & Điều phối lắp đặt (SO)", "Nhận đơn từ Nhân viên bán hàng → Tạo đơn (chưa trừ kho) → Mở Dialog trên từng dòng đơn để điều phối, nhập IMEI & Hoàn thành"),
-        new("mod-04", "04", "Thiết bị đang hoạt động & Gia hạn thuê bao", "Theo dõi hạn thuê bao (Còn hạn, Sắp hết hạn, Quá hạn D+10/30/60), gia hạn 12 tháng gắn Nhân viên bán hàng phụ trách"),
-        new("mod-05", "05", "Kế toán Công nợ, Sổ Thu/Chi & Hoa hồng", "4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng NV bán hàng), Phiếu Thu/Chi & Khóa sổ cuối kỳ"),
-        new("mod-06", "06", "Phân quyền RBAC, Phạm vi Kho & Kiểm toán", "6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, hộp thoại xác nhận Thêm/Sửa/Xóa & lưu vết Trước/Sau")
+        new("mod-01", "01", "Danh mục & Chính sách giá", "Sản phẩm (2 tab), Nhà cung cấp (2 tab), Khách hàng (2 tab), Nhân viên bán hàng, Người lắp đặt (2 tab), Giá & chương trình (3 tab)", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView, Permissions.OrdersView]),
+        new("mod-02", "02", "Nhập kho, Tồn kho IMEI / Số lượng & Bảo hành RMA", "Kho (Tab Kho IMEI | Tab Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Kiểm kê tồn kho, Bảo hành 3 bước", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty, Permissions.PurchaseView]),
+        new("mod-03", "03", "Đơn hàng & Điều phối lắp đặt (SO)", "Nhận đơn từ Nhân viên bán hàng → Tạo đơn (chưa trừ kho) → Mở Dialog trên từng dòng đơn để điều phối, nhập IMEI & Hoàn thành", [Permissions.OrdersView]),
+        new("mod-04", "04", "Thiết bị đang hoạt động & Gia hạn thuê bao", "Theo dõi hạn thuê bao (Còn hạn, Sắp hết hạn, Quá hạn D+10/30/60), gia hạn 12 tháng gắn Nhân viên bán hàng phụ trách", [Permissions.DevicesView]),
+        new("mod-05", "05", "Kế toán Công nợ, Sổ Thu/Chi & Hoa hồng", "4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng NV bán hàng), Phiếu Thu/Chi & Khóa sổ cuối kỳ", [Permissions.FinanceView]),
+        new("mod-06", "06", "Phân quyền RBAC, Phạm vi Kho & Kiểm toán", "6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, hộp thoại xác nhận Thêm/Sửa/Xóa & lưu vết Trước/Sau", [Permissions.UsersView, Permissions.WarehouseScopeManage, Permissions.ReportsAuditView, Permissions.ArchitectureView])
     ];
 
     private static readonly List<CoreModuleVm> IntegrityRules =
     [
-        new("rule-1", "R1", "Quản lý IMEI duy nhất & Khử trùng thông minh", "Mỗi thiết bị chỉ ở 1 trạng thái tại 1 thời điểm; tự động lọc trùng và khôi phục IMEI xóa mềm khi nhập kho"),
-        new("rule-2", "R2", "Trừ tồn kho đúng thời điểm Hoàn thành đơn", "Tạo đơn & điều phối chưa trừ kho; chỉ trừ kho khi bấm Hoàn thành đơn (cho phép Không trừ kho nếu Hãng lắp đặt)"),
-        new("rule-3", "R3", "Bảo toàn đơn giá lịch sử (Historical Snapshot)", "Đơn hàng đã hoàn thành giữ nguyên giá bán, giá vốn, công lắp và Nhân viên bán hàng tại thời điểm phát sinh"),
-        new("rule-4", "R4", "Đồng bộ Kế toán tự động 2 chiều", "Nhập kho sinh Công nợ NCC; Hoàn thành đơn sinh Công nợ KH & Công kỹ thuật; Gia hạn sinh Công nợ Gia hạn"),
-        new("rule-5", "R5", "Dialog Xác nhận thao tác & Xóa mềm (Soft Delete)", "Mọi nút Thêm/Sửa/Xóa đều hiển thị Dialog xác nhận lại trước khi thực thi; cấm xóa vật lý & lưu vết Trước/Sau")
+        new("rule-1", "R1", "Quản lý IMEI duy nhất & Khử trùng thông minh", "Mỗi thiết bị chỉ ở 1 trạng thái tại 1 thời điểm; tự động lọc trùng và khôi phục IMEI xóa mềm khi nhập kho", [Permissions.InventoryView, Permissions.OrdersView, Permissions.DevicesView, Permissions.InventoryWarranty, Permissions.ArchitectureView]),
+        new("rule-2", "R2", "Trừ tồn kho đúng thời điểm Hoàn thành đơn", "Tạo đơn & điều phối chưa trừ kho; chỉ trừ kho khi bấm Hoàn thành đơn (cho phép Không trừ kho nếu Hãng lắp đặt)", [Permissions.OrdersView, Permissions.InventoryView, Permissions.QuantityStockView, Permissions.ArchitectureView]),
+        new("rule-3", "R3", "Bảo toàn đơn giá lịch sử (Historical Snapshot)", "Đơn hàng đã hoàn thành giữ nguyên giá bán, giá vốn, công lắp và Nhân viên bán hàng tại thời điểm phát sinh", [Permissions.OrdersView, Permissions.PricesView, Permissions.FinanceView, Permissions.ReportsView, Permissions.ArchitectureView]),
+        new("rule-4", "R4", "Đồng bộ Kế toán tự động 2 chiều", "Nhập kho sinh Công nợ NCC; Hoàn thành đơn sinh Công nợ KH & Công kỹ thuật; Gia hạn sinh Công nợ Gia hạn", [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.PurchaseView, Permissions.ArchitectureView]),
+        new("rule-5", "R5", "Dialog Xác nhận thao tác & Xóa mềm (Soft Delete)", "Mọi nút Thêm/Sửa/Xóa đều hiển thị Dialog xác nhận lại trước khi thực thi; cấm xóa vật lý & lưu vết Trước/Sau", [])
     ];
 
     private static readonly List<WorkflowStageVm> WorkflowStages =
     [
-        new("mod-01", 1, "B1. Danh mục & Giá", "Admin / Quản lý khai báo tại các mục Kinh doanh & Danh sách Kho", "InputCatalog, ProductMaster", "products, customers, suppliers, v7_sellers, employees, v7_group_prices, v7_installer_product_rates", "Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn"),
-        new("inventory", 2, "B2. Nhập kho & Kho IMEI", "Thủ kho nhập lô IMEI hoặc nhập số lượng tại /inventory (2 tab)", "DemoDb.Receive, V6Ops.ReceivePurchase, V6Ops.MoveQuantity", "stock_units, inventory_transactions, purchase_orders, quantity_movements", "Tăng tồn kho + Tự động sinh Công nợ Sản phẩm (PURCHASE)"),
-        new("sales-orders", 3, "B3. Tạo đơn & Điều phối", "Nhân viên bán hàng gửi thông tin → CSKH tạo đơn tại /sales-orders", "V7Orders.CreateMulti, UpdateOrderInfo, Approve, Dispatch", "v7_orders (PENDING → DISPATCHED), v7_order_lines", "Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho"),
-        new("sales-orders", 4, "B4. Mở Dialog Nhập IMEI & Hoàn thành", "CSKH bấm nút '⚙ Điều chỉnh / Xử lý' trên dòng đơn → Nhập IMEI & bấm Hoàn thành", "V7Orders.ReportLines, V7Orders.Complete", "v7_orders (COMPLETED), stock_units (INSTALLED), v7_stock_effects, activations", "Trừ tồn kho + Sinh Công nợ KH (SALE) & Công kỹ thuật (SERVICE)"),
-        new("devices", 5, "B5. Theo dõi & Gia hạn TB", "CSKH gia hạn thiết bị 12 tháng & chọn Nhân viên bán hàng tại /devices", "DemoDb.Renew, DemoDb.UpdateActivationSchedule", "renewals, activations.expires_at, invoices", "Sinh Công nợ Gia hạn (RENEWAL) + Cộng chỉ tiêu hoa hồng NV bán hàng"),
-        new("finance", 6, "B6. Quyết toán & Hoa hồng", "Kế toán thu/chi công nợ, tính hoa hồng & khóa sổ cuối kỳ tại /finance", "DemoDb.PayInvoice, SellerPeriodStats, LockAccounting", "invoices (OPEN → PARTIAL → PAID), payments, payment_allocations", "Sổ Phiếu Thu (PT-) / Phiếu Chi (PC-), Báo cáo Lợi nhuận & Hoa hồng")
+        new("mod-01", 1, "B1. Danh mục & Giá", "Admin / Quản lý khai báo tại các mục Kinh doanh & Danh sách Kho", "InputCatalog, ProductMaster", "products, customers, suppliers, v7_sellers, employees, v7_group_prices, v7_installer_product_rates", "Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView]),
+        new("inventory", 2, "B2. Nhập kho & Kho IMEI", "Thủ kho nhập lô IMEI hoặc nhập số lượng tại /inventory (2 tab)", "DemoDb.Receive, V6Ops.ReceivePurchase, V6Ops.MoveQuantity", "stock_units, inventory_transactions, purchase_orders, quantity_movements", "Tăng tồn kho + Tự động sinh Công nợ Sản phẩm (PURCHASE)", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.PurchaseView]),
+        new("sales-orders", 3, "B3. Tạo đơn & Điều phối", "Nhân viên bán hàng gửi thông tin → CSKH tạo đơn tại /sales-orders", "V7Orders.CreateMulti, UpdateOrderInfo, Approve, Dispatch", "v7_orders (PENDING → DISPATCHED), v7_order_lines", "Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho", [Permissions.OrdersView]),
+        new("sales-orders", 4, "B4. Mở Dialog Nhập IMEI & Hoàn thành", "CSKH bấm nút '⚙ Điều chỉnh / Xử lý' trên dòng đơn → Nhập IMEI & bấm Hoàn thành", "V7Orders.ReportLines, V7Orders.Complete", "v7_orders (COMPLETED), stock_units (INSTALLED), v7_stock_effects, activations", "Trừ tồn kho + Sinh Công nợ KH (SALE) & Công kỹ thuật (SERVICE)", [Permissions.OrdersView]),
+        new("devices", 5, "B5. Theo dõi & Gia hạn TB", "CSKH gia hạn thiết bị 12 tháng & chọn Nhân viên bán hàng tại /devices", "DemoDb.Renew, DemoDb.UpdateActivationSchedule", "renewals, activations.expires_at, invoices", "Sinh Công nợ Gia hạn (RENEWAL) + Cộng chỉ tiêu hoa hồng NV bán hàng", [Permissions.DevicesView]),
+        new("finance", 6, "B6. Quyết toán & Hoa hồng", "Kế toán thu/chi công nợ, tính hoa hồng & khóa sổ cuối kỳ tại /finance", "DemoDb.PayInvoice, SellerPeriodStats, LockAccounting", "invoices (OPEN → PARTIAL → PAID), payments, payment_allocations", "Sổ Phiếu Thu (PT-) / Phiếu Chi (PC-), Báo cáo Lợi nhuận & Hoa hồng", [Permissions.FinanceView])
     ];
 }
