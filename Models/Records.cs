@@ -11,7 +11,9 @@ public record CustomerVm(long Id, string Code, string Name, string Group, string
 public record StockVm(long Id, string Imei, string Sku, string Product, string Status, string Holder, string UpdatedAt, long ProductId, long? WarehouseId = null);
 public record ProductStockSummaryVm(long ProductId, string Sku, string ProductName, bool IsSerialized, string Kind, long InStockQty, long ConsignedOrTechQty, long InstalledQty);
 public record DeviceVm(long ActivationId, string Imei, string Sku, string Customer, string Plate,
-    string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId, string VinNo = "", string OrderCode = "", string ContactName = "", long? SellerId = null, string SellerName = "");
+    string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId, string VinNo = "", string OrderCode = "", string ContactName = "", long? SellerId = null, string SellerName = "",
+    string DeviceTypeLabel = "", string AgencyName = "", string OwnerName = "", string OwnerPhone = "", string Status = "ACTIVE", string LastRenewedAt = "", long RenewalCount = 0);
+public record DeviceImportResultVm(int TotalRows, int UpdatedExisting, int InsertedNew, int SkippedInvalid, string SummaryMessage);
 public record InvoiceLineVm(long Id, long InvoiceId, string Description, string ProductSku, long Quantity, long UnitPrice)
 {
     public long LineTotal => Quantity * UnitPrice;

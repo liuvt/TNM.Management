@@ -304,6 +304,12 @@ app.MapGet("/export/quantity.csv", (V6Ops ops,HttpContext http) => Results.File(
     CsvExports.QuantityLedger(ops,AuthRepository.PrincipalId(http.User)),
     "text/csv; charset=utf-8","tnm-so-kho-so-luong.csv"))
     .RequireAuthorization(Permissions.QuantityStockView);
+app.MapGet("/export/devices-import-format.csv", (DemoDb db) =>
+{
+    var csv = db.ExportDevicesStandardCsv();
+    var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(csv)).ToArray();
+    return Results.File(bytes, "text/csv; charset=utf-8", $"danh-sach-thiet-bi-tnm-{DateTime.Today:yyyyMMdd}.csv");
+}).RequireAuthorization(Permissions.DevicesView);
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 

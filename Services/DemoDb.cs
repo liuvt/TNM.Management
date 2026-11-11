@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.IO.Compression;
+using System.Text;
+using System.Xml.Linq;
 using Microsoft.Data.Sqlite;
 using TNM.Management.Models;
 
@@ -128,6 +131,20 @@ public sealed class DemoDb
             Exec(c, null, "ALTER TABLE invoices ADD COLUMN locked_at TEXT");
         if (!invCols.Any(x => string.Equals(x, "locked_by", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE invoices ADD COLUMN locked_by INTEGER REFERENCES app_users(id)");
+
+        var actCols = Query(c, "PRAGMA table_info(activations)", r => S(r, 1));
+        if (!actCols.Any(x => string.Equals(x, "device_type_label", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN device_type_label TEXT NOT NULL DEFAULT ''");
+        if (!actCols.Any(x => string.Equals(x, "agency_name", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN agency_name TEXT NOT NULL DEFAULT ''");
+        if (!actCols.Any(x => string.Equals(x, "owner_name", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN owner_name TEXT NOT NULL DEFAULT ''");
+        if (!actCols.Any(x => string.Equals(x, "owner_phone", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN owner_phone TEXT NOT NULL DEFAULT ''");
+        if (!actCols.Any(x => string.Equals(x, "last_renewed_at", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN last_renewed_at TEXT NOT NULL DEFAULT ''");
+        if (!actCols.Any(x => string.Equals(x, "renewal_count", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0");
 
         var sgCols = Query(c, "PRAGMA table_info(supplier_groups)", r => S(r, 1));
         if (sgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)))
@@ -424,7 +441,7 @@ public sealed class DemoDb
           JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
-          WHERE a.deleted_at IS NULL",
+          WHERE a.deleted_at IS NULL AND COALESCE(a.status,'ACTIVE')='ACTIVE'",
           r => S(r, 0));
         var count = 0;
         foreach (var exp in dates)
@@ -445,7 +462,20 @@ public sealed class DemoDb
         return Query(c, @"SELECT a.id,u.imei,p.sku,c.name,a.plate_no,a.activated_at,a.expires_at,c.id,p.id,
           COALESCE(a.vin_no,''),COALESCE(o.code,''),COALESCE(o.contact_name,''),
           COALESCE(o.seller_record_id, c.seller_id),
-          COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), '')
+          COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), ''),
+          COALESCE(NULLIF(a.device_type_label,''),
+            CASE WHEN p.sku='SP000001' THEN 'XANHGPS'
+                 WHEN p.sku IN ('DX00002','SP000019') THEN 'NASAGPS'
+                 WHEN p.sku='SP000005' THEN 'TDCGPS'
+                 WHEN p.sku='SP000012' THEN 'AICAM'
+                 WHEN p.sku='SP000006' THEN 'mGPS'
+                 ELSE p.sku END),
+          COALESCE(NULLIF(a.agency_name,''), c.name),
+          COALESCE(NULLIF(a.owner_name,''), o.contact_name, ''),
+          COALESCE(a.owner_phone,''),
+          COALESCE(a.status,'ACTIVE'),
+          COALESCE(NULLIF(a.last_renewed_at,''), (SELECT MAX(r2.renewed_at) FROM renewals r2 WHERE r2.activation_id=a.id AND r2.deleted_at IS NULL), ''),
+          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL))
           FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
@@ -453,10 +483,13 @@ public sealed class DemoDb
           LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
           WHERE a.deleted_at IS NULL
           ORDER BY a.expires_at",
-          r => new DeviceVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),S(r,9),S(r,10),S(r,11),r.IsDBNull(12) ? null : L(r,12),S(r,13)));
+          r => new DeviceVm(
+              L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),
+              S(r,9),S(r,10),S(r,11),r.IsDBNull(12) ? null : L(r,12),S(r,13),
+              S(r,14),S(r,15),S(r,16),S(r,17),S(r,18),S(r,19),L(r,20)));
     }
 
-    public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null, string? customExpiresAt = null, long? sellerId = null)
+    public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null, string? customExpiresAt = null, long? sellerId = null, string? status = null, string? ownerName = null, string? ownerPhone = null)
     {
         string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
         if (!DateTime.TryParseExact((activatedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var actDate))
@@ -486,12 +519,25 @@ public sealed class DemoDb
                     throw new InvalidOperationException("Thiết bị này có đợt gia hạn đã được Kế toán chốt số / khóa số, không thể cập nhật lại thời gian gia hạn.");
             }
 
+            string? normStatus = null;
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                normStatus = status.Trim().ToUpperInvariant() is "DISABLED" or "LOCKED" or "KHOÁ" or "KHÓA" ? "DISABLED" : "ACTIVE";
+            }
+
             Exec(c,t,@"UPDATE activations SET activated_at=$act, expires_at=$exp,
-                plate_no=COALESCE($plate, plate_no), vin_no=COALESCE($vin, vin_no)
+                plate_no=COALESCE($plate, plate_no), vin_no=COALESCE($vin, vin_no),
+                status=COALESCE($st, status),
+                owner_name=COALESCE($owner, owner_name),
+                owner_phone=COALESCE($phone, owner_phone),
+                updated_at=datetime('now')
                 WHERE id=$id",
                 ("$act", actStr), ("$exp", expStr),
                 ("$plate", plateNo is not null ? plateNo.Trim() : null),
                 ("$vin", vinNo is not null ? vinNo.Trim() : null),
+                ("$st", normStatus),
+                ("$owner", ownerName is not null ? ownerName.Trim() : null),
+                ("$phone", ownerPhone is not null ? ownerPhone.Trim() : null),
                 ("$id", activationId));
 
             // Nếu thiết bị đã có đợt gia hạn gần nhất chưa chốt số, đồng bộ luôn hạn mới (new_expiry) của đợt gia hạn đó
@@ -518,6 +564,433 @@ public sealed class DemoDb
             return 0;
         });
         NotifyDevicesChanged();
+    }
+
+    public string ExportDevicesStandardCsv()
+    {
+        var list = Devices();
+        var sb = new StringBuilder();
+        sb.AppendLine("STT,Biển số xe/Số khung,Số EMEI Thiết bị,Tên Thiết bị,Tên Đại lý,Tên Khách hàng,SĐT Khách hàng,Trạng thái thiết bị,Ngày kích hoạt,Ngày hết hạn,Ngày gia hạn gần nhất (nếu có),Số lần gia hạn");
+        static string Esc(string? s)
+        {
+            var v = (s ?? "").Trim();
+            if (v.Contains(',') || v.Contains('"') || v.Contains('\n') || v.Contains('\r'))
+                return "\"" + v.Replace("\"", "\"\"") + "\"";
+            return v;
+        }
+        static string FmtDate(string? d)
+        {
+            if (string.IsNullOrWhiteSpace(d)) return "";
+            return DateTime.TryParse(d.Trim(), out var dt) ? dt.ToString("dd/MM/yyyy") : d.Trim();
+        }
+        for (int i = 0; i < list.Count; i++)
+        {
+            var x = list[i];
+            var stLabel = string.Equals(x.Status, "DISABLED", StringComparison.OrdinalIgnoreCase) ? "Khoá" : "Hoạt động";
+            sb.Append(i + 1).Append(',')
+              .Append(Esc(x.Plate)).Append(',')
+              .Append(Esc(x.Imei)).Append(',')
+              .Append(Esc(x.DeviceTypeLabel)).Append(',')
+              .Append(Esc(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)).Append(',')
+              .Append(Esc(x.OwnerName)).Append(',')
+              .Append(Esc(x.OwnerPhone)).Append(',')
+              .Append(Esc(stLabel)).Append(',')
+              .Append(Esc(FmtDate(x.ActivatedAt))).Append(',')
+              .Append(Esc(FmtDate(x.ExpiresAt))).Append(',')
+              .Append(Esc(FmtDate(x.LastRenewedAt))).Append(',')
+              .Append(x.RenewalCount).AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    public DeviceImportResultVm ImportDevicesFromStream(Stream stream, string fileName)
+    {
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        var bytes = ms.ToArray();
+        var isXlsx = fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+            || (bytes.Length > 4 && bytes[0] == 'P' && bytes[1] == 'K');
+        if (isXlsx)
+        {
+            var rows = ReadXlsxRows(bytes);
+            return UpsertDeviceRows(rows);
+        }
+        else
+        {
+            var text = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
+            var rows = ReadCsvRows(text);
+            return UpsertDeviceRows(rows);
+        }
+    }
+
+    public DeviceImportResultVm ImportDevicesFromCsvText(string csvText)
+    {
+        var rows = ReadCsvRows((csvText ?? "").TrimStart('\uFEFF'));
+        return UpsertDeviceRows(rows);
+    }
+
+    private static List<(string Val, bool IsString)[]> ReadXlsxRows(byte[] xlsxBytes)
+    {
+        using var ms = new MemoryStream(xlsxBytes);
+        using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+        var sharedStrings = new List<string>();
+        var ssEntry = zip.GetEntry("xl/sharedStrings.xml");
+        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        if (ssEntry is not null)
+        {
+            using var ssStream = ssEntry.Open();
+            var ssDoc = XDocument.Load(ssStream);
+            foreach (var si in ssDoc.Descendants(ns + "si"))
+            {
+                var sb = new StringBuilder();
+                foreach (var t in si.Descendants(ns + "t"))
+                    sb.Append(t.Value);
+                sharedStrings.Add(sb.ToString());
+            }
+        }
+        var sheetEntry = zip.GetEntry("xl/worksheets/sheet1.xml")
+            ?? zip.Entries.FirstOrDefault(e => e.FullName.StartsWith("xl/worksheets/sheet", StringComparison.OrdinalIgnoreCase));
+        if (sheetEntry is null)
+            throw new InvalidOperationException("Không tìm thấy sheet dữ liệu trong file Excel (.xlsx).");
+
+        using var sheetStream = sheetEntry.Open();
+        var sheetDoc = XDocument.Load(sheetStream);
+        var result = new List<(string Val, bool IsString)[]>();
+        foreach (var rowEl in sheetDoc.Descendants(ns + "row"))
+        {
+            var rowArr = new (string Val, bool IsString)[12];
+            for (int i = 0; i < 12; i++) rowArr[i] = ("", true);
+            foreach (var cEl in rowEl.Elements(ns + "c"))
+            {
+                var rAttr = cEl.Attribute("r")?.Value ?? "";
+                int colIdx = 0;
+                foreach (var ch in rAttr)
+                {
+                    if (char.IsLetter(ch))
+                        colIdx = colIdx * 26 + (char.ToUpperInvariant(ch) - 'A' + 1);
+                }
+                if (colIdx < 1 || colIdx > 12) continue;
+                var tAttr = cEl.Attribute("t")?.Value ?? "";
+                var vEl = cEl.Element(ns + "v");
+                var isEl = cEl.Element(ns + "is");
+                string val = "";
+                bool isStr = tAttr is "s" or "inlineStr" or "str";
+                if (tAttr == "s" && vEl is not null && int.TryParse(vEl.Value, out var sIdx) && sIdx >= 0 && sIdx < sharedStrings.Count)
+                    val = sharedStrings[sIdx];
+                else if (tAttr == "inlineStr" && isEl is not null)
+                    val = string.Concat(isEl.Descendants(ns + "t").Select(x => x.Value));
+                else if (vEl is not null)
+                    val = vEl.Value;
+                rowArr[colIdx - 1] = (val.Trim(), isStr);
+            }
+            result.Add(rowArr);
+        }
+        return result;
+    }
+
+    private static List<(string Val, bool IsString)[]> ReadCsvRows(string text)
+    {
+        var result = new List<(string Val, bool IsString)[]>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
+        var lines = new List<List<string>>();
+        var curRow = new List<string>();
+        var curField = new StringBuilder();
+        bool inQuotes = false;
+        char delimiter = ',';
+        var firstLineEnd = text.IndexOfAny(['\r', '\n']);
+        var firstLine = firstLineEnd > 0 ? text[..firstLineEnd] : text;
+        if (firstLine.Count(c => c == '\t') >= 5 && firstLine.Count(c => c == ',') < 5)
+            delimiter = '\t';
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (inQuotes)
+            {
+                if (c == '"')
+                {
+                    if (i + 1 < text.Length && text[i + 1] == '"') { curField.Append('"'); i++; }
+                    else inQuotes = false;
+                }
+                else curField.Append(c);
+            }
+            else
+            {
+                if (c == '"') inQuotes = true;
+                else if (c == delimiter) { curRow.Add(curField.ToString().Trim()); curField.Clear(); }
+                else if (c == '\r' || c == '\n')
+                {
+                    if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                    curRow.Add(curField.ToString().Trim());
+                    curField.Clear();
+                    if (curRow.Any(x => !string.IsNullOrWhiteSpace(x)))
+                        lines.Add(curRow);
+                    curRow = [];
+                }
+                else curField.Append(c);
+            }
+        }
+        if (curField.Length > 0 || curRow.Count > 0)
+        {
+            curRow.Add(curField.ToString().Trim());
+            if (curRow.Any(x => !string.IsNullOrWhiteSpace(x)))
+                lines.Add(curRow);
+        }
+
+        foreach (var r in lines)
+        {
+            var arr = new (string Val, bool IsString)[12];
+            for (int i = 0; i < 12; i++)
+                arr[i] = (i < r.Count ? r[i] : "", true);
+            result.Add(arr);
+        }
+        return result;
+    }
+
+    private static DateTime? ParseImportDate(string val, bool isString, string? refExpStr = null, bool refExpIsString = true)
+    {
+        val = (val ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(val) || val is "#REF!" or "NaN" or "None" or "-")
+            return null;
+        if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var oa) && oa > 20000 && oa < 80000)
+        {
+            var dt = new DateTime(1899, 12, 30).AddDays(oa);
+            if (!isString && !string.IsNullOrWhiteSpace(refExpStr) && refExpIsString && refExpStr.Contains('/'))
+            {
+                if (DateTime.TryParseExact(refExpStr.Trim(), ["dd/MM/yyyy", "d/M/yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var dExp))
+                {
+                    if (dt.Day != dExp.Day && dt.Month == dExp.Day && dt.Day == dExp.Month && dt.Month <= 12 && dt.Day <= 12)
+                        dt = new DateTime(dt.Year, dExp.Month, dExp.Day);
+                }
+            }
+            return dt.Date;
+        }
+        string[] formats = ["dd/MM/yyyy", "d/M/yyyy", "yyyy-MM-dd", "dd-MM-yyyy", "d-M-yyyy", "MM/dd/yyyy", "yyyy/MM/dd"];
+        var clean = val.Split(' ')[0].Trim();
+        if (DateTime.TryParseExact(clean, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            return parsed.Date;
+        if (DateTime.TryParse(clean, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
+            return parsed.Date;
+        return null;
+    }
+
+    private DeviceImportResultVm UpsertDeviceRows(List<(string Val, bool IsString)[]> rows)
+    {
+        if (rows.Count == 0)
+            throw new InvalidOperationException("File dữ liệu trống, không có dòng nào để import.");
+
+        int updated = 0, inserted = 0, skipped = 0, totalProcessed = 0;
+
+        Tx((c, t) =>
+        {
+            // Đảm bảo khách hàng 'Hợp tác xã 586' tồn tại trong danh mục customers
+            var htx586Id = N(c, t, "SELECT COALESCE((SELECT id FROM customers WHERE UPPER(name) LIKE '%586%' AND deleted_at IS NULL LIMIT 1), 0)");
+            if (htx586Id == 0)
+            {
+                var defGrpId = N(c, t, "SELECT COALESCE((SELECT group_id FROM customers WHERE deleted_at IS NULL LIMIT 1), 1)");
+                var defSellerId = N(c, t, "SELECT COALESCE((SELECT id FROM v7_sellers WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 1)");
+                var nextCustNo = N(c, t, "SELECT COALESCE(MAX(id),0)+10 FROM customers");
+                var custCode = $"KH{nextCustNo:D5}";
+                while (N(c, t, "SELECT COUNT(*) FROM customers WHERE code=$c", ("$c", custCode)) > 0)
+                {
+                    nextCustNo++;
+                    custCode = $"KH{nextCustNo:D5}";
+                }
+                Exec(c, t, @"INSERT INTO customers(group_id,code,name,source_type,source_name,phone,address,is_active,seller_id)
+                    VALUES($g,$code,'Hợp tác xã 586','AGENCY','SL001 — Nguyễn Minh Anh','','',1,$sl)",
+                    ("$g", defGrpId), ("$code", custCode), ("$sl", defSellerId > 0 ? defSellerId : null));
+                htx586Id = N(c, t, "SELECT last_insert_rowid()");
+            }
+
+            var custList = QueryTx(c, t, "SELECT id, name FROM customers WHERE deleted_at IS NULL", r => (Id: L(r, 0), Name: S(r, 1)));
+            long ResolveCustomerId(string agency)
+            {
+                var a = (agency ?? "").Trim();
+                var au = a.ToUpperInvariant();
+                if (string.IsNullOrWhiteSpace(a))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Khách lẻ", StringComparison.OrdinalIgnoreCase)).Id;
+                foreach (var cu in custList)
+                {
+                    if (string.Equals(cu.Name, a, StringComparison.OrdinalIgnoreCase))
+                        return cu.Id;
+                }
+                if (au.Contains("TRƯỜNG NHẬT MINH") || au.Contains("TRƯỜNG NHẬT"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Trường Nhật Minh", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("NAM THẮNG") && (au.Contains("KIÊN GIANG") || au.Contains("KG")))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Thắng KG", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("NAM THẮNG") && au.Contains("CHÍNH HIỆP"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Thắng Chính Hiệp", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("NAM THẮNG"))
+                    return custList.FirstOrDefault(x => x.Name.Equals("HTX Vận tải Nam Thắng", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("LÂM MINH") || au.Contains("HTXLAMMINH"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Lâm Minh", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("TÂN ĐẠI THÀNH"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Tân Đại Thành", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("NAM HI"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Hi", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("586"))
+                    return htx586Id;
+                if (au.Contains("CHÍNH HIỆP"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Chính Hiệp", StringComparison.OrdinalIgnoreCase) && !x.Name.Contains("Nam Thắng", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("TÂN THÀNH ĐÔ"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Tân Thành Đô", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("NAM PHƯƠNG"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Phương", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("ĐI XANH") || au.Contains("DI XANH") || au.Contains("GREENWAY"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Đi Xanh", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("HẢI VÂN") || au == "136")
+                    return custList.FirstOrDefault(x => x.Name.Contains("Hải Vân", StringComparison.OrdinalIgnoreCase)).Id;
+                if (au.Contains("ĐĂNG TIẾN") || au.Contains("SAO VIỆT"))
+                    return custList.FirstOrDefault(x => x.Name.Contains("Đăng Tiến", StringComparison.OrdinalIgnoreCase)).Id;
+                var fallback = custList.FirstOrDefault(x => x.Name.Contains("Khách lẻ", StringComparison.OrdinalIgnoreCase)).Id;
+                return fallback > 0 ? fallback : custList[0].Id;
+            }
+
+            var prodBySku = QueryTx(c, t, "SELECT id, sku FROM products WHERE deleted_at IS NULL", r => (Id: L(r, 0), Sku: S(r, 1)))
+                .ToDictionary(x => x.Sku.ToUpperInvariant(), x => x.Id);
+            long ResolveProductId(string devName, long existingProdId = 0)
+            {
+                var d = (devName ?? "").Trim().ToUpperInvariant();
+                if (d.Contains("XANH")) return prodBySku.GetValueOrDefault("SP000001", 4);
+                if (d.Contains("NASA"))
+                {
+                    if (existingProdId is 1 or 2) return existingProdId;
+                    return prodBySku.GetValueOrDefault("DX00002", 2);
+                }
+                if (d.Contains("AICAM") || d.Contains("CAM")) return prodBySku.GetValueOrDefault("SP000012", 16);
+                if (d == "MGPS" || d.Contains("MGPS")) return prodBySku.GetValueOrDefault("SP000006", 5);
+                if (d.Contains("TDC")) return prodBySku.GetValueOrDefault("SP000005", 6);
+                return existingProdId > 0 ? existingProdId : prodBySku.GetValueOrDefault("SP000001", 4);
+            }
+
+            var existingUnits = QueryTx(c, t, "SELECT id, imei, product_id FROM stock_units",
+                r => (Id: L(r, 0), Imei: S(r, 1), ProdId: L(r, 2)));
+            var unitByNormImei = new Dictionary<string, (long Id, string RawImei, long ProdId)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var u in existingUnits)
+            {
+                var norm = u.Imei.Trim().Replace(",", "").Replace(" ", "").ToUpperInvariant();
+                if (!string.IsNullOrWhiteSpace(norm))
+                    unitByNormImei[norm] = (u.Id, u.Imei, u.ProdId);
+            }
+
+            var existingActs = QueryTx(c, t, "SELECT id, stock_unit_id, vin_no FROM activations",
+                r => (Id: L(r, 0), UnitId: L(r, 1), VinNo: S(r, 2)))
+                .ToDictionary(x => x.UnitId, x => (x.Id, x.VinNo));
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var r = rows[i];
+                var col0 = r[0].Val;
+                var col2 = r[2].Val;
+                // Skip header row
+                if (col0.Equals("STT", StringComparison.OrdinalIgnoreCase) || col2.Contains("EMEI", StringComparison.OrdinalIgnoreCase) || col2.Contains("IMEI", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var normImei = col2.Trim().Replace(",", "").Replace(" ", "").ToUpperInvariant();
+                if (string.IsNullOrWhiteSpace(normImei))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                var plate = r[1].Val.Trim();
+                var devLabel = r[3].Val.Trim();
+                if (string.IsNullOrWhiteSpace(devLabel)) devLabel = "XANHGPS";
+                var agency = r[4].Val.Trim();
+                var owner = r[5].Val.Trim();
+                var phone = r[6].Val.Trim();
+                if (phone is "#REF!" or "NaN" or "None" or "-") phone = "";
+                var rawStatus = r[7].Val.Trim();
+                var dbStatus = rawStatus.ToUpperInvariant() is "KHOÁ" or "KHÓA" or "LOCKED" or "DISABLED" ? "DISABLED" : "ACTIVE";
+
+                var dtAct = ParseImportDate(r[8].Val, r[8].IsString) ?? DateTime.Today;
+                var dtExp = ParseImportDate(r[9].Val, r[9].IsString) ?? dtAct.AddYears(1);
+                var dtRen = ParseImportDate(r[10].Val, r[10].IsString, r[9].Val, r[9].IsString);
+                int renCnt = 0;
+                if (!string.IsNullOrWhiteSpace(r[11].Val) && double.TryParse(r[11].Val, NumberStyles.Float, CultureInfo.InvariantCulture, out var rc))
+                    renCnt = Math.Max(0, (int)Math.Round(rc));
+
+                var actStr = dtAct.ToString("yyyy-MM-dd");
+                var expStr = dtExp.ToString("yyyy-MM-dd");
+                var renStr = dtRen?.ToString("yyyy-MM-dd") ?? "";
+
+                var custId = ResolveCustomerId(agency);
+                totalProcessed++;
+
+                if (unitByNormImei.TryGetValue(normImei, out var existingUnit))
+                {
+                    var prodId = ResolveProductId(devLabel, existingUnit.ProdId);
+                    Exec(c, t, @"UPDATE stock_units
+                        SET product_id=$p, status='INSTALLED', warehouse_id=NULL, employee_id=NULL, customer_id=$c, deleted_at=NULL, updated_at=datetime('now')
+                        WHERE id=$id",
+                        ("$p", prodId), ("$c", custId), ("$id", existingUnit.Id));
+
+                    if (existingActs.TryGetValue(existingUnit.Id, out var existingAct))
+                    {
+                        var vin = !string.IsNullOrWhiteSpace(owner) && !string.Equals(owner, plate, StringComparison.OrdinalIgnoreCase)
+                            ? (string.IsNullOrWhiteSpace(phone) ? owner : $"{owner} · {phone}")
+                            : existingAct.VinNo;
+                        Exec(c, t, @"UPDATE activations
+                            SET customer_id=$c, product_id=$p, plate_no=$plate, vin_no=$vin,
+                                activated_at=$act, expires_at=$exp, status=$st,
+                                device_type_label=$dtype, agency_name=$agency, owner_name=$owner, owner_phone=$phone,
+                                last_renewed_at=$renAt, renewal_count=$renCnt,
+                                deleted_at=NULL, updated_at=datetime('now')
+                            WHERE id=$id",
+                            ("$c", custId), ("$p", prodId), ("$plate", plate), ("$vin", vin),
+                            ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
+                            ("$dtype", devLabel), ("$agency", agency), ("$owner", owner), ("$phone", phone),
+                            ("$renAt", renStr), ("$renCnt", renCnt),
+                            ("$id", existingAct.Id));
+                        updated++;
+                    }
+                    else
+                    {
+                        var vin = !string.IsNullOrWhiteSpace(owner) && !string.Equals(owner, plate, StringComparison.OrdinalIgnoreCase)
+                            ? (string.IsNullOrWhiteSpace(phone) ? owner : $"{owner} · {phone}")
+                            : normImei;
+                        Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
+                            VALUES($u,$c,$p,$plate,$vin,$act,$exp,$st,$dtype,$agency,$owner,$phone,$renAt,$renCnt,datetime('now'),datetime('now'))",
+                            ("$u", existingUnit.Id), ("$c", custId), ("$p", prodId), ("$plate", plate), ("$vin", vin),
+                            ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
+                            ("$dtype", devLabel), ("$agency", agency), ("$owner", owner), ("$phone", phone),
+                            ("$renAt", renStr), ("$renCnt", renCnt));
+                        var newActId = N(c, t, "SELECT last_insert_rowid()");
+                        existingActs[existingUnit.Id] = (newActId, vin);
+                        updated++;
+                    }
+                }
+                else
+                {
+                    var prodId = ResolveProductId(devLabel, 0);
+                    Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at)
+                        VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'))",
+                        ("$p", prodId), ("$imei", normImei), ("$c", custId));
+                    var newUnitId = N(c, t, "SELECT last_insert_rowid()");
+                    unitByNormImei[normImei] = (newUnitId, normImei, prodId);
+
+                    var vin = !string.IsNullOrWhiteSpace(owner) && !string.Equals(owner, plate, StringComparison.OrdinalIgnoreCase)
+                        ? (string.IsNullOrWhiteSpace(phone) ? owner : $"{owner} · {phone}")
+                        : normImei;
+                    Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
+                        VALUES($u,$c,$p,$plate,$vin,$act,$exp,$st,$dtype,$agency,$owner,$phone,$renAt,$renCnt,datetime('now'),datetime('now'))",
+                        ("$u", newUnitId), ("$c", custId), ("$p", prodId), ("$plate", plate), ("$vin", vin),
+                        ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
+                        ("$dtype", devLabel), ("$agency", agency), ("$owner", owner), ("$phone", phone),
+                        ("$renAt", renStr), ("$renCnt", renCnt));
+                    var newActId = N(c, t, "SELECT last_insert_rowid()");
+                    existingActs[newUnitId] = (newActId, vin);
+                    inserted++;
+                }
+            }
+
+            Log(c, t, "IMPORT_DEVICES", "ACTIVATION", 0, $"Import {totalProcessed} dòng: Cập nhật trùng {updated} TB, Thêm mới {inserted} TB, Bỏ qua {skipped}");
+            return 0;
+        });
+
+        NotifyDevicesChanged();
+        var msg = $"Đã xử lý {totalProcessed:N0} dòng dữ liệu thiết bị: Cập nhật trùng {updated:N0} thiết bị theo danh sách mới, Thêm mới {inserted:N0} thiết bị" + (skipped > 0 ? $" (Bỏ qua {skipped} dòng trống)." : ".");
+        return new DeviceImportResultVm(totalProcessed, updated, inserted, skipped, msg);
     }
 
     public List<RenewalVm> Renewals()
