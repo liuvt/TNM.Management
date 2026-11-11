@@ -3,7 +3,7 @@
 @inject DemoDb Db
 @inject PermissionGate Gate
 <PageTitle>Báo cáo · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">BÁO CÁO KẾ TOÁN, KHO &amp; TRUY VẾT</div><h1>Báo cáo Kế toán, Kho &amp; Nhật ký hệ thống</h1><p>Tổng hợp báo cáo Công nợ (Nhà cung cấp, Khách hàng, Sell), Sổ quỹ (Thu / Chi / Tồn: Tiền mặt &amp; Ngân hàng), sổ xuất nhập kho và lịch sử dữ liệu.</p></div>
+<div class="page-head"><div><div class="eyebrow">BÁO CÁO KẾ TOÁN, KHO &amp; TRUY VẾT</div><h1>Báo cáo Kế toán, Kho &amp; Nhật ký hệ thống</h1><p>Tổng hợp báo cáo Công nợ (Nhà cung cấp, Khách hàng, Nhân viên bán hàng), Sổ quỹ (Thu / Chi / Tồn: Tiền mặt &amp; Ngân hàng), sổ xuất nhập kho và lịch sử dữ liệu.</p></div>
 <div class="button-group">
     <a class="btn" href="/finance">Báo cáo Công nợ &amp; Sổ quỹ →</a>
     @if(canInventoryExport){<a class="btn secondary" href="/export/inventory.csv">↓ Báo cáo kho CSV</a>}
@@ -16,8 +16,8 @@
     <section class="panel" style="margin-bottom:0">
         <div class="panel-head">
             <div>
-                <h2>1. Báo cáo Công nợ (Nhà cung cấp · Khách hàng · Sell)</h2>
-                <p>Tổng hợp công nợ phải trả Nhà cung cấp, phải thu Khách hàng và hoa hồng Sell.</p>
+                <h2>1. Báo cáo Công nợ (Nhà cung cấp · Khách hàng · Nhân viên bán hàng)</h2>
+                <p>Tổng hợp công nợ phải trả Nhà cung cấp, phải thu Khách hàng và hoa hồng nhân viên bán hàng.</p>
             </div>
             <a class="btn secondary btn-sm" href="/finance">Chi tiết →</a>
         </div>
@@ -41,7 +41,7 @@
                     </tr>
                     <tr>
                         <td><strong>3</strong></td>
-                        <td><strong>3. Sell (Hoa hồng) &amp; Kỹ thuật</strong></td>
+                        <td><strong>3. Nhân viên bán hàng (Hoa hồng) &amp; Kỹ thuật</strong></td>
                         <td>@Money(sellTechTotal)</td>
                         <td>@Money(sellTechPaid)</td>
                         <td><strong style="color:#7c3aed">@Money(Math.Max(0, sellTechTotal - sellTechPaid))</strong></td>

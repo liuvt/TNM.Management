@@ -11,13 +11,13 @@
     <div>
         <div class="eyebrow">KINH DOANH / ĐIỀU PHỐI CSKH &amp; KHO</div>
         <h1>Đơn hàng &amp; Điều phối lắp đặt (SO)</h1>
-        <p>1. Nhận thông tin từ Seller → 2. CSKH tạo đơn &amp; điều sản phẩm ở kho, chọn ĐV lắp đặt | Hãng lắp đặt (tick Không/Trừ tồn kho) → 3. ĐV lắp đặt gửi về Số IMEI &amp; thông tin phụ → 4. CSKH bổ sung Ngày kích hoạt IMEI &amp; Hoàn thành đơn (chỉ trừ tồn kho khi đơn thành công).</p>
+        <p>1. Nhận thông tin từ nhân viên bán hàng → 2. CSKH tạo đơn &amp; điều sản phẩm ở kho, chọn ĐV lắp đặt | Hãng lắp đặt (tick Không/Trừ tồn kho) → 3. ĐV lắp đặt gửi về Số IMEI &amp; thông tin phụ → 4. CSKH bổ sung Ngày kích hoạt IMEI &amp; Hoàn thành đơn (chỉ trừ tồn kho khi đơn thành công).</p>
     </div>
     <div class="button-group">
         <button type="button" class="btn secondary" @onclick="() => showQuickPaste = !showQuickPaste">
-            @(showQuickPaste ? "Đóng · 📋 Dán tin nhắn Seller" : "📋 Dán nhanh tin nhắn Seller")
+            @(showQuickPaste ? "Đóng · 📋 Dán tin nhắn NV bán hàng" : "📋 Dán nhanh tin nhắn NV bán hàng")
         </button>
-        <a class="btn secondary" href="/catalog/sellers">Quản lý Seller →</a>
+        <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
         <a class="btn secondary" href="/inventory">Kiểm tra tồn kho →</a>
         <a class="btn secondary" href="/catalog/installers">Khai báo ĐV lắp đặt →</a>
     </div>
@@ -28,12 +28,12 @@
     <section class="panel edit-panel" style="border-left:4px solid #0284c7">
         <div class="panel-head">
             <div>
-                <h2>📋 Dán nhanh thông tin đơn từ Seller gửi về</h2>
-                <p>Dán nguyên nội dung tin nhắn của Seller (gồm Đơn vị/HTX, Họ tên khách, SĐT, Số lượng lắp, Thời hạn, Địa chỉ lắp, Thời gian lắp, Ghi chú) để tự động điền vào form tạo đơn.</p>
+                <h2>📋 Dán nhanh thông tin đơn từ nhân viên bán hàng gửi về</h2>
+                <p>Dán nguyên nội dung tin nhắn của nhân viên bán hàng (gồm Đơn vị/HTX, Họ tên khách, SĐT, Số lượng lắp, Thời hạn, Địa chỉ lắp, Thời gian lắp, Ghi chú) để tự động điền vào form tạo đơn.</p>
             </div>
         </div>
         <div class="form-grid one">
-            <label>Nội dung tin nhắn Seller
+            <label>Nội dung tin nhắn nhân viên bán hàng
                 <textarea @bind="sellerRawText" rows="8" placeholder="HTX Nam Hi&#10;Thông tin khách &#10;   - Họ tên khách: Lâm Hằng ( xe Đỗ Văn Hội)&#10;   - Số điện thoại khách: 0886287429&#10;Thông tin lắp đặt: &#10;   - Số lượng lắp: 1&#10;   - Thời hạn: 1 năm &#10;   - Địa chỉ lắp: 55 đường 30/4&#10;   - Thời gian lắp: 15g00 thứ 3 ( 20/10/2026)&#10;   - Ghi chú: không thu tiền, khi đến địa chỉ lắp liên hệ sdt: 0886287429"></textarea>
             </label>
         </div>
@@ -48,7 +48,7 @@
     <div class="panel-head">
         <div>
             <h2>1. Tạo đơn hàng &amp; Điều sản phẩm ở kho (CSKH)</h2>
-            <p>Nhập thông tin khách lắp đặt từ Seller và chọn Kho điều sản phẩm, Đơn vị lắp đặt hoặc Hãng lắp đặt. Tồn kho chỉ bị trừ sau khi đơn hàng lắp đặt hoàn thành.</p>
+            <p>Nhập thông tin khách lắp đặt từ nhân viên bán hàng và chọn Kho điều sản phẩm, Đơn vị lắp đặt hoặc Hãng lắp đặt. Tồn kho chỉ bị trừ sau khi đơn hàng lắp đặt hoàn thành.</p>
         </div>
     </div>
 
@@ -94,17 +94,17 @@
         <label>Địa chỉ lắp đặt *
             <input @bind="address" placeholder="VD: 55 đường 30/4..." />
         </label>
-        <label>Nhân viên bán hàng (Seller) *
+        <label>Nhân viên bán hàng *
             <select @bind="createSellerId" @bind:after="OnCreateSellerChanged">
-                <option value="0">— Chọn nhân viên bán hàng (Seller) —</option>
+                <option value="0">— Chọn nhân viên bán hàng —</option>
                 @foreach(var sl in sellerChoices)
                 {
                     <option value="@sl.Id">@sl.Code — @sl.Name</option>
                 }
             </select>
         </label>
-        <label>Nguồn KH / Ghi chú Seller
-            <input @bind="saleSource" placeholder="Tự động điền theo Seller hoặc ghi chú thêm..." />
+        <label>Nguồn KH / Ghi chú NV bán hàng
+            <input @bind="saleSource" placeholder="Tự động điền theo nhân viên bán hàng hoặc ghi chú thêm..." />
         </label>
         <label>Ghi chú đơn hàng
             <input @bind="notes" placeholder="VD: không thu tiền, khi đến địa chỉ lắp liên hệ sdt: 0886287429" />
@@ -354,11 +354,11 @@
         @if(SelectedOrder.IsImmutable)
         {
             <div style="margin-top:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
-                Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), Seller (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã chốt.
+                Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), NV bán hàng (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã chốt.
             </div>
         }
         <div style="margin-top:0.85rem;padding:0.75rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px">
-            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, Seller &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
+            <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, nhân viên bán hàng &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
             <div class="form-grid">
                 <label>Họ tên khách (Chủ xe / Người liên hệ)
                     <input @bind="editContactName" disabled="@SelectedOrder.IsImmutable" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
@@ -366,16 +366,16 @@
                 <label>Số điện thoại khách
                     <input @bind="editCustomerPhone" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 0886287429" />
                 </label>
-                <label>Nhân viên bán hàng (Seller)
+                <label>Nhân viên bán hàng
                     <select @bind="editSellerId" @bind:after="OnEditSellerChanged" disabled="@SelectedOrder.IsImmutable">
-                        <option value="0">— Chọn Seller bán hàng —</option>
+                        <option value="0">— Chọn nhân viên bán hàng —</option>
                         @foreach(var sl in sellerChoices)
                         {
                             <option value="@sl.Id">@sl.Code — @sl.Name</option>
                         }
                     </select>
                 </label>
-                <label>Nguồn KH / Ghi chú Seller
+                <label>Nguồn KH / Ghi chú NV bán hàng
                     <input @bind="editSaleSource" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi nhận người bán..." />
                 </label>
                 <label>Thời hạn
@@ -487,7 +487,7 @@
     <div class="panel-head">
         <div>
             <h2>Danh sách đơn hàng lắp đặt (SO)</h2>
-            <p>Theo dõi trạng thái đơn, Seller bán hàng, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
+            <p>Theo dõi trạng thái đơn, nhân viên bán hàng, thông tin khách lắp, kho xuất, ĐV lắp đặt | Hãng lắp đặt và Ngày kích hoạt IMEI.</p>
         </div>
     </div>
     @{ var pagedOrders = orderPager.Slice(orders, out var totalOrders); }
@@ -498,7 +498,7 @@
                     <th>STT</th>
                     <th>Mã đơn</th>
                     <th>Đơn vị (HTX/ĐL) &amp; Khách lắp</th>
-                    <th>Seller (Người bán)</th>
+                    <th>Nhân viên bán hàng</th>
                     <th>Sản phẩm &amp; Thời hạn</th>
                     <th>Giá bán</th>
                     <th>Thời gian &amp; Địa chỉ lắp</th>
@@ -746,7 +746,7 @@
             var firstGoods = products.FirstOrDefault(p => p.IsSerialized && p.StockInHand > 0) ?? products.FirstOrDefault(p => p.IsSerialized);
             if (firstGoods is not null) product = firstGoods.Id;
         }
-        message = "Đã tự động điền thông tin từ tin nhắn Seller. Vui lòng kiểm tra sản phẩm lắp đặt và bấm '+ Tạo đơn hàng (SO)'.";
+        message = "Đã tự động điền thông tin từ tin nhắn nhân viên bán hàng. Vui lòng kiểm tra sản phẩm lắp đặt và bấm '+ Tạo đơn hàng (SO)'.";
     }
 
     private void OnCustomerChanged()

@@ -12,11 +12,11 @@
     <section class="panel">
         <div class="panel-head"><h2>6 Phân hệ nghiệp vụ cốt lõi</h2></div>
         <div class="step-list">
-            <div><b>01</b><span><strong>Danh mục &amp; Chính sách giá</strong><small>Nhóm NCC/NCC, Nhóm SP/SP (IMEI &amp; Số lượng), Nhóm KH/KH, Seller, Kỹ thuật &amp; Định mức công lắp, Khu vực &amp; Kho</small></span></div>
+            <div><b>01</b><span><strong>Danh mục &amp; Chính sách giá</strong><small>Nhóm NCC/NCC, Nhóm SP/SP (IMEI &amp; Số lượng), Nhóm KH/KH, Nhân viên bán hàng, Kỹ thuật &amp; Định mức công lắp, Khu vực &amp; Kho</small></span></div>
             <div><b>02</b><span><strong>Nhập kho, Tồn kho IMEI &amp; Bảo hành RMA</strong><small>Đơn mua PO, Nhập/Xuất số lượng, Kiểm kê, Kho thiết bị IMEI (Tại kho / Ký gửi / Kỹ thuật), Bảo hành 3 bước</small></span></div>
-            <div><b>03</b><span><strong>Đơn hàng &amp; Điều phối lắp đặt (SO)</strong><small>Nhận đơn từ Seller → CSKH điều kho &amp; chọn ĐV lắp đặt | Hãng lắp đặt → Cập nhật IMEI &amp; Biển số → Kích hoạt &amp; Hoàn thành</small></span></div>
-            <div><b>04</b><span><strong>Thiết bị đang hoạt động &amp; Gia hạn thuê bao</strong><small>Theo dõi hạn thuê bao (Còn hạn, D+10/30/60, Quá hạn), gia hạn 12 tháng gắn Seller phụ trách</small></span></div>
-            <div><b>05</b><span><strong>Kế toán Công nợ, Sổ Thu/Chi &amp; Hoa hồng</strong><small>4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng Seller), Phiếu Thu/Chi &amp; Thống kê cuối kỳ</small></span></div>
+            <div><b>03</b><span><strong>Đơn hàng &amp; Điều phối lắp đặt (SO)</strong><small>Nhận đơn từ nhân viên bán hàng → CSKH điều kho &amp; chọn ĐV lắp đặt | Hãng lắp đặt → Cập nhật IMEI &amp; Biển số → Kích hoạt &amp; Hoàn thành</small></span></div>
+            <div><b>04</b><span><strong>Thiết bị đang hoạt động &amp; Gia hạn thuê bao</strong><small>Theo dõi hạn thuê bao (Còn hạn, D+10/30/60, Quá hạn), gia hạn 12 tháng gắn nhân viên bán hàng phụ trách</small></span></div>
+            <div><b>05</b><span><strong>Kế toán Công nợ, Sổ Thu/Chi &amp; Hoa hồng</strong><small>4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng nhân viên bán hàng), Phiếu Thu/Chi &amp; Thống kê cuối kỳ</small></span></div>
             <div><b>06</b><span><strong>Phân quyền RBAC, Phạm vi Kho &amp; Kiểm toán</strong><small>6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, chống xóa cứng &amp; lưu vết 100% thay đổi</small></span></div>
         </div>
     </section>
@@ -24,7 +24,7 @@
         <div class="panel-head"><h2>Quy tắc toàn vẹn dữ liệu &amp; Nghiệp vụ</h2></div>
         <p><strong>1. Quản lý IMEI duy nhất:</strong> Mỗi thiết bị <code>stock_units</code> chỉ ở 1 trạng thái tại 1 thời điểm (<code>IN_STOCK</code>, <code>CONSIGNED</code>, <code>TECHNICIAN</code>, <code>INSTALLED</code>, <code>WARRANTY</code>).</p>
         <p><strong>2. Trừ tồn kho đúng thời điểm:</strong> Tạo đơn và điều phối chưa trừ kho. Tồn kho chỉ giảm khi đơn hàng chuyển sang <code>COMPLETED</code> (cho phép chọn <em>Không trừ tồn kho</em> khi đơn vị lắp đặt là <em>Hãng lắp đặt</em>).</p>
-        <p><strong>3. Bảo toàn đơn giá lịch sử:</strong> Đơn hàng đã hoàn thành giữ nguyên đơn giá bán, giá vốn, công lắp đặt và thông tin Seller tại thời điểm phát sinh dù bảng giá danh mục thay đổi về sau.</p>
+        <p><strong>3. Bảo toàn đơn giá lịch sử:</strong> Đơn hàng đã hoàn thành giữ nguyên đơn giá bán, giá vốn, công lắp đặt và thông tin nhân viên bán hàng tại thời điểm phát sinh dù bảng giá danh mục thay đổi về sau.</p>
         <p><strong>4. Đồng bộ Kế toán tự động:</strong> Nhập kho sinh Công nợ NCC (<code>PURCHASE</code>); Hoàn thành đơn lắp đặt sinh Công nợ Khách hàng (<code>SALE</code>) và Công kỹ thuật (<code>SERVICE</code>); Gia hạn sinh Công nợ Gia hạn (<code>RENEWAL</code>).</p>
         <p><strong>5. Kiểm toán &amp; Xóa mềm (Soft Delete):</strong> Cấm xóa vật lý bản ghi nghiệp vụ; mọi thao tác Thêm/Sửa/Xóa mềm đều tự động ghi nhận giá trị Trước/Sau vào <code>activity_events</code>.</p>
     </section>
@@ -54,7 +54,7 @@
                     <td><strong>1</strong></td>
                     <td><strong>B1. Danh mục &amp; Giá</strong></td>
                     <td class="wrap-cell">Admin / Quản lý khai báo tại <code>/catalog/*</code></td>
-                    <td class="wrap-cell"><code>InputCatalog</code> thiết lập Sản phẩm, KH, NCC, Seller, Kỹ thuật, Kho và Bảng giá</td>
+                    <td class="wrap-cell"><code>InputCatalog</code> thiết lập Sản phẩm, KH, NCC, Nhân viên bán hàng, Kỹ thuật, Kho và Bảng giá</td>
                     <td class="wrap-cell"><code>products</code>, <code>customers</code>, <code>suppliers</code>, <code>v7_sellers</code>, <code>employees</code>, <code>v7_group_prices</code>, <code>v7_installer_product_rates</code></td>
                     <td class="wrap-cell">Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn</td>
                 </tr>
@@ -69,7 +69,7 @@
                 <tr>
                     <td><strong>3</strong></td>
                     <td><strong>B3. Tạo đơn &amp; Điều phối</strong></td>
-                    <td class="wrap-cell">Seller gửi thông tin → CSKH tạo đơn tại <code>/sales-orders</code></td>
+                    <td class="wrap-cell">Nhân viên bán hàng gửi thông tin → CSKH tạo đơn tại <code>/sales-orders</code></td>
                     <td class="wrap-cell"><code>V7Orders.CreateMulti</code>, <code>Approve</code>, <code>Dispatch</code>, <code>ReportLines</code></td>
                     <td class="wrap-cell"><code>v7_orders</code> (<code>PENDING</code> → <code>DISPATCHED</code> → <code>REPORTED</code>), <code>v7_order_lines</code></td>
                     <td class="wrap-cell">Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho</td>
@@ -85,10 +85,10 @@
                 <tr>
                     <td><strong>5</strong></td>
                     <td><strong>B5. Theo dõi &amp; Gia hạn TB</strong></td>
-                    <td class="wrap-cell">CSKH gia hạn thiết bị 12 tháng &amp; chọn Seller tại <code>/devices</code></td>
+                    <td class="wrap-cell">CSKH gia hạn thiết bị 12 tháng &amp; chọn nhân viên bán hàng tại <code>/devices</code></td>
                     <td class="wrap-cell"><code>DemoDb.Renew</code> cộng thêm 12 tháng vào hạn thuê bao và lưu người gia hạn</td>
                     <td class="wrap-cell"><code>renewals</code>, <code>activations.expires_at</code>, <code>invoices</code>, <code>payments</code></td>
-                    <td class="wrap-cell">Sinh <strong>Công nợ Gia hạn (<code>RENEWAL</code>)</strong> + Cộng chỉ tiêu hoa hồng Seller</td>
+                    <td class="wrap-cell">Sinh <strong>Công nợ Gia hạn (<code>RENEWAL</code>)</strong> + Cộng chỉ tiêu hoa hồng nhân viên bán hàng</td>
                 </tr>
                 <tr>
                     <td><strong>6</strong></td>
@@ -96,7 +96,7 @@
                     <td class="wrap-cell">Kế toán thu/chi công nợ &amp; đối soát cuối kỳ tại <code>/finance</code></td>
                     <td class="wrap-cell"><code>DemoDb.PayInvoice</code>, <code>CreateCustomInvoice</code>, <code>SellerPeriodStats</code></td>
                     <td class="wrap-cell"><code>invoices</code> (<code>OPEN</code> → <code>PARTIAL</code> → <code>PAID</code>), <code>payments</code>, <code>payment_allocations</code></td>
-                    <td class="wrap-cell">Sổ Phiếu Thu (<code>PT-</code>) / Phiếu Chi (<code>PC-</code>), Báo cáo Lợi nhuận gộp &amp; Hoa hồng Seller</td>
+                    <td class="wrap-cell">Sổ Phiếu Thu (<code>PT-</code>) / Phiếu Chi (<code>PC-</code>), Báo cáo Lợi nhuận gộp &amp; Hoa hồng nhân viên bán hàng</td>
                 </tr>
             </tbody>
         </table>

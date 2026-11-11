@@ -334,7 +334,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         {
             var label = Str(c, "SELECT code || ' — ' || full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", ("$id", resolvedId.Value));
             if (string.IsNullOrWhiteSpace(label))
-                throw new InvalidOperationException("Nhân viên bán hàng (Seller) đã chọn không tồn tại.");
+                throw new InvalidOperationException("Nhân viên bán hàng đã chọn không tồn tại.");
             src = label;
             return (resolvedId, src);
         }

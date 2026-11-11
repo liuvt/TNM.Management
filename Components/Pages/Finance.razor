@@ -9,7 +9,7 @@
     <div class="eyebrow">FINANCE / DEBT &amp; CASHBOOK REPORT</div>
     <h1>Báo cáo Công nợ &amp; Thanh toán — Sổ quỹ</h1>
     <p>
-      <strong>1. Báo cáo Công nợ:</strong> Nhà cung cấp (Nhập hàng) · Khách hàng (Đơn lắp &amp; Gia hạn) · Sell (Hoa hồng NV bán hàng &amp; Kỹ thuật) &nbsp;|&nbsp;
+      <strong>1. Báo cáo Công nợ:</strong> Nhà cung cấp (Nhập hàng) · Khách hàng (Đơn lắp &amp; Gia hạn) · Nhân viên bán hàng (Hoa hồng &amp; Kỹ thuật) &nbsp;|&nbsp;
       <strong>2. Sổ quỹ (Thu / Chi / Tồn):</strong> Khoản thu (Thu khách / Công nợ) · Khoản chi (Nhập hàng / Chi trả) · Quỹ Tiền mặt &amp; Ngân hàng.
     </p>
   </div>
@@ -34,7 +34,7 @@
   <section class="panel" style="margin-bottom:0">
     <div class="panel-head" style="margin-bottom:10px">
       <div>
-        <h2>A. Tổng hợp Công nợ (Nhà cung cấp · Khách hàng · Sell)</h2>
+        <h2>A. Tổng hợp Công nợ (Nhà cung cấp · Khách hàng · Nhân viên bán hàng)</h2>
         <p>Theo dõi phát sinh, đã thanh toán và số dư còn nợ theo 3 nhóm đối tượng chính.</p>
       </div>
     </div>
@@ -50,7 +50,7 @@
         <span>Đã thu: @Money(Receivables.Sum(x => x.Paid)) / Phải thu: @Money(Receivables.Sum(x => x.Total))</span>
       </div>
       <div class="stat" style="cursor:pointer;border-left:4px solid #7c3aed" @onclick='() => SetTab("OTHER")'>
-        <small>3. Công nợ Sell &amp; Kỹ thuật</small>
+        <small>3. Công nợ NV bán hàng &amp; Kỹ thuật</small>
         <strong style="color:#7c3aed">@Money(SellerAndTechRemainingVnd)</strong>
         <span>Đã chi: @Money(OtherInvoices.Sum(x => x.Paid)) / Phát sinh: @Money(SellerAndTechIncurredVnd)</span>
       </div>
@@ -89,7 +89,7 @@
 <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
   <div style="display:flex;gap:6px;flex-wrap:wrap">
     <button type="button" class="btn @(activeTab == "DEBT_REPORT" ? "" : "secondary")" @onclick='() => SetTab("DEBT_REPORT")'>
-      📊 Tổng hợp Công nợ (NCC / KH / Sell)
+      📊 Tổng hợp Công nợ (NCC / KH / NV bán hàng)
     </button>
     @if (canSupplier)
     {
@@ -106,7 +106,7 @@
     @if (canOther)
     {
       <button type="button" class="btn @(activeTab == "OTHER" ? "" : "secondary")" @onclick='() => SetTab("OTHER")'>
-        3. Công nợ Sell &amp; Kỹ thuật (@OtherInvoices.Count() CT · @sellerStats.Count Sell)
+        3. Công nợ NV bán hàng &amp; Kỹ thuật (@OtherInvoices.Count() CT · @sellerStats.Count NV)
       </button>
     }
     <button type="button" class="btn @(activeTab == "PAYMENTS" ? "" : "secondary")" @onclick='() => SetTab("PAYMENTS")'>
@@ -149,7 +149,7 @@
         <h2>Lập Phiếu Thu / Phiếu Chi vào Sổ quỹ (Tiền mặt / Ngân hàng)</h2>
         <p>
           <strong>Khoản thu (IN):</strong> Thu tiền khách hàng / thu công nợ &nbsp;|&nbsp;
-          <strong>Khoản chi (OUT):</strong> Chi trả tiền nhập hàng Nhà cung cấp, chi hoa hồng Sell hoặc công kỹ thuật.
+          <strong>Khoản chi (OUT):</strong> Chi trả tiền nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng hoặc công kỹ thuật.
         </p>
       </div>
     </div>
@@ -157,7 +157,7 @@
       <label>1. Loại giao dịch Sổ quỹ *
         <select @bind="payDirection" @bind:after="OnPayDirectionChanged">
           <option value="IN">Khoản Thu (+): Thu khách / Thu công nợ (Phiếu Thu PT)</option>
-          <option value="OUT">Khoản Chi (-): Chi nhập hàng NCC / Chi Sell &amp; Kỹ thuật (Phiếu Chi PC)</option>
+          <option value="OUT">Khoản Chi (-): Chi nhập hàng NCC / Chi NV bán hàng &amp; Kỹ thuật (Phiếu Chi PC)</option>
         </select>
       </label>
 
@@ -171,7 +171,7 @@
           else
           {
             <option value="SUPPLIER_PURCHASE">Chi: Nhập hàng Nhà cung cấp (PURCHASE)</option>
-            <option value="SELLER_COMMISSION">Chi: Hoa hồng Sell / Nhân viên bán hàng (COMMISSION)</option>
+            <option value="SELLER_COMMISSION">Chi: Hoa hồng Nhân viên bán hàng (COMMISSION)</option>
             <option value="TECH_SERVICE">Chi: Phụ cấp / Công kỹ thuật lắp đặt (SERVICE)</option>
           }
         </select>
@@ -199,8 +199,8 @@
 
       @if (invoiceId <= 0)
       {
-        <label>Đối tác (Khách hàng / Nhà cung cấp / Sell) *
-          <input @bind="directPartnerName" placeholder="Nhập tên Khách hàng, Nhà cung cấp hoặc Sell..." />
+        <label>Đối tác (Khách hàng / Nhà cung cấp / NV bán hàng) *
+          <input @bind="directPartnerName" placeholder="Nhập tên Khách hàng, Nhà cung cấp hoặc NV bán hàng..." />
         </label>
         <label>Diễn giải khoản Thu / Chi *
           <input @bind="directPayNote" placeholder="VD: Thu công nợ khách / Chi thanh toán tiền nhập hàng..." />
@@ -232,8 +232,8 @@
   <section class="panel edit-panel" hidden="@(!showCreate)">
     <div class="panel-head">
       <div>
-        <h2>Lập chứng từ Công nợ mới (Nhà cung cấp · Khách hàng · Sell)</h2>
-        <p>Dùng để ghi nhận công nợ nhập hàng Nhà cung cấp, công nợ Khách hàng hoặc công nợ hoa hồng Sell / kỹ thuật.</p>
+        <h2>Lập chứng từ Công nợ mới (Nhà cung cấp · Khách hàng · Nhân viên bán hàng)</h2>
+        <p>Dùng để ghi nhận công nợ nhập hàng Nhà cung cấp, công nợ Khách hàng hoặc công nợ hoa hồng nhân viên bán hàng / kỹ thuật.</p>
       </div>
     </div>
     <div class="form-grid">
@@ -249,7 +249,7 @@
           }
           @if (canOther)
           {
-            <option value="COMMISSION">3a. Công nợ Sell — Hoa hồng nhân viên bán hàng (COMMISSION - Phải trả)</option>
+            <option value="COMMISSION">3a. Công nợ Nhân viên bán hàng — Hoa hồng (COMMISSION - Phải trả)</option>
             <option value="SERVICE">3b. Công nợ Kỹ thuật — Công lắp đặt (SERVICE - Phải trả)</option>
           }
         </select>
@@ -281,16 +281,16 @@
       }
       else if (newType == "COMMISSION")
       {
-        <label>Chọn Sell (Nhân viên bán hàng) *
+        <label>Chọn Nhân viên bán hàng *
           <select @bind="newSellerId" @bind:after="OnNewSellerPicked">
-            <option value="0">— Chọn Sell trong danh sách hoặc nhập bên cạnh —</option>
+            <option value="0">— Chọn nhân viên bán hàng trong danh sách hoặc nhập bên cạnh —</option>
             @foreach (var sl in sellerChoices)
             {
               <option value="@sl.Id">@sl.Code — @sl.Name [HH Đơn: @Money(sl.OrderCommissionVnd) · HH Gia hạn: @Money(sl.RenewalCommissionVnd)]</option>
             }
           </select>
         </label>
-        <label>Tên người thụ hưởng (Sell) *
+        <label>Tên người thụ hưởng (Nhân viên bán hàng) *
           <input @bind="newPartnerLabel" placeholder="VD: Nguyễn Minh Anh (SL001)..." />
         </label>
       }
@@ -324,7 +324,7 @@
       </label>
 
       <label style="grid-column:1 / -1">Nội dung / Diễn giải chi tiết *
-        <input @bind="newDescription" placeholder="VD: Nhập hàng lô thiết bị GPS / Hoa hồng Sell tháng 11/2026..." />
+        <input @bind="newDescription" placeholder="VD: Nhập hàng lô thiết bị GPS / Hoa hồng nhân viên bán hàng tháng 11/2026..." />
       </label>
     </div>
     <div class="form-actions">
@@ -412,18 +412,18 @@
   <section class="panel" style="margin-bottom:16px">
     <div class="panel-head">
       <div>
-        <h2>Báo cáo Tổng hợp Công nợ theo Đối tượng: Nhà cung cấp · Khách hàng · Sell</h2>
-        <p>Tổng hợp công nợ phải trả Nhà cung cấp (Nhập hàng), công nợ phải thu Khách hàng và công nợ hoa hồng Sell / Kỹ thuật.</p>
+        <h2>Báo cáo Tổng hợp Công nợ theo Đối tượng: Nhà cung cấp · Khách hàng · Nhân viên bán hàng</h2>
+        <p>Tổng hợp công nợ phải trả Nhà cung cấp (Nhập hàng), công nợ phải thu Khách hàng và công nợ hoa hồng nhân viên bán hàng / Kỹ thuật.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <select class="search-input" style="min-width:210px" @bind="debtCategoryFilter">
           <option value="">— Tất cả nhóm công nợ —</option>
           <option value="SUPPLIER">1. Công nợ Nhà cung cấp (Nhập hàng)</option>
           <option value="CUSTOMER">2. Công nợ Khách hàng (Thu khách)</option>
-          <option value="SELLER">3. Công nợ Sell (Hoa hồng NV bán hàng)</option>
+          <option value="SELLER">3. Công nợ Nhân viên bán hàng (Hoa hồng)</option>
           <option value="TECH">4. Công nợ Kỹ thuật lắp đặt</option>
         </select>
-        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm tên NCC, Khách hàng, Sell..." />
+        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm tên NCC, Khách hàng, NV bán hàng..." />
       </div>
     </div>
 
@@ -435,7 +435,7 @@
             <th>STT</th>
             <th>NHÓM CÔNG NỢ</th>
             <th>TÍNH CHẤT</th>
-            <th>ĐỐI TÁC (NHÀ CUNG CẤP / KHÁCH HÀNG / SELL)</th>
+            <th>ĐỐI TÁC (NHÀ CUNG CẤP / KHÁCH HÀNG / NV BÁN HÀNG)</th>
             <th>THÔNG TIN CHI TIẾT</th>
             <th>SỐ CHỨNG TỪ</th>
             <th>TỔNG PHÁT SINH</th>
@@ -495,7 +495,7 @@ else if (activeTab == "PAYMENTS")
         <h2>Báo cáo Sổ quỹ: Khoản Thu / Khoản Chi / Tồn quỹ (Tiền mặt &amp; Ngân hàng)</h2>
         <p>
           <strong>Khoản thu:</strong> Thu khách / thu công nợ &nbsp;|&nbsp;
-          <strong>Khoản chi:</strong> Chi nhập hàng Nhà cung cấp, chi hoa hồng Sell &amp; công kỹ thuật &nbsp;|&nbsp;
+          <strong>Khoản chi:</strong> Chi nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng &amp; công kỹ thuật &nbsp;|&nbsp;
           <strong>Sổ quỹ:</strong> Tiền mặt (CASH) &amp; Ngân hàng (BANK).
         </p>
       </div>
@@ -569,7 +569,7 @@ else if (activeTab == "PAYMENTS")
             <th>SỔ QUỸ (TM / NH)</th>
             <th>HẠNG MỤC NGHIỆP VỤ</th>
             <th>CHỨNG TỪ CÔNG NỢ</th>
-            <th>ĐỐI TÁC (KHÁCH HÀNG / NCC / SELL)</th>
+            <th>ĐỐI TÁC (KHÁCH HÀNG / NCC / NV BÁN HÀNG)</th>
             <th>THU (+)</th>
             <th>CHI (−)</th>
             <th>TỒN QUỸ SAU GD</th>
@@ -645,10 +645,10 @@ else if (activeTab == "SNAPSHOT_STATS")
   <section class="panel" style="margin-bottom:16px">
     <div class="panel-head">
       <div>
-        <h2>6A. Thống kê Công nợ &amp; Hoa hồng Sell (Nhân viên bán hàng)</h2>
-        <p>Tổng hợp số lượng thiết bị lắp đặt hoàn thành, số lượt gia hạn thiết bị, tổng hoa hồng phát sinh và công nợ hoa hồng còn phải trả cho từng Sell.</p>
+        <h2>6A. Thống kê Công nợ &amp; Hoa hồng Nhân viên bán hàng</h2>
+        <p>Tổng hợp số lượng thiết bị lắp đặt hoàn thành, số lượt gia hạn thiết bị, tổng hoa hồng phát sinh và công nợ hoa hồng còn phải trả cho từng nhân viên bán hàng.</p>
       </div>
-      <a class="btn secondary" href="/catalog/sellers">Quản lý danh sách Sell →</a>
+      <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
     </div>
 
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
@@ -673,7 +673,7 @@ else if (activeTab == "SNAPSHOT_STATS")
         <span>Doanh thu − Giá vốn − Công lắp</span>
       </div>
       <div class="stat">
-        <small>Công nợ Hoa hồng Sell</small>
+        <small>Công nợ Hoa hồng NV bán hàng</small>
         <strong style="color:#7c3aed">@Money(sellerStats.Sum(x => x.TotalEstimatedCommissionVnd))</strong>
         <span>Đơn lắp + Gia hạn (@sellerStats.Sum(x => x.RenewalCount) lượt)</span>
       </div>
@@ -685,15 +685,15 @@ else if (activeTab == "SNAPSHOT_STATS")
         <thead>
           <tr>
             <th>STT</th>
-            <th>MÃ SELL</th>
-            <th>NHÂN VIÊN BÁN HÀNG (SELL)</th>
+            <th>MÃ NV BÁN HÀNG</th>
+            <th>NHÂN VIÊN BÁN HÀNG</th>
             <th>BỘ PHẬN / KÊNH</th>
             <th>ĐƠN HOÀN THÀNH</th>
             <th>DOANH THU BÁN HÀNG</th>
             <th>LỢI NHUẬN GỘP</th>
             <th>GIA HẠN THIẾT BỊ</th>
             <th>DOANH THU GIA HẠN</th>
-            <th>CÔNG NỢ HOA HỒNG SELL</th>
+            <th>CÔNG NỢ HOA HỒNG</th>
             <th>THAO TÁC KẾ TOÁN</th>
           </tr>
         </thead>
@@ -718,7 +718,7 @@ else if (activeTab == "SNAPSHOT_STATS")
                 @if (canPay && canOther)
                 {
                   <button type="button" class="btn secondary btn-sm" @onclick="() => PrepareSellerCommissionInvoice(s)">
-                    + Lập chứng từ Công nợ Sell
+                    + Lập chứng từ Công nợ
                   </button>
                 }
               </td>
@@ -738,13 +738,13 @@ else if (activeTab == "SNAPSHOT_STATS")
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <select class="search-input" style="min-width:200px" @bind="snapshotSellerFilter">
-          <option value="">— Tất cả Sell —</option>
+          <option value="">— Tất cả NV bán hàng —</option>
           @foreach (var sl in sellerChoices)
           {
             <option value="@sl.Name">@sl.Code — @sl.Name</option>
           }
         </select>
-        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm mã đơn, KH, sản phẩm, Sell..." />
+        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm mã đơn, KH, sản phẩm, NV bán hàng..." />
       </div>
     </div>
 
@@ -756,7 +756,7 @@ else if (activeTab == "SNAPSHOT_STATS")
             <th>STT</th>
             <th>MÃ ĐƠN / CHỨNG TỪ</th>
             <th>KHÁCH HÀNG / CHỦ XE</th>
-            <th>SELL PHỤ TRÁCH</th>
+            <th>NHÂN VIÊN BÁN HÀNG</th>
             <th>SẢN PHẨM &amp; ĐƠN GIÁ</th>
             <th>SL SP</th>
             <th>DOANH THU</th>
@@ -818,10 +818,10 @@ else
     <section class="panel" style="margin-bottom:16px">
       <div class="panel-head">
         <div>
-          <h2>Bảng theo dõi Công nợ Sell (Hoa hồng Nhân viên bán hàng)</h2>
-          <p>Đối chiếu hoa hồng phát sinh từ đơn lắp đặt &amp; gia hạn của từng Sell với chứng từ công nợ đã lập và đã chi trả.</p>
+          <h2>Bảng theo dõi Công nợ Nhân viên bán hàng (Hoa hồng)</h2>
+          <p>Đối chiếu hoa hồng phát sinh từ đơn lắp đặt &amp; gia hạn của từng nhân viên bán hàng với chứng từ công nợ đã lập và đã chi trả.</p>
         </div>
-        <a class="btn secondary btn-sm" href="/catalog/sellers">Khai báo định mức Sell →</a>
+        <a class="btn secondary btn-sm" href="/catalog/sellers">Khai báo định mức NV bán hàng →</a>
       </div>
       @{ var pagedOtherSellers = otherSellerPager.Slice(sellerStats, out var totalOtherSellers); }
       <div class="table-wrap">
@@ -829,8 +829,8 @@ else
           <thead>
             <tr>
               <th>STT</th>
-              <th>MÃ SELL</th>
-              <th>HỌ TÊN SELL</th>
+              <th>MÃ NV BÁN HÀNG</th>
+              <th>HỌ TÊN NHÂN VIÊN BÁN HÀNG</th>
               <th>BỘ PHẬN</th>
               <th>ĐƠN HOÀN THÀNH (SL TB)</th>
               <th>GIA HẠN TB</th>
@@ -855,7 +855,7 @@ else
                   @if (canPay)
                   {
                     <button type="button" class="btn secondary btn-sm" @onclick="() => PrepareSellerCommissionInvoice(s)">
-                      + Lập công nợ Hoa hồng Sell
+                      + Lập công nợ Hoa hồng
                     </button>
                   }
                 </td>
@@ -890,7 +890,7 @@ else
           <option value="PARTIAL">Thanh toán 1 phần (PARTIAL)</option>
           <option value="PAID">Đã tất toán (PAID)</option>
         </select>
-        <input class="search-input" style="min-width:250px" @bind="search" @bind:event="oninput" placeholder="Tìm số chứng từ, NCC, khách hàng, Sell..." />
+        <input class="search-input" style="min-width:250px" @bind="search" @bind:event="oninput" placeholder="Tìm số chứng từ, NCC, khách hàng, NV bán hàng..." />
         @if (canPay && FilteredInvoices.Any(i => !i.IsLocked))
         {
           <button type="button" class="btn secondary btn-sm" @onclick="LockFilteredInvoices" title="Khóa sổ / chốt số toàn bộ chứng từ đang hiển thị để không cho phép sửa/xóa lịch sử gia hạn">
@@ -908,7 +908,7 @@ else
             <th>STT</th>
             <th>SỐ CHỨNG TỪ</th>
             <th>PHÂN MỤC CÔNG NỢ</th>
-            <th>ĐỐI TÁC (NCC / KHÁCH HÀNG / SELL)</th>
+            <th>ĐỐI TÁC (NCC / KHÁCH HÀNG / NV BÁN HÀNG)</th>
             <th>CHI TIẾT MẶT HÀNG / THAM CHIẾU</th>
             <th>PHÁT SINH</th>
             <th>ĐÃ THU / ĐÃ CHI</th>
@@ -1231,7 +1231,7 @@ else
     newPartnerLabel = $"{s.SellerName} ({s.SellerCode})";
     newQty = 1;
     newUnitPrice = s.TotalEstimatedCommissionVnd > 0 ? s.TotalEstimatedCommissionVnd : Math.Max(100_000, s.OrderCommissionRateVnd);
-    newDescription = $"Chi hoa hồng cuối kỳ cho Sell {s.SellerName} ({s.SellerCode}): {s.CompletedDeviceQty} thiết bị hoàn thành + {s.RenewalCount} lượt gia hạn.";
+    newDescription = $"Chi hoa hồng cuối kỳ cho NV bán hàng {s.SellerName} ({s.SellerCode}): {s.CompletedDeviceQty} thiết bị hoàn thành + {s.RenewalCount} lượt gia hạn.";
     showCreate = true;
     showPay = false;
   }
@@ -1318,7 +1318,7 @@ else
       if (newType == "SALE" && (custId is null or <= 0))
         throw new InvalidOperationException("Vui lòng chọn Khách hàng.");
       if (newType is "SERVICE" or "COMMISSION" && string.IsNullOrWhiteSpace(newPartnerLabel))
-        throw new InvalidOperationException("Vui lòng nhập tên Kỹ thuật / Sell thụ hưởng.");
+        throw new InvalidOperationException("Vui lòng nhập tên Kỹ thuật / Nhân viên bán hàng thụ hưởng.");
 
       var createdId = Db.CreateCustomInvoice(
         newType,
@@ -1382,7 +1382,7 @@ else
     : p.InvoiceType switch
     {
       "PURCHASE" or "SUPPLIER" => "Khoản chi: Nhập hàng Nhà cung cấp",
-      "COMMISSION" => "Khoản chi: Hoa hồng Sell",
+      "COMMISSION" => "Khoản chi: Hoa hồng NV bán hàng",
       "SERVICE" => "Khoản chi: Công kỹ thuật lắp đặt",
       _ => "Khoản chi: Thanh toán công nợ"
     };
@@ -1392,7 +1392,7 @@ else
     "PURCHASE" or "SUPPLIER" => "1. Công nợ Nhà cung cấp (Nhập hàng)",
     "SALE" => "2a. Công nợ Khách hàng (Đơn lắp)",
     "RENEWAL" => "2b. Công nợ Khách hàng (Gia hạn)",
-    "COMMISSION" => "3a. Công nợ Sell (Hoa hồng)",
+    "COMMISSION" => "3a. Công nợ NV bán hàng (Hoa hồng)",
     "SERVICE" => "3b. Công nợ Kỹ thuật lắp đặt",
     _ => type
   };
@@ -1411,7 +1411,7 @@ else
     "PURCHASE" => "1. Công nợ Nhà cung cấp (Chi nhập hàng & thiết bị)",
     "SALE" => "2. Công nợ Khách hàng (Khoản thu khách hàng: Đơn lắp đặt & Gia hạn)",
     "RENEWAL" => "2b. Công nợ Gia hạn thiết bị",
-    "OTHER" => "3. Công nợ Sell (Hoa hồng NV bán hàng) & Chi phí Kỹ thuật lắp đặt",
+    "OTHER" => "3. Công nợ Nhân viên bán hàng (Hoa hồng) & Chi phí Kỹ thuật lắp đặt",
     _ => "Danh sách tất cả Chứng từ Công nợ (Phải thu & Phải trả)"
   };
 

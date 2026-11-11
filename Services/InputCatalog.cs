@@ -474,7 +474,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     }
     public long SaveSeller(long actor, long? id, string? code, string name, string phone, string department = "Sale Nội bộ (Kinh doanh)", long orderCommissionVnd = 100000, long renewalCommissionVnd = 50000, string notes = "")
     {
-        name = Required(name, "Họ tên nhân viên bán hàng (Seller)");
+        name = Required(name, "Họ tên nhân viên bán hàng");
         department = string.IsNullOrWhiteSpace(department) ? "Sale Nội bộ (Kinh doanh)" : department.Trim();
         if (orderCommissionVnd < 0 || renewalCommissionVnd < 0)
             throw new InvalidOperationException("Định mức hoa hồng không được âm.");

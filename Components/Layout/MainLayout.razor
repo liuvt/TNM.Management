@@ -44,7 +44,7 @@
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.CustomersView) || Accounts.HasPermission(nav.User, Permissions.OrdersView))
                     {
-                        <NavLink href="/catalog/sellers"><AppIcon Name="users" /> <span>Seller (NV bán hàng)</span></NavLink>
+                        <NavLink href="/catalog/sellers"><AppIcon Name="users" /> <span>Nhân viên bán hàng</span></NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage) || Accounts.HasPermission(nav.User, Permissions.PricesView))
                     {

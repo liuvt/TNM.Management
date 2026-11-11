@@ -547,7 +547,7 @@ public sealed class DemoDb
             var renewalId = N(c,t,"SELECT last_insert_rowid()");
             Exec(c,t,"UPDATE activations SET expires_at=$new WHERE id=$id",("$new",nextStr),("$id",activationId));
             var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · Seller: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
+            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · NV bán hàng: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
             Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,issued_at,due_at,amount_vnd,notes)
                VALUES($no,'RENEWAL',$c,$r,$renAt,date($renAt,'+30 days'),$price,$notes)",
                ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$renAt",renStr),("$price",price),("$notes",sellerNote));
@@ -632,7 +632,7 @@ public sealed class DemoDb
             }
 
             // Đồng bộ Chứng từ Kế toán (invoices, invoice_lines, payments, payment_allocations)
-            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · Seller: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
+            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · NV bán hàng: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
             var invId = N(c, t, "SELECT COALESCE((SELECT id FROM invoices WHERE renewal_id=$r AND invoice_type='RENEWAL' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1), 0)", ("$r", renewalId));
             if (invId > 0)
             {
@@ -852,7 +852,7 @@ public sealed class DemoDb
             {
                 var est = s.DevQty * s.OrderRate + s.RenCnt * s.RenRate;
                 var invId = openCommInvs[0];
-                var desc = $"Chi hoa hồng cuối kỳ cho Sell {s.Name} ({s.Code}): {s.DevQty} thiết bị hoàn thành + {s.RenCnt} lượt gia hạn.";
+                var desc = $"Chi hoa hồng cuối kỳ cho NV bán hàng {s.Name} ({s.Code}): {s.DevQty} thiết bị hoàn thành + {s.RenCnt} lượt gia hạn.";
                 Exec(c, t, "UPDATE invoices SET amount_vnd=$amt, notes=$notes WHERE id=$id",
                     ("$amt", est), ("$notes", $"{s.Name} ({s.Code}) — {desc}"), ("$id", invId));
                 Exec(c, t, "UPDATE invoice_lines SET description=$desc, quantity=1, unit_price_vnd=$amt WHERE invoice_id=$id AND deleted_at IS NULL",
@@ -1023,7 +1023,7 @@ public sealed class DemoDb
             {
                 list.Add(new PartnerDebtSummaryVm(
                     "SELLER",
-                    "3. Công nợ Sell / Hoa hồng NV bán hàng",
+                    "3. Công nợ Nhân viên bán hàng (Hoa hồng)",
                     s.SellerCode,
                     $"{s.SellerName} ({s.SellerCode})",
                     $"{s.Department} · Bán mới: {s.CompletedDeviceQty} TB · Gia hạn: {s.RenewalCount} lượt",
@@ -1477,7 +1477,7 @@ public sealed class DemoDb
             foreach (var ren in missingRenewals)
             {
                 var invNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-                var note = !string.IsNullOrWhiteSpace(ren.SellerName) ? $"Gia hạn 12 tháng · Seller: {ren.SellerName}" : "Gia hạn dịch vụ 12 tháng";
+                var note = !string.IsNullOrWhiteSpace(ren.SellerName) ? $"Gia hạn 12 tháng · NV bán hàng: {ren.SellerName}" : "Gia hạn dịch vụ 12 tháng";
                 Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,due_at,amount_vnd,notes)
                     VALUES($no,'RENEWAL',$c,$r,date('now','+30 days'),$amt,$note)",
                     ("$no", invNo), ("$c", ren.CustId), ("$r", ren.Id), ("$amt", ren.Price), ("$note", note));
@@ -1509,7 +1509,7 @@ public sealed class DemoDb
                    CASE WHEN COALESCE(cu.representative_name,'')<>'' THEN cu.name || ' (ĐD: ' || cu.representative_name || ')' ELSE cu.name END,
                    COALESCE(o.contact_name, ''),
                    COALESCE(o.seller_record_id, cu.seller_id),
-                   COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(cu.source_name,''), 'Chưa gán Seller'),
+                   COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(cu.source_name,''), 'Chưa gán NV bán hàng'),
                    COALESCE(
                      (SELECT group_concat(p2.sku || ' — ' || p2.name || ' (x' || l2.quantity || COALESCE(CASE WHEN l2.imei IS NOT NULL AND l2.imei<>'' THEN ' · IMEI: ' || l2.imei ELSE '' END, '') || ')', '; ')
                       FROM v7_order_lines l2 JOIN products p2 ON p2.id=l2.product_id WHERE l2.order_id=o.id AND l2.deleted_at IS NULL),
@@ -1548,7 +1548,7 @@ public sealed class DemoDb
                    CASE WHEN COALESCE(cu.representative_name,'')<>'' THEN cu.name || ' (ĐD: ' || cu.representative_name || ')' ELSE cu.name END,
                    '',
                    cu.seller_id,
-                   COALESCE(sl.code||' — '||sl.full_name, NULLIF(cu.source_name,''), 'Chưa gán Seller'),
+                   COALESCE(sl.code||' — '||sl.full_name, NULLIF(cu.source_name,''), 'Chưa gán NV bán hàng'),
                    COALESCE(
                      (SELECT group_concat(COALESCE(p2.sku||' — ','') || il.description || ' (x' || il.quantity || ' · ' || il.unit_price_vnd || ' ₫)', '; ')
                       FROM invoice_lines il LEFT JOIN products p2 ON p2.id=il.product_id WHERE il.invoice_id=i.id AND il.deleted_at IS NULL),

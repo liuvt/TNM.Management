@@ -26,7 +26,7 @@
         }
         @if(canCreate && IsValidSection)
         {
-            <button type="button" class="btn" @onclick="Create">@(CurrentSection=="installers" ? "+ Khai báo người lắp đặt" : CurrentSection=="sellers" ? "+ Khai báo Seller mới" : CurrentSection=="warehouses" ? "+ Thêm Kho mới" : CurrentSection=="areas" ? "+ Thêm Khu vực" : "+ Thêm mới")</button>
+            <button type="button" class="btn" @onclick="Create">@(CurrentSection=="installers" ? "+ Khai báo người lắp đặt" : CurrentSection=="sellers" ? "+ Khai báo nhân viên bán hàng" : CurrentSection=="warehouses" ? "+ Thêm Kho mới" : CurrentSection=="areas" ? "+ Thêm Khu vực" : "+ Thêm mới")</button>
         }
     </div>
 </div>
@@ -135,7 +135,7 @@ else
     {
         <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
             <div class="stat">
-                <small>Tổng nhân viên bán hàng (Seller)</small>
+                <small>Tổng nhân viên bán hàng</small>
                 <strong>@sellers.Count</strong>
                 <span>Phụ trách @sellers.Sum(x => x.CustomerCount) khách hàng / đơn vị</span>
             </div>
@@ -162,7 +162,7 @@ else
             <div class="panel-head">
                 <div>
                     <h2>@(editingId.HasValue ? "Cập nhật" : "Khai báo mới") — @Title</h2>
-                    <p>@(CurrentSection=="installers" ? "Khai báo hồ sơ người lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm." : CurrentSection=="sellers" ? "Khai báo nhân viên bán hàng (Seller) của công ty để đồng bộ Khách hàng, Đơn hàng SO, Gia hạn thiết bị và thống kê hoa hồng cuối kỳ." : "Thông tin được dùng chung ở các luồng PO, SO, kho và thanh toán.")</p>
+                    <p>@(CurrentSection=="installers" ? "Khai báo hồ sơ người lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm." : CurrentSection=="sellers" ? "Khai báo nhân viên bán hàng của công ty để đồng bộ Khách hàng, Đơn hàng SO, Gia hạn thiết bị và thống kê hoa hồng cuối kỳ." : "Thông tin được dùng chung ở các luồng PO, SO, kho và thanh toán.")</p>
                 </div>
                 <button type="button" class="btn secondary" @onclick="CloseEditor">Đóng</button>
             </div>
@@ -196,16 +196,16 @@ else
                     {
                         <label>Người đại diện (B2B)<input @bind="representativeName" placeholder="Để trống nếu khách lẻ; nhập người đại diện nếu đơn vị B2B" maxlength="160" /></label>
                         <label>Số điện thoại<input @bind="phone" placeholder="0901234567" /></label>
-                        <label>Nhân viên bán hàng (Seller phụ trách) *
+                        <label>Nhân viên bán hàng phụ trách *
                             <select @bind="selectedSellerId" @bind:after="OnCustomerSellerSelected">
-                                <option value="0">— Chọn Seller phụ trách —</option>
+                                <option value="0">— Chọn nhân viên bán hàng phụ trách —</option>
                                 @foreach(var s in sellerChoices)
                                 {
                                     <option value="@s.Id">@s.Code — @s.Name</option>
                                 }
                             </select>
                         </label>
-                        <label>Nguồn KH / Ghi chú Sale<input @bind="sourceName" placeholder="Tự động điền theo Seller hoặc ghi chú thêm..." /></label>
+                        <label>Nguồn KH / Ghi chú NV bán hàng<input @bind="sourceName" placeholder="Tự động điền theo nhân viên bán hàng hoặc ghi chú thêm..." /></label>
                         <label>Địa chỉ<input @bind="address" placeholder="Địa chỉ liên hệ" /></label>
                     }
                     else
@@ -215,10 +215,10 @@ else
                 }
                 else if(Section=="sellers")
                 {
-                    <label>Mã Seller (tự động cấp hoặc nhập mã riêng)
+                    <label>Mã nhân viên bán hàng (tự động cấp hoặc nhập mã riêng)
                         <input @bind="code" placeholder="@Catalog.PeekNextSellerCode()" maxlength="32" style="font-weight:700;color:#0284c7;background:#f0f9ff" />
                     </label>
-                    <label>Họ tên nhân viên bán hàng (Seller) *
+                    <label>Họ tên nhân viên bán hàng *
                         <input @bind="name" placeholder="VD: Nguyễn Minh Anh" maxlength="160" />
                     </label>
                     <label>Số điện thoại liên hệ *
@@ -478,7 +478,7 @@ else
                     <thead><tr>
                         <th>STT</th>
                         <th><input type="checkbox" aria-label="Chọn tất cả dòng đang hiển thị" checked="@PageAllSelected" @onchange="TogglePage" /></th>
-                        <th>Mã Seller</th>
+                        <th>Mã NV bán hàng</th>
                         <th>Họ tên Nhân viên bán hàng</th>
                         <th>SĐT &amp; Bộ phận</th>
                         <th>KH phụ trách</th>
@@ -544,7 +544,7 @@ else
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?11:10)">Chưa có Seller nào. Bấm <strong>“+ Khai báo Seller mới”</strong> ở góc phải để thêm nhân viên bán hàng.</td></tr>
+                            <tr><td colspan="@(canUpdate||canAudit?11:10)">Chưa có nhân viên bán hàng nào. Bấm <strong>“+ Khai báo nhân viên bán hàng”</strong> ở góc phải để thêm nhân viên bán hàng.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -641,7 +641,7 @@ else
     private string Title => CurrentSection switch {
         "supplier-groups"=>"Nhà cung cấp — Nhóm NCC", "suppliers"=>"Nhà cung cấp — Chi tiết / Đơn vị NCC", "product-groups"=>"Sản phẩm — Nhóm sản phẩm",
         "customer-groups"=>"Khách hàng — Nhóm khách hàng", "customers"=>"Khách hàng — Chi tiết Khách hàng",
-        "sellers"=>"Quản lý Seller (Nhân viên bán hàng)",
+        "sellers"=>"Nhân viên bán hàng",
         "installers"=>"Người lắp đặt — Chi tiết Người lắp đặt", "installer-rates"=>"Người lắp đặt — Đơn giá theo sản phẩm",
         "areas"=>"Danh sách Kho — Khu vực", "warehouses"=>"Danh sách Kho — Chi tiết Kho",
         "buy-prices"=>"Giá & Chương trình — Bảng giá nhập NCC", "sale-prices"=>"Giá & Chương trình — Bảng giá khách hàng", "campaigns"=>"Giá & Chương trình — Chương trình ưu đãi",_=>"Danh mục đầu vào"};
@@ -649,7 +649,7 @@ else
         "supplier-groups"=>"Phân loại các nhà cung cấp để thiết lập giá nhập riêng cho từng nhóm.",
         "product-groups"=>"Mỗi sản phẩm thuộc một nhóm; dữ liệu được dùng chung cho PO, SO và báo cáo.",
         "customer-groups"=>"Mỗi khách hàng thuộc một nhóm và hưởng bảng giá, chương trình tương ứng.",
-        "sellers"=>"Khai báo danh sách nhân viên bán hàng (Seller) của công ty nhằm đồng bộ Khách hàng, Đơn hàng SO, Gia hạn thiết bị và thống kê doanh số / hoa hồng cuối kỳ.",
+        "sellers"=>"Khai báo danh sách nhân viên bán hàng của công ty nhằm đồng bộ Khách hàng, Đơn hàng SO, Gia hạn thiết bị và thống kê doanh số / hoa hồng cuối kỳ.",
         "installers"=>"Quản lý hồ sơ người lắp đặt (kỹ thuật viên nội bộ, cộng tác viên, đối tác) và cấu hình định mức tiền công đi lắp theo từng sản phẩm.",
         "installer-rates"=>"Tra cứu và cập nhật bảng đơn giá đi lắp của từng người lắp đặt ứng với từng sản phẩm.",
         "areas"=>"Một khu vực có thể quản lý nhiều kho; vị trí của kho là địa chỉ kho.",
@@ -669,7 +669,7 @@ else
         "customer-groups"=>customerGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{customers.Count(c=>c.GroupId==x.Id)} khách hàng")).ToList(),
         "areas"=>areas.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{x.Warehouses} kho")).ToList(),
         "suppliers"=>suppliers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Group,$"{x.Phone} · MST {x.TaxCode}")).ToList(),
-        "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.B2BDisplayName,x.Group,$"{(string.IsNullOrWhiteSpace(x.Phone)?"Chưa có SĐT":x.Phone)}{(string.IsNullOrWhiteSpace(x.RepresentativeName)?"":$" · Người đại diện: {x.RepresentativeName}")} · Seller: {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa gán Seller":x.SourceName)}{(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
+        "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.B2BDisplayName,x.Group,$"{(string.IsNullOrWhiteSpace(x.Phone)?"Chưa có SĐT":x.Phone)}{(string.IsNullOrWhiteSpace(x.RepresentativeName)?"":$" · Người đại diện: {x.RepresentativeName}")} · NV bán hàng: {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa gán NV bán hàng":x.SourceName)}{(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
         "sellers"=>sellers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Department,$"SĐT: {(string.IsNullOrWhiteSpace(x.Phone)?"—":x.Phone)} · KH: {x.CustomerCount} · Đơn HT: {x.CompletedOrders} ({x.CompletedDevices} TB, {Money(x.SalesRevenueVnd)}) · Gia hạn: {x.RenewalCount} ({Money(x.RenewalRevenueVnd)}) · HH dự kiến: {Money(x.EstimatedCommissionVnd)}")).ToList(),
         "installers"=>installers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Department,$"SĐT: {(string.IsNullOrWhiteSpace(x.Phone)?"—":x.Phone)} · Đơn giá lắp: {x.RateSummary}")).ToList(),
         "installer-rates"=>installerRates.Select(x=>new CatalogRow(x.Id,x.EmployeeCode,$"{x.EmployeeName} → {x.Product}",x.EmployeeName,$"Đơn giá đi lắp: {Money(x.InstallRate)} · hiệu lực {x.EffectiveFrom}")).ToList(),

@@ -88,7 +88,7 @@ public static class CsvExports
             new[] { "2. Quỹ Ngân hàng (BANK)", summary.BankInVnd.ToString(), summary.BankOutVnd.ToString(), summary.BankBalanceVnd.ToString() },
             new[] { "TỔNG CỘNG SỔ QUỸ", summary.TotalInVnd.ToString(), summary.TotalOutVnd.ToString(), summary.TotalBalanceVnd.ToString() },
             Array.Empty<string>(),
-            new[] { "Số phiếu", "Loại giao dịch", "Hạng mục Thu/Chi", "Quỹ (Tiền mặt / Ngân hàng)", "Chứng từ công nợ", "Đối tác / Khách hàng / NCC / Sell", "Số tiền Thu (+)", "Số tiền Chi (-)", "Tồn quỹ sau GD", "Ngày giao dịch", "Diễn giải" }
+            new[] { "Số phiếu", "Loại giao dịch", "Hạng mục Thu/Chi", "Quỹ (Tiền mặt / Ngân hàng)", "Chứng từ công nợ", "Đối tác / Khách hàng / NCC / Nhân viên bán hàng", "Số tiền Thu (+)", "Số tiền Chi (-)", "Tồn quỹ sau GD", "Ngày giao dịch", "Diễn giải" }
         };
 
         foreach (var p in db.Payments())
@@ -97,7 +97,7 @@ public static class CsvExports
                 ? "Khoản thu: Thu khách / Công nợ"
                 : p.InvoiceType is "PURCHASE" or "SUPPLIER"
                     ? "Khoản chi: Nhập hàng NCC"
-                    : "Khoản chi: Hoa hồng Sell / Kỹ thuật";
+                    : "Khoản chi: Hoa hồng NV bán hàng / Kỹ thuật";
             rows.Add(new[]
             {
                 p.PaymentNo,
