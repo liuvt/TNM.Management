@@ -9,7 +9,7 @@
 <PageTitle>@Title · TNM.Management</PageTitle>
 <div class="page-head">
     <div>
-        <div class="eyebrow">KINH DOANH / DANH MỤC</div>
+        <div class="eyebrow">@(CurrentSection is "warehouses" or "areas" ? "KHO & THIẾT BỊ / DANH SÁCH KHO" : "KINH DOANH / DANH MỤC")</div>
         <h1>@Title</h1>
         <p>@Description</p>
     </div>
@@ -27,10 +27,22 @@
         }
         @if(canCreate && IsValidSection)
         {
-            <button type="button" class="btn" @onclick="Create">@(CurrentSection=="installers" ? "+ Khai báo người lắp đặt" : CurrentSection=="sellers" ? "+ Khai báo Seller mới" : "+ Thêm mới")</button>
+            <button type="button" class="btn" @onclick="Create">@(CurrentSection=="installers" ? "+ Khai báo người lắp đặt" : CurrentSection=="sellers" ? "+ Khai báo Seller mới" : CurrentSection=="warehouses" ? "+ Thêm Kho mới" : CurrentSection=="areas" ? "+ Thêm Khu vực" : "+ Thêm mới")</button>
         }
     </div>
 </div>
+
+@if(CurrentSection is "warehouses" or "areas")
+{
+    <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <a class="btn @(CurrentSection == "warehouses" ? "" : "secondary")" href="/catalog/warehouses">
+            Chi tiết Kho (@warehouses.Count)
+        </a>
+        <a class="btn @(CurrentSection == "areas" ? "" : "secondary")" href="/catalog/areas">
+            Khu vực (@areas.Count)
+        </a>
+    </div>
+}
 @if(!string.IsNullOrWhiteSpace(message)){<p class="feedback" role="status">@message</p>}
 @if(!IsValidSection)
 {
@@ -574,7 +586,7 @@ else
         "customer-groups"=>"Nhóm khách hàng", "customers"=>"Thông tin khách hàng",
         "sellers"=>"Quản lý Seller (Nhân viên bán hàng)",
         "installers"=>"Khai báo: Người lắp đặt", "installer-rates"=>"Đơn giá đi lắp theo sản phẩm",
-        "areas"=>"Khu vực", "warehouses"=>"Danh sách kho",
+        "areas"=>"Danh sách Kho — Khu vực", "warehouses"=>"Danh sách Kho — Chi tiết Kho",
         "buy-prices"=>"Bảng giá nhập theo nhóm NCC", "sale-prices"=>"Bảng giá bán theo nhóm khách hàng", "campaigns"=>"Chương trình ưu đãi",_=>"Danh mục đầu vào"};
     private string Description => CurrentSection switch {
         "supplier-groups"=>"Phân loại các nhà cung cấp để thiết lập giá nhập riêng cho từng nhóm.",
@@ -638,7 +650,7 @@ else
             case "supplier-groups":supplierGroups=Catalog.SupplierGroups();break;
             case "product-groups":productGroups=Catalog.ProductGroupChoices();products=Catalog.Products();break;
             case "customer-groups":customerGroups=Catalog.CustomerGroupChoices();customers=Catalog.Customers();break;
-            case "areas":areas=Catalog.Areas();break;
+            case "areas":areas=Catalog.Areas();warehouses=Catalog.Warehouses();break;
             case "suppliers":suppliers=Catalog.Suppliers();supplierGroupChoices=Catalog.SupplierGroupChoices();break;
             case "customers":customers=Catalog.Customers();customerGroups=Catalog.CustomerGroupChoices();sellerChoices=Catalog.SellerChoices();break;
             case "sellers":sellers=Catalog.Sellers();break;

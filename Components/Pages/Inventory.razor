@@ -1,132 +1,757 @@
-@attribute [Authorize(Policy = Permissions.InventoryView)]
+@attribute [Authorize]
 @page "/inventory"
+@page "/quantity-stock"
 @inject DemoDb Db
+@inject V6Ops Ops
 @inject PermissionGate Gate
-<PageTitle>Kho & IMEI · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">INVENTORY / SERIAL TRACKING</div><h1>Quản lý kho & IMEI</h1><p>Quản lý nhập hàng loạt, xuất ký gửi, giao kỹ thuật và hoàn trả bằng giao dịch lưu lịch sử.</p></div>@if(canLedger){<a href="/reports" class="btn secondary">Xem sổ kho →</a>}</div>
-<div class="crud-actionbar">@if(canReceive){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showReceive))">@(showReceive?"Đóng · + Nhập IMEI":"+ Nhập IMEI")</button>}@if(canMove){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showMove))">@(showMove?"Đóng · Điều chuyển":"Điều chuyển")</button>}</div>
+@inject NavigationManager Nav
+<PageTitle>Kho (Kho IMEI &amp; Kho số lượng) · TNM</PageTitle>
 
-
-<div class="two-column">
-@if(canReceive){<section class="panel edit-panel" hidden="@(!showReceive)"><div class="panel-head"><h2>Nhập kho hàng mới</h2></div>
- <div class="form-grid one">
- <label>Nhà cung cấp<select @bind="supplierId"><option value="0">— Tự động theo bảng giá NCC —</option>@foreach(var s in suppliers){<option value="@s.Id">@s.Name</option>}</select></label>
- <label>Sản phẩm có IMEI<select @bind="productId">@foreach(var p in products.Where(x=>x.IsSerialized)){<option value="@p.Id">@p.Sku — @p.Name (Tồn hiện tại: @p.StockInHand)</option>}</select></label>
- <label>Kho nhận<select @bind="warehouseId">@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}</select></label>
- <label>Số lượng nhập (nếu chưa có sẵn mã IMEI từng thiết bị)<input type="number" min="1" max="500" @bind="receiveQty" /></label>
- <label>Danh sách IMEI (mỗi dòng một mã — tùy chọn, nếu để trống sẽ tạo theo Số lượng nhập)<textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009&#10;(Nếu để trống hệ thống sẽ nhập theo Số lượng nhập ở trên và cập nhật IMEI khi lắp đặt)"></textarea></label>
- </div><div class="form-actions"><button class="btn" @onclick="Receive">+ Nhập kho &amp; Ghi nhận công nợ NCC</button><span class="feedback">@receiveMessage</span></div>
-</section>}
-@if(canMove){<section class="panel edit-panel" hidden="@(!showMove)"><div class="panel-head"><h2>Điều chuyển / thu hồi</h2></div>
- <div class="form-grid one">
- <label>IMEI cần thao tác<select @bind="stockId">@foreach(var x in stock.Where(x=>x.Status is "IN_STOCK" or "CONSIGNED" or "TECHNICIAN")){<option value="@x.Id">@x.Imei — @x.Status</option>}</select></label>
- <label>Loại điều chuyển<select @bind="moveType">
- @if(canConsignOut){<option value="CONSIGN_OUT">Xuất ký gửi khách hàng</option>}
- @if(canConsignReturn){<option value="CONSIGN_RETURN">Thu hồi ký gửi về kho</option>}
- @if(canTechOut){<option value="TECH_OUT">Xuất cho kỹ thuật</option>}
- @if(canTechReturn){<option value="TECH_RETURN">Nhận lại từ kỹ thuật</option>}
- </select></label>
- <label>@(moveType=="CONSIGN_OUT"?"Khách hàng nhận":moveType=="TECH_OUT"?"Kỹ thuật nhận":"Kho nhận")
-  <select @bind="targetId">
-   @if(moveType=="CONSIGN_OUT"){@foreach(var c in customers){<option value="@c.Id">@c.Name</option>}}
-   else if(moveType=="TECH_OUT"){@foreach(var e in techs){<option value="@e.Id">@e.Name</option>}}
-   else {@foreach(var w in warehouses){<option value="@w.Id">@w.Name</option>}}
-  </select></label>
- </div><div class="form-actions"><button class="btn" @onclick="Move">Xác nhận điều chuyển</button><span class="feedback">@moveMessage</span></div>
- <div class="panel-note">Kiểm tra trạng thái và lưu cả phiếu xuất/nhập trước khi cập nhật vị trí IMEI.</div>
-</section>}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">KHO &amp; THIẾT BỊ / QUẢN LÝ KHO</div>
+    <h1>Kho — @(activeTab == "IMEI" ? "Kho IMEI" : "Kho số lượng")</h1>
+    <p>
+      @if (activeTab == "IMEI")
+      {
+        <span>Quản lý nhập lô IMEI, xuất ký gửi khách hàng, giao kỹ thuật, hoàn trả và tổng hợp tồn kho theo sản phẩm.</span>
+      }
+      else
+      {
+        <span>Nhập, xuất, điều chuyển hàng hóa quản lý theo số lượng giữa các kho / vị trí và tra cứu sổ giao dịch.</span>
+      }
+    </p>
+  </div>
+  <div class="button-group">
+    @if (canLedger)
+    {
+      <a href="/reports" class="btn secondary">Xem sổ kho &amp; Báo cáo →</a>
+    }
+    <a href="/catalog/warehouses" class="btn secondary">Danh sách Kho &amp; Khu vực →</a>
+  </div>
 </div>
 
-<section class="panel">
+<div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    @if (canImeiView)
+    {
+      <button type="button" class="btn @(activeTab == "IMEI" ? "" : "secondary")" @onclick='() => SwitchTab("IMEI")'>
+        Kho IMEI (@stock.Count(s => s.Status == "IN_STOCK") trong kho / @stock.Count IMEI)
+      </button>
+    }
+    @if (canQtyView)
+    {
+      <button type="button" class="btn @(activeTab == "QUANTITY" ? "" : "secondary")" @onclick='() => SwitchTab("QUANTITY")'>
+        Kho số lượng (@balances.Sum(x => x.Quantity).ToString("N0") tồn)
+      </button>
+    }
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    @if (activeTab == "IMEI" && canImeiView)
+    {
+      @if (canReceive)
+      {
+        <button type="button" class="btn secondary" @onclick="() => ToggleImeiForm(nameof(showReceive))">
+          @(showReceive ? "Đóng · + Nhập IMEI" : "+ Nhập IMEI")
+        </button>
+      }
+      @if (canMove)
+      {
+        <button type="button" class="btn secondary" @onclick="() => ToggleImeiForm(nameof(showMove))">
+          @(showMove ? "Đóng · Điều chuyển IMEI" : "Điều chuyển IMEI")
+        </button>
+      }
+    }
+    else if (activeTab == "QUANTITY" && canQtyView)
+    {
+      @if (canQtyMove)
+      {
+        <button type="button" class="btn secondary" @onclick="() => ToggleQtyForm(nameof(showQtyMove))">
+          @(showQtyMove ? "Đóng · + Nhập/xuất SL" : "+ Nhập/xuất SL")
+        </button>
+        <button type="button" class="btn secondary" @onclick="() => ToggleQtyForm(nameof(showTransfer))">
+          @(showTransfer ? "Đóng · + Điều chuyển vị trí" : "+ Điều chuyển vị trí")
+        </button>
+      }
+      @if (canLocation)
+      {
+        <button type="button" class="btn secondary" @onclick="() => ToggleQtyForm(nameof(showLocation))">
+          @(showLocation ? "Đóng · + Thêm vị trí" : "+ Thêm vị trí")
+        </button>
+      }
+    }
+  </div>
+</div>
+
+@if (!canImeiView && !canQtyView)
+{
+  <section class="panel"><p>Tài khoản của bạn không có quyền xem Kho IMEI hoặc Kho số lượng.</p></section>
+}
+else if (activeTab == "IMEI" && canImeiView)
+{
+  <div class="two-column">
+    @if (canReceive)
+    {
+      <section class="panel edit-panel" hidden="@(!showReceive)">
+        <div class="panel-head"><h2>Nhập kho thiết bị IMEI mới</h2></div>
+        <div class="form-grid one">
+          <label>Nhà cung cấp
+            <select @bind="supplierId">
+              <option value="0">— Tự động theo bảng giá NCC —</option>
+              @foreach (var s in suppliers)
+              {
+                <option value="@s.Id">@s.Name</option>
+              }
+            </select>
+          </label>
+          <label>Sản phẩm có IMEI
+            <select @bind="productId">
+              @foreach (var p in products.Where(x => x.IsSerialized))
+              {
+                <option value="@p.Id">@p.Sku — @p.Name (Tồn hiện tại: @p.StockInHand)</option>
+              }
+            </select>
+          </label>
+          <label>Kho nhận
+            <select @bind="warehouseId">
+              @foreach (var w in warehouses)
+              {
+                <option value="@w.Id">@w.Name</option>
+              }
+            </select>
+          </label>
+          <label>Số lượng nhập (nếu chưa có sẵn mã IMEI từng thiết bị)
+            <input type="number" min="1" max="500" @bind="receiveQty" />
+          </label>
+          <label>Danh sách IMEI (mỗi dòng một mã — tùy chọn, nếu để trống sẽ tạo theo Số lượng nhập)
+            <textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009&#10;(Nếu để trống hệ thống sẽ nhập theo Số lượng nhập ở trên và cập nhật IMEI khi lắp đặt)"></textarea>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @onclick="Receive">+ Nhập kho &amp; Ghi nhận công nợ NCC</button>
+          <span class="feedback">@receiveMessage</span>
+        </div>
+      </section>
+    }
+    @if (canMove)
+    {
+      <section class="panel edit-panel" hidden="@(!showMove)">
+        <div class="panel-head"><h2>Điều chuyển / thu hồi IMEI</h2></div>
+        <div class="form-grid one">
+          <label>IMEI cần thao tác
+            <select @bind="stockId">
+              @foreach (var x in stock.Where(x => x.Status is "IN_STOCK" or "CONSIGNED" or "TECHNICIAN"))
+              {
+                <option value="@x.Id">@x.Imei — @x.Status</option>
+              }
+            </select>
+          </label>
+          <label>Loại điều chuyển
+            <select @bind="moveType">
+              @if (canConsignOut) { <option value="CONSIGN_OUT">Xuất ký gửi khách hàng</option> }
+              @if (canConsignReturn) { <option value="CONSIGN_RETURN">Thu hồi ký gửi về kho</option> }
+              @if (canTechOut) { <option value="TECH_OUT">Xuất cho kỹ thuật</option> }
+              @if (canTechReturn) { <option value="TECH_RETURN">Nhận lại từ kỹ thuật</option> }
+            </select>
+          </label>
+          <label>@(moveType == "CONSIGN_OUT" ? "Khách hàng nhận" : moveType == "TECH_OUT" ? "Kỹ thuật nhận" : "Kho nhận")
+            <select @bind="targetId">
+              @if (moveType == "CONSIGN_OUT")
+              {
+                @foreach (var c in customers) { <option value="@c.Id">@c.Name</option> }
+              }
+              else if (moveType == "TECH_OUT")
+              {
+                @foreach (var e in techs) { <option value="@e.Id">@e.Name</option> }
+              }
+              else
+              {
+                @foreach (var w in warehouses) { <option value="@w.Id">@w.Name</option> }
+              }
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @onclick="Move">Xác nhận điều chuyển</button>
+          <span class="feedback">@moveMessage</span>
+        </div>
+        <div class="panel-note">Kiểm tra trạng thái và lưu cả phiếu xuất/nhập trước khi cập nhật vị trí IMEI.</div>
+      </section>
+    }
+  </div>
+
+  <section class="panel">
     <div class="panel-head">
-        <div>
-            <h2>Tổng hợp số lượng tồn kho theo sản phẩm</h2>
-            <p>Số lượng tồn kho sẽ tự động giảm ngay khi đơn hàng lắp đặt hoàn thành (trừ trường hợp Hãng lắp đặt tích Không trừ tồn kho).</p>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-            <span class="chip green-chip">Tổng tồn trong kho: @summaries.Sum(x => x.InStockQty).ToString("N0")</span>
-        </div>
+      <div>
+        <h2>Tổng hợp số lượng tồn kho theo sản phẩm</h2>
+        <p>Số lượng tồn kho sẽ tự động giảm ngay khi đơn hàng lắp đặt hoàn thành (trừ trường hợp Hãng lắp đặt tích Không trừ tồn kho).</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="chip green-chip">Tổng tồn trong kho: @summaries.Sum(x => x.InStockQty).ToString("N0")</span>
+      </div>
     </div>
     @{ var pagedSummaries = summaryPager.Slice(summaries, out var totalSummaries); }
     <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>STT</th>
-                    <th>MÃ SP</th>
-                    <th>TÊN SẢN PHẨM</th>
-                    <th>LOẠI QUẢN LÝ</th>
-                    <th>TỒN TRONG KHO (KHẢ DỤNG)</th>
-                    <th>KÝ GỬI / KỸ THUẬT GIỮ</th>
-                    <th>ĐÃ LẮP ĐẶT / KÍCH HOẠT</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach(var (stt, s) in pagedSummaries)
-                {
-                    <tr>
-                        <td><strong>@stt</strong></td>
-                        <td><strong>@s.Sku</strong></td>
-                        <td class="wrap-cell">@s.ProductName</td>
-                        <td>@(s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng")</td>
-                        <td><span class="chip @(s.InStockQty > 0 ? "green-chip" : "orange-chip")" style="font-size:0.9rem;font-weight:700">@s.InStockQty.ToString("N0")</span></td>
-                        <td>@s.ConsignedOrTechQty.ToString("N0")</td>
-                        <td><strong>@s.InstalledQty.ToString("N0")</strong></td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+      <table>
+        <thead>
+          <tr>
+            <th>STT</th>
+            <th>MÃ SP</th>
+            <th>TÊN SẢN PHẨM</th>
+            <th>LOẠI QUẢN LÝ</th>
+            <th>TỒN TRONG KHO (KHẢ DỤNG)</th>
+            <th>KÝ GỬI / KỸ THUẬT GIỮ</th>
+            <th>ĐÃ LẮP ĐẶT / KÍCH HOẠT</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var (stt, s) in pagedSummaries)
+          {
+            <tr>
+              <td><strong>@stt</strong></td>
+              <td><strong>@s.Sku</strong></td>
+              <td class="wrap-cell">@s.ProductName</td>
+              <td>@(s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng")</td>
+              <td><span class="chip @(s.InStockQty > 0 ? "green-chip" : "orange-chip")" style="font-size:0.9rem;font-weight:700">@s.InStockQty.ToString("N0")</span></td>
+              <td>@s.ConsignedOrTechQty.ToString("N0")</td>
+              <td><strong>@s.InstalledQty.ToString("N0")</strong></td>
+            </tr>
+          }
+        </tbody>
+      </table>
     </div>
     <TablePager Pager="summaryPager" TotalCount="totalSummaries" />
-</section>
+  </section>
 
-<section class="panel"><div class="panel-head"><div><h2>Danh sách thiết bị IMEI</h2><p>Đang hiển thị @FilteredStock.Count() / @stock.Count IMEI (Trong kho khả dụng: <strong>@stock.Count(s => s.Status == "IN_STOCK")</strong>)</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-<select class="search-input" style="min-width:210px" @bind="statusFilter">
-    <option value="IN_STOCK">Trong kho khả dụng (@stock.Count(s => s.Status == "IN_STOCK"))</option>
-    <option value="CONSIGNED">Đang ký gửi (@stock.Count(s => s.Status == "CONSIGNED"))</option>
-    <option value="TECHNICIAN">Kỹ thuật giữ (@stock.Count(s => s.Status == "TECHNICIAN"))</option>
-    <option value="INSTALLED">Đã lắp đặt / Kích hoạt (@stock.Count(s => s.Status == "INSTALLED"))</option>
-    <option value="ALL">— Tất cả trạng thái (@stock.Count) —</option>
-</select>
-<select class="search-input" style="min-width:240px" @bind="warehouseFilter"><option value="0">— Tất cả Kho tồn (@stock.Count(s => s.Status == "IN_STOCK")) —</option>@foreach(var w in warehouses){<option value="@w.Id">@w.Name (Tồn kho: @stock.Count(s => s.Status == "IN_STOCK" && s.WarehouseId == w.Id))</option>}</select><input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." /></div></div>
-@{ var pagedStock = stockPager.Slice(FilteredStock, out var totalStock); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI / SERIAL</th><th>SKU</th><th>TÊN THIẾT BỊ</th><th>TRẠNG THÁI</th><th>VỊ TRÍ / ĐƠN VỊ GIỮ</th><th>CẬP NHẬT</th></tr></thead><tbody>
-@foreach(var (stt, x) in pagedStock){<tr><td><strong>@stt</strong></td><td><strong>@x.Imei</strong></td><td>@x.Sku</td><td class="wrap-cell">@x.Product</td><td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td><td class="wrap-cell">@x.Holder</td><td>@x.UpdatedAt</td></tr>}
-</tbody></table></div>
-<TablePager Pager="stockPager" TotalCount="totalStock" />
-</section>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Danh sách thiết bị IMEI</h2>
+        <p>Đang hiển thị @FilteredStock.Count() / @stock.Count IMEI (Trong kho khả dụng: <strong>@stock.Count(s => s.Status == "IN_STOCK")</strong>)</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select class="search-input" style="min-width:210px" @bind="statusFilter">
+          <option value="IN_STOCK">Trong kho khả dụng (@stock.Count(s => s.Status == "IN_STOCK"))</option>
+          <option value="CONSIGNED">Đang ký gửi (@stock.Count(s => s.Status == "CONSIGNED"))</option>
+          <option value="TECHNICIAN">Kỹ thuật giữ (@stock.Count(s => s.Status == "TECHNICIAN"))</option>
+          <option value="INSTALLED">Đã lắp đặt / Kích hoạt (@stock.Count(s => s.Status == "INSTALLED"))</option>
+          <option value="ALL">— Tất cả trạng thái (@stock.Count) —</option>
+        </select>
+        <select class="search-input" style="min-width:240px" @bind="warehouseFilter">
+          <option value="0">— Tất cả Kho tồn (@stock.Count(s => s.Status == "IN_STOCK")) —</option>
+          @foreach (var w in warehouses)
+          {
+            <option value="@w.Id">@w.Name (Tồn kho: @stock.Count(s => s.Status == "IN_STOCK" && s.WarehouseId == w.Id))</option>
+          }
+        </select>
+        <input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." />
+      </div>
+    </div>
+    @{ var pagedStock = stockPager.Slice(FilteredStock, out var totalStock); }
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>STT</th>
+            <th>IMEI / SERIAL</th>
+            <th>SKU</th>
+            <th>TÊN THIẾT BỊ</th>
+            <th>TRẠNG THÁI</th>
+            <th>VỊ TRÍ / ĐƠN VỊ GIỮ</th>
+            <th>CẬP NHẬT</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var (stt, x) in pagedStock)
+          {
+            <tr>
+              <td><strong>@stt</strong></td>
+              <td><strong>@x.Imei</strong></td>
+              <td>@x.Sku</td>
+              <td class="wrap-cell">@x.Product</td>
+              <td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td>
+              <td class="wrap-cell">@x.Holder</td>
+              <td>@x.UpdatedAt</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <TablePager Pager="stockPager" TotalCount="totalStock" />
+  </section>
+}
+else if (activeTab == "QUANTITY" && canQtyView)
+{
+  <div class="two-column">
+    @if (canQtyMove)
+    {
+      <section class="panel edit-panel" hidden="@(!showQtyMove)">
+        <div class="panel-head"><h2>Phiếu nhập / xuất số lượng</h2></div>
+        <div class="form-grid one">
+          <label>Hình thức
+            <select @bind="moveKind">
+              <option value="IN">Nhập kho</option>
+              <option value="OUT">Xuất kho</option>
+            </select>
+          </label>
+          <label>Sản phẩm
+            <select @bind="qtyProductId">
+              @if (qtyProducts.Count == 0)
+              {
+                <option value="0">— Chưa có sản phẩm quản lý số lượng (không IMEI) —</option>
+              }
+              else
+              {
+                <option value="0">— Chọn sản phẩm —</option>
+                @foreach (var x in qtyProducts)
+                {
+                  <option value="@x.Id">@x.Name</option>
+                }
+              }
+            </select>
+          </label>
+          <label>Kho
+            <select @bind="qtyWarehouseId" @bind:after="() => locationId = FirstLocation(qtyWarehouseId)">
+              @foreach (var x in qtyWarehouses)
+              {
+                <option value="@x.Id">@x.Code — @x.Name</option>
+              }
+            </select>
+          </label>
+          <label>Vị trí
+            <select @key="qtyWarehouseId" @bind="locationId">
+              @foreach (var x in locations.Where(l => l.WarehouseId == qtyWarehouseId))
+              {
+                <option value="@x.Id">@x.Code — @x.Name</option>
+              }
+            </select>
+          </label>
+          <label>Số lượng<input type="number" min="1" @bind="quantity" /></label>
+          <label>Ghi chú<input @bind="note" placeholder="Lý do / chứng từ" /></label>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @onclick="SaveMovement">Ghi phiếu</button>
+          <span class="feedback">@qtyMessage</span>
+        </div>
+      </section>
+
+      <section class="panel edit-panel" hidden="@(!showTransfer)">
+        <div class="panel-head"><h2>Điều chuyển vị trí</h2></div>
+        <div class="form-grid one">
+          <label>Sản phẩm
+            <select @bind="qtyProductId">
+              @if (qtyProducts.Count == 0)
+              {
+                <option value="0">— Chưa có sản phẩm quản lý số lượng (không IMEI) —</option>
+              }
+              else
+              {
+                <option value="0">— Chọn sản phẩm —</option>
+                @foreach (var x in qtyProducts)
+                {
+                  <option value="@x.Id">@x.Name</option>
+                }
+              }
+            </select>
+          </label>
+          <label>Từ kho
+            <select @bind="fromWarehouse" @bind:after="() => fromLocation = FirstLocation(fromWarehouse)">
+              @foreach (var x in qtyWarehouses)
+              {
+                <option value="@x.Id">@x.Name</option>
+              }
+            </select>
+          </label>
+          <label>Từ vị trí
+            <select @key="fromWarehouse" @bind="fromLocation">
+              @foreach (var x in locations.Where(l => l.WarehouseId == fromWarehouse))
+              {
+                <option value="@x.Id">@x.Name</option>
+              }
+            </select>
+          </label>
+          <label>Đến kho
+            <select @bind="toWarehouse" @bind:after="() => toLocation = FirstLocation(toWarehouse)">
+              @foreach (var x in qtyWarehouses)
+              {
+                <option value="@x.Id">@x.Name</option>
+              }
+            </select>
+          </label>
+          <label>Đến vị trí
+            <select @key="toWarehouse" @bind="toLocation">
+              @foreach (var x in locations.Where(l => l.WarehouseId == toWarehouse))
+              {
+                <option value="@x.Id">@x.Name</option>
+              }
+            </select>
+          </label>
+          <label>Số lượng<input type="number" min="1" @bind="transferQty" /></label>
+          <label>Ghi chú<input @bind="note" placeholder="Lý do điều chuyển" /></label>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @onclick="Transfer">Điều chuyển</button>
+          <span class="feedback">@transferMessage</span>
+        </div>
+      </section>
+    }
+  </div>
+
+  @if (canLocation)
+  {
+    <section class="panel edit-panel" hidden="@(!showLocation)">
+      <div class="panel-head"><h2>Tạo vị trí kho</h2></div>
+      <div class="form-grid">
+        <label>Kho
+          <select @bind="newLocationWarehouse">
+            @foreach (var x in qtyWarehouses)
+            {
+              <option value="@x.Id">@x.Name</option>
+            }
+          </select>
+        </label>
+        <label>Mã vị trí<input @bind="newLocationCode" placeholder="VD: BH, VT, KE-A" /></label>
+        <label>Tên vị trí<input @bind="newLocationName" /></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn" @onclick="AddLocation">+ Tạo vị trí</button>
+        <span class="feedback">@locationMessage</span>
+      </div>
+    </section>
+  }
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Tồn kho số lượng hiện tại</h2>
+        <p>@FilteredBalances.Count dòng · Tổng số lượng: @FilteredBalances.Sum(x => x.Quantity).ToString("N0")</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select class="search-input" style="min-width:240px" @bind="qtyWarehouseFilter">
+          <option value="">— Tất cả Kho (@balances.Sum(x => x.Quantity).ToString("N0")) —</option>
+          @foreach (var w in qtyWarehouses)
+          {
+            <option value="@w.Name">@w.Name (@balances.Where(b => b.Warehouse == w.Name).Sum(b => b.Quantity).ToString("N0"))</option>
+          }
+        </select>
+        <input class="search-input" @bind="qtySearch" @bind:event="oninput" placeholder="Lọc SKU, tên hàng, kho, vị trí..." />
+      </div>
+    </div>
+    @{ var pagedBalances = balancePager.Slice(FilteredBalances, out var totalBalances); }
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>STT</th>
+            <th>SKU</th>
+            <th>Tên hàng</th>
+            <th>Kho</th>
+            <th>Vị trí / Trạng thái</th>
+            <th>Tồn</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var (stt, x) in pagedBalances)
+          {
+            <tr>
+              <td><strong>@stt</strong></td>
+              <td><strong>@x.Sku</strong></td>
+              <td class="wrap-cell">@x.Product</td>
+              <td>@x.Warehouse</td>
+              <td>@x.Location</td>
+              <td><strong>@x.Quantity.ToString("N0")</strong></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <TablePager Pager="balancePager" TotalCount="totalBalances" />
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Sổ giao dịch số lượng</h2>
+      <a class="btn secondary" href="/export/quantity.csv">Xuất sổ CSV theo quyền kho</a>
+    </div>
+    @{ var pagedMovements = movePager.Slice(movements, out var totalMovements); }
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>STT</th>
+            <th>Ngày</th>
+            <th>Phiếu</th>
+            <th>SKU</th>
+            <th>Kho / Vị trí</th>
+            <th>Số lượng ±</th>
+            <th>Loại</th>
+            <th>Ghi chú</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var (stt, x) in pagedMovements)
+          {
+            <tr>
+              <td><strong>@stt</strong></td>
+              <td>@x.When</td>
+              <td>@x.Document</td>
+              <td>@x.Sku</td>
+              <td>@x.Warehouse / @x.Location</td>
+              <td><strong>@x.Delta</strong></td>
+              <td>@x.Type</td>
+              <td class="wrap-cell">@x.Note</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <TablePager Pager="movePager" TotalCount="totalMovements" />
+  </section>
+}
+
 @code {
- private bool showReceive, showMove;
- private readonly PagerState summaryPager = new();
- private readonly PagerState stockPager = new();
- private void ToggleForm(string form){
-  showReceive = form=="showReceive" && !showReceive;
-  showMove = form=="showMove" && !showMove;
- }
+  private string activeTab = "IMEI";
+  private bool canImeiView, canQtyView;
 
- private List<ProductVm> products=[];private List<StockVm> stock=[];private List<CustomerVm> customers=[];
- private List<ProductStockSummaryVm> summaries=[];
- private List<(long Id,string Name)> warehouses=[],techs=[],suppliers=[];
- private long productId=1,warehouseId=1,stockId=3,targetId=1,supplierId=0,warehouseFilter=0;
- private int receiveQty=1;
- private string imeis="",moveType="CONSIGN_OUT",receiveMessage="",moveMessage="",search="",statusFilter="IN_STOCK";
- private bool canReceive,canMove,canLedger,canConsignOut,canConsignReturn,canTechOut,canTechReturn;
- private IEnumerable<StockVm> FilteredStock => stock.Where(x =>
-  (statusFilter == "ALL" || x.Status == statusFilter) &&
-  (warehouseFilter == 0 || x.WarehouseId == warehouseFilter || (x.Status != "IN_STOCK" && warehouses.FirstOrDefault(w => w.Id == warehouseFilter).Name == x.Holder)) &&
-  (string.IsNullOrWhiteSpace(search) || (x.Imei + " " + x.Sku + " " + x.Product + " " + x.Holder).Contains(search, StringComparison.OrdinalIgnoreCase)));
- protected override async Task OnInitializedAsync(){warehouses=Db.Warehouses();techs=Db.Technicians();suppliers=Db.Suppliers();customers=Db.Customers();Reload();if(products.Any(x=>x.IsSerialized))productId=products.First(x=>x.IsSerialized).Id;if(warehouses.Count>0)warehouseId=warehouses[0].Id;canReceive=await Gate.CanAsync(Permissions.InventoryReceive);canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
- canConsignOut=await Gate.CanAsync(Permissions.InventoryConsignOut);canConsignReturn=await Gate.CanAsync(Permissions.InventoryConsignReturn);
- canTechOut=await Gate.CanAsync(Permissions.InventoryTechOut);canTechReturn=await Gate.CanAsync(Permissions.InventoryTechReturn);
- canMove=canConsignOut||canConsignReturn||canTechOut||canTechReturn;
- moveType=canConsignOut?"CONSIGN_OUT":canConsignReturn?"CONSIGN_RETURN":canTechOut?"TECH_OUT":"TECH_RETURN";}
- private void Reload(){stock=Db.Stock();products=Db.Products();summaries=Db.ProductStockSummaries();}
- private async Task Receive(){try{Db.ActorId=await Gate.RequireAsync(Permissions.InventoryReceive);var n=Db.Receive(productId,warehouseId,imeis,supplierId>0?supplierId:null,receiveQty);Reload();imeis="";receiveQty=1;receiveMessage=$"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC.";}catch(Exception ex){receiveMessage="Lỗi: "+ex.Message;}}
- private async Task Move(){try{var required=moveType switch
- {"CONSIGN_OUT"=>Permissions.InventoryConsignOut,"CONSIGN_RETURN"=>Permissions.InventoryConsignReturn,
-  "TECH_OUT"=>Permissions.InventoryTechOut,"TECH_RETURN"=>Permissions.InventoryTechReturn,
-  _=>throw new InvalidOperationException("Nghiệp vụ kho không hợp lệ.")};
- Db.ActorId=await Gate.RequireAsync(required);Db.MoveStock(stockId,moveType,targetId);Reload();moveMessage="Điều chuyển thành công.";}catch(Exception ex){moveMessage="Lỗi: "+ex.Message;}}
- private string StatusText(string s)=>s switch{"IN_STOCK"=>"Trong kho","CONSIGNED"=>"Ký gửi","TECHNICIAN"=>"Kỹ thuật","INSTALLED"=>"Đã kích hoạt","WARRANTY"=>"Bảo hành","SUPPLIER"=>"Nhà cung cấp",_=>s};
- private string CssStatus(string s)=>s switch{"IN_STOCK"=>"green-chip","CONSIGNED"=>"purple-chip","INSTALLED"=>"blue-chip","WARRANTY"=>"orange-chip",_=>""};
+  // IMEI state
+  private bool showReceive, showMove;
+  private readonly PagerState summaryPager = new();
+  private readonly PagerState stockPager = new();
+  private List<ProductVm> products = [];
+  private List<StockVm> stock = [];
+  private List<CustomerVm> customers = [];
+  private List<ProductStockSummaryVm> summaries = [];
+  private List<(long Id, string Name)> warehouses = [], techs = [], suppliers = [];
+  private long productId = 1, warehouseId = 1, stockId = 3, targetId = 1, supplierId = 0, warehouseFilter = 0;
+  private int receiveQty = 1;
+  private string imeis = "", moveType = "CONSIGN_OUT", receiveMessage = "", moveMessage = "", search = "", statusFilter = "IN_STOCK";
+  private bool canReceive, canMove, canLedger, canConsignOut, canConsignReturn, canTechOut, canTechReturn;
+
+  // Quantity state
+  private bool showQtyMove, showTransfer, showLocation;
+  private readonly PagerState balancePager = new();
+  private readonly PagerState movePager = new();
+  private long actor;
+  private bool canQtyMove, canLocation;
+  private string moveKind = "IN";
+  private List<Pick> qtyProducts = [];
+  private List<WarehousePick> qtyWarehouses = [];
+  private List<LocationPick> locations = [];
+  private List<QuantityBalance> balances = [];
+  private List<QuantityEntry> movements = [];
+  private long qtyProductId, qtyWarehouseId, locationId, fromWarehouse, fromLocation, toWarehouse, toLocation, newLocationWarehouse;
+  private long quantity = 1, transferQty = 1;
+  private string note = "", qtyMessage = "", transferMessage = "", newLocationCode = "", newLocationName = "", locationMessage = "", qtySearch = "", qtyWarehouseFilter = "";
+
+  private IEnumerable<StockVm> FilteredStock => stock.Where(x =>
+    (statusFilter == "ALL" || x.Status == statusFilter) &&
+    (warehouseFilter == 0 || x.WarehouseId == warehouseFilter || (x.Status != "IN_STOCK" && warehouses.FirstOrDefault(w => w.Id == warehouseFilter).Name == x.Holder)) &&
+    (string.IsNullOrWhiteSpace(search) || (x.Imei + " " + x.Sku + " " + x.Product + " " + x.Holder).Contains(search, StringComparison.OrdinalIgnoreCase)));
+
+  private List<QuantityBalance> FilteredBalances => balances.Where(x =>
+    (string.IsNullOrEmpty(qtyWarehouseFilter) || x.Warehouse == qtyWarehouseFilter) &&
+    (x.Sku + " " + x.Product + " " + x.Warehouse + " " + x.Location).Contains(qtySearch, StringComparison.OrdinalIgnoreCase)).ToList();
+
+  protected override async Task OnInitializedAsync()
+  {
+    canImeiView = await Gate.CanAsync(Permissions.InventoryView);
+    canQtyView = await Gate.CanAsync(Permissions.QuantityStockView);
+
+    var relPath = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+    if (relPath.StartsWith("quantity-stock", StringComparison.OrdinalIgnoreCase) && canQtyView)
+      activeTab = "QUANTITY";
+    else if (canImeiView)
+      activeTab = "IMEI";
+    else if (canQtyView)
+      activeTab = "QUANTITY";
+
+    if (canImeiView)
+    {
+      warehouses = Db.Warehouses();
+      techs = Db.Technicians();
+      suppliers = Db.Suppliers();
+      customers = Db.Customers();
+      ReloadImei();
+      if (products.Any(x => x.IsSerialized)) productId = products.First(x => x.IsSerialized).Id;
+      if (warehouses.Count > 0) warehouseId = warehouses[0].Id;
+      canReceive = await Gate.CanAsync(Permissions.InventoryReceive);
+      canLedger = await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
+      canConsignOut = await Gate.CanAsync(Permissions.InventoryConsignOut);
+      canConsignReturn = await Gate.CanAsync(Permissions.InventoryConsignReturn);
+      canTechOut = await Gate.CanAsync(Permissions.InventoryTechOut);
+      canTechReturn = await Gate.CanAsync(Permissions.InventoryTechReturn);
+      canMove = canConsignOut || canConsignReturn || canTechOut || canTechReturn;
+      moveType = canConsignOut ? "CONSIGN_OUT" : canConsignReturn ? "CONSIGN_RETURN" : canTechOut ? "TECH_OUT" : "TECH_RETURN";
+    }
+
+    if (canQtyView)
+    {
+      actor = await Gate.RequireAsync(Permissions.QuantityStockView);
+      canQtyMove = await Gate.CanAsync(Permissions.QuantityMove);
+      canLocation = await Gate.CanAsync(Permissions.WarehouseLocationManage);
+      qtyProducts = Ops.QuantityProducts();
+      LoadQtyOptions();
+      RefreshQty();
+    }
+  }
+
+  private void SwitchTab(string tab)
+  {
+    activeTab = tab;
+  }
+
+  private void ToggleImeiForm(string form)
+  {
+    showReceive = form == nameof(showReceive) && !showReceive;
+    showMove = form == nameof(showMove) && !showMove;
+  }
+
+  private void ToggleQtyForm(string form)
+  {
+    showQtyMove = form == nameof(showQtyMove) && !showQtyMove;
+    showTransfer = form == nameof(showTransfer) && !showTransfer;
+    showLocation = form == nameof(showLocation) && !showLocation;
+  }
+
+  private void ReloadImei()
+  {
+    stock = Db.Stock();
+    products = Db.Products();
+    summaries = Db.ProductStockSummaries();
+  }
+
+  private void LoadQtyOptions()
+  {
+    qtyWarehouses = Ops.Warehouses(actor);
+    locations = Ops.Locations(actor);
+    qtyProductId = qtyProducts.FirstOrDefault()?.Id ?? 0;
+    qtyWarehouseId = qtyWarehouses.FirstOrDefault()?.Id ?? 0;
+    locationId = locations.FirstOrDefault(l => l.WarehouseId == qtyWarehouseId)?.Id ?? 0;
+    fromWarehouse = qtyWarehouseId;
+    toWarehouse = qtyWarehouses.LastOrDefault()?.Id ?? 0;
+    fromLocation = locationId;
+    toLocation = locations.FirstOrDefault(l => l.WarehouseId == toWarehouse)?.Id ?? 0;
+    newLocationWarehouse = qtyWarehouseId;
+  }
+
+  private long FirstLocation(long warehouse) => locations.FirstOrDefault(l => l.WarehouseId == warehouse)?.Id ?? 0;
+
+  private void RefreshQty()
+  {
+    balances = Ops.Balances(actor);
+    movements = Ops.Movements(actor);
+    if (canImeiView) summaries = Db.ProductStockSummaries();
+  }
+
+  private async Task Receive()
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.InventoryReceive);
+      var n = Db.Receive(productId, warehouseId, imeis, supplierId > 0 ? supplierId : null, receiveQty);
+      ReloadImei();
+      imeis = "";
+      receiveQty = 1;
+      receiveMessage = $"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC.";
+    }
+    catch (Exception ex)
+    {
+      receiveMessage = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task Move()
+  {
+    try
+    {
+      var required = moveType switch
+      {
+        "CONSIGN_OUT" => Permissions.InventoryConsignOut,
+        "CONSIGN_RETURN" => Permissions.InventoryConsignReturn,
+        "TECH_OUT" => Permissions.InventoryTechOut,
+        "TECH_RETURN" => Permissions.InventoryTechReturn,
+        _ => throw new InvalidOperationException("Nghiệp vụ kho không hợp lệ.")
+      };
+      Db.ActorId = await Gate.RequireAsync(required);
+      Db.MoveStock(stockId, moveType, targetId);
+      ReloadImei();
+      moveMessage = "Điều chuyển thành công.";
+    }
+    catch (Exception ex)
+    {
+      moveMessage = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task SaveMovement()
+  {
+    try
+    {
+      actor = await Gate.RequireAsync(Permissions.QuantityMove);
+      var target = locations.FirstOrDefault(x => x.WarehouseId == qtyWarehouseId && x.Id == locationId)?.Id
+        ?? locations.FirstOrDefault(x => x.WarehouseId == qtyWarehouseId)?.Id ?? 0;
+      Ops.MoveQuantity(actor, qtyProductId, qtyWarehouseId, target, quantity, moveKind == "IN", note);
+      RefreshQty();
+      qtyMessage = "Đã ghi phiếu nhập/xuất.";
+    }
+    catch (Exception e)
+    {
+      qtyMessage = e.Message;
+    }
+  }
+
+  private async Task Transfer()
+  {
+    try
+    {
+      actor = await Gate.RequireAsync(Permissions.QuantityMove);
+      var src = locations.FirstOrDefault(x => x.WarehouseId == fromWarehouse && x.Id == fromLocation)?.Id
+        ?? locations.FirstOrDefault(x => x.WarehouseId == fromWarehouse)?.Id ?? 0;
+      var dest = locations.FirstOrDefault(x => x.WarehouseId == toWarehouse && x.Id == toLocation)?.Id
+        ?? locations.FirstOrDefault(x => x.WarehouseId == toWarehouse)?.Id ?? 0;
+      Ops.TransferQuantity(actor, qtyProductId, fromWarehouse, src, toWarehouse, dest, transferQty, note);
+      RefreshQty();
+      transferMessage = "Đã chuyển kho.";
+    }
+    catch (Exception e)
+    {
+      transferMessage = e.Message;
+    }
+  }
+
+  private async Task AddLocation()
+  {
+    try
+    {
+      actor = await Gate.RequireAsync(Permissions.WarehouseLocationManage);
+      Ops.AddLocation(actor, newLocationWarehouse, newLocationCode, newLocationName);
+      locations = Ops.Locations(actor);
+      locationMessage = "Đã tạo vị trí.";
+    }
+    catch (Exception e)
+    {
+      locationMessage = e.Message;
+    }
+  }
+
+  private string StatusText(string s) => s switch
+  {
+    "IN_STOCK" => "Trong kho",
+    "CONSIGNED" => "Ký gửi",
+    "TECHNICIAN" => "Kỹ thuật",
+    "INSTALLED" => "Đã kích hoạt",
+    "WARRANTY" => "Bảo hành",
+    "SUPPLIER" => "Nhà cung cấp",
+    _ => s
+  };
+
+  private string CssStatus(string s) => s switch
+  {
+    "IN_STOCK" => "green-chip",
+    "CONSIGNED" => "purple-chip",
+    "INSTALLED" => "blue-chip",
+    "WARRANTY" => "orange-chip",
+    _ => ""
+  };
 }
