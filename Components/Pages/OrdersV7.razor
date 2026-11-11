@@ -295,7 +295,6 @@
                     <th>Trạng thái</th>
                     <th>Kho &amp; Chế độ tồn kho</th>
                     <th>ĐV lắp đặt | Hãng lắp</th>
-                    <th>IMEI / Thông tin phụ / Ngày kích hoạt</th>
                     <th>Thao tác</th>
                 </tr>
             </thead>
@@ -359,29 +358,6 @@
                             @if(o.InstallerFee > 0)
                             {
                                 <small>Công lắp: @o.InstallerFee.ToString("N0") ₫</small>
-                            }
-                        </td>
-                        <td class="wrap-cell">
-                            @if(o.Lines.Any(l => !string.IsNullOrWhiteSpace(l.Imei)))
-                            {
-                                @foreach(var l in o.Lines.Where(x => !string.IsNullOrWhiteSpace(x.Imei)))
-                                {
-                                    <div>
-                                        <small>
-                                            <strong>@l.ProductSku:</strong> @l.Imei
-                                            @(!string.IsNullOrWhiteSpace(l.PlateNo) ? $" · BS: {l.PlateNo}" : "")
-                                            @(!string.IsNullOrWhiteSpace(l.VinNo) ? $" · ({l.VinNo})" : "")
-                                        </small>
-                                    </div>
-                                }
-                            }
-                            else
-                            {
-                                <span>@(o.Imei ?? "—")</span>
-                            }
-                            @if(!string.IsNullOrWhiteSpace(o.ActivatedAt))
-                            {
-                                <div><small style="color:#15803d;font-weight:600">Kích hoạt: @o.ActivatedAt</small></div>
                             }
                         </td>
                         <td class="catalog-row-actions">
