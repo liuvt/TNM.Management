@@ -307,7 +307,14 @@
                             <div><strong>@o.Code</strong></div>
                             @if(o.IsImmutable)
                             {
-                                <small style="color:#15803d;font-weight:600">Đã hoàn thành</small>
+                                @if(o.HasMissingImei)
+                                {
+                                    <small style="color:#d97706;font-weight:700">Chờ nhập @o.MissingImeiCount IMEI</small>
+                                }
+                                else
+                                {
+                                    <small style="color:#15803d;font-weight:600">Đã hoàn thành</small>
+                                }
                             }
                         </td>
                         <td class="wrap-cell">
@@ -347,7 +354,17 @@
                                 <div><small style="color:#64748b">Ghi chú: @o.Notes</small></div>
                             }
                         </td>
-                        <td><span class="chip @(o.Status == "COMPLETED" ? "green-chip" : o.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@o.Status</span></td>
+                        <td class="wrap-cell">
+                            <span class="chip @(o.Status == "COMPLETED" ? (o.HasMissingImei ? "orange-chip" : "green-chip") : o.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@o.StatusDisplay</span>
+                            @if(!string.IsNullOrWhiteSpace(o.Imei) && o.Imei != "CHỜ-NHẬP-IMEI" && o.Imei != "KHÔNG-IMEI")
+                            {
+                                <div style="margin-top:4px"><small style="color:#0f766e;font-weight:600">IMEI: @o.Imei</small></div>
+                            }
+                            @if(!string.IsNullOrWhiteSpace(o.PlateNo))
+                            {
+                                <div><small style="color:#475569">BS: @o.PlateNo</small></div>
+                            }
+                        </td>
                         <td>
                             <div><strong>@(o.Warehouse ?? "Chưa chọn kho")</strong></div>
                             <span class="chip @(o.DeductStock ? "green-chip" : "orange-chip")">@o.StockEffectDisplay</span>
@@ -377,10 +394,21 @@
                                     </div>
                                 </div>
                             }
+                            else if(o.IsImmutable && o.HasMissingImei)
+                            {
+                                <div style="display:flex;flex-direction:column;gap:5px;min-width:148px">
+                                    <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                        📝 Bổ sung IMEI (@o.MissingImeiCount)
+                                    </button>
+                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                        👁 Xem chi tiết
+                                    </button>
+                                </div>
+                            }
                             else
                             {
                                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                    👁 Xem chi tiết
+                                    👁 Xem / Sửa IMEI
                                 </button>
                             }
                         </td>
@@ -400,10 +428,10 @@
                 <div>
                     <h2>
                         <span>Điều chỉnh &amp; Xử lý đơn hàng: @SelectedOrder.Code</span>
-                        <span class="chip @(SelectedOrder.Status == "COMPLETED" ? "green-chip" : SelectedOrder.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@SelectedOrder.Status</span>
+                        <span class="chip @(SelectedOrder.Status == "COMPLETED" ? (SelectedOrder.HasMissingImei ? "orange-chip" : "green-chip") : SelectedOrder.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@SelectedOrder.StatusDisplay</span>
                         <span class="chip">@SelectedOrder.CustomerB2BDisplay</span>
                     </h2>
-                    <p>Cập nhật thông tin từ ĐV lắp đặt, điều phối kho / ĐV lắp đặt, nhập Số IMEI &amp; thông tin phụ, chọn Ngày kích hoạt IMEI và xác nhận Hoàn thành đơn.</p>
+                    <p>Cập nhật thông tin từ ĐV lắp đặt, điều phối kho / ĐV lắp đặt, nhập Số IMEI &amp; thông tin phụ, chọn Ngày kích hoạt IMEI và xác nhận Hoàn thành đơn (cho phép hoàn thành đơn trừ tồn kho trước, bổ sung IMEI sau).</p>
                 </div>
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseOrderModal">✕ Đóng</button>
             </div>
@@ -418,9 +446,18 @@
 
                 @if(SelectedOrder.IsImmutable)
                 {
-                    <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
-                        Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), NV bán hàng (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI đã chốt.
-                    </div>
+                    @if(SelectedOrder.HasMissingImei)
+                    {
+                        <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;color:#92400e;font-weight:600">
+                            Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành &amp; @(SelectedOrder.DeductStock ? "đã trừ tồn kho" : "không trừ tồn kho (Hãng)"), hiện còn <strong>@SelectedOrder.MissingImeiCount thiết bị chờ bổ sung mã IMEI</strong>. Vui lòng nhập Số IMEI / Biển số ở bảng dưới và bấm <strong>“💾 Lưu &amp; Kích hoạt IMEI bổ sung”</strong> (hệ thống sẽ kích hoạt thiết bị mà không trừ tồn kho lần 2).
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
+                            Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), NV bán hàng (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI (@SelectedOrder.Imei) đã kích hoạt. Bạn vẫn có thể cập nhật lại IMEI / Biển số / Thông tin phụ ở bảng dưới nếu cần.
+                        </div>
+                    }
                 }
 
                 <div class="form-grid">
@@ -532,11 +569,11 @@
                 {
                     <div style="margin-top:1rem;border-top:1px solid var(--border,#e2e8f0);padding-top:0.85rem">
                         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.6rem">
-                            <h3 style="font-size:0.95rem;margin:0">Thông tin ĐV lắp đặt gửi về (Số IMEI &amp; Thông tin phụ) + Kích hoạt IMEI</h3>
+                            <h3 style="font-size:0.95rem;margin:0">Thông tin ĐV lắp đặt gửi về (Số IMEI &amp; Thông tin phụ) + Kích hoạt IMEI @(SelectedOrder.IsImmutable ? "(Cho phép bổ sung / cập nhật IMEI sau khi hoàn thành)" : "(Có thể để trống IMEI để hoàn thành đơn trước, bổ sung IMEI sau)")</h3>
                             <div style="display:flex;align-items:center;gap:0.75rem;background:#eff6ff;padding:0.45rem 0.85rem;border-radius:8px;border:1px solid #bfdbfe">
                                 <label style="margin:0;display:flex;align-items:center;gap:0.4rem;font-weight:600;color:#1e3a8a">
                                     <span>📅 Ngày kích hoạt IMEI *:</span>
-                                    <input type="date" @bind="activationDateInput" disabled="@SelectedOrder.IsImmutable" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
+                                    <input type="date" @bind="activationDateInput" disabled="@(SelectedOrder.Status == "CANCELLED")" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
                                 </label>
                                 <span class="chip blue-chip">Hết hạn dự kiến: @activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy") (@(editDurationMonths == 12 ? "1 năm" : $"{editDurationMonths} tháng"))</span>
                             </div>
@@ -552,7 +589,7 @@
                         @{ var pagedOrderLines = orderLinePager.Slice(SelectedOrder.Lines, out var totalOrderLines); }
                         <div class="table-wrap">
                             <table>
-                                <thead><tr><th>STT</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (ĐV lắp đặt gửi về) *</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
+                                <thead><tr><th>STT</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (Có thể bổ sung sau)</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
                                 <tbody>
                                     @foreach(var (stt, ln) in pagedOrderLines)
                                     {
@@ -577,13 +614,13 @@
                                             @if(ln.IsSerialized)
                                             {
                                                 <td>
-                                                    <input list="in-stock-imeis-list" disabled="@SelectedOrder.IsImmutable" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập hoặc chọn mã IMEI @stt" />
+                                                    <input list="in-stock-imeis-list" disabled="@(SelectedOrder.Status == "CANCELLED")" value="@rep.Imei" @oninput="e => SetLineReport(ln.Id, e.Value?.ToString() ?? string.Empty, null, null)" placeholder="Nhập mã IMEI (hoặc để trống nhập sau)" />
                                                 </td>
                                                 <td>
-                                                    <input disabled="@SelectedOrder.IsImmutable" value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
+                                                    <input disabled="@(SelectedOrder.Status == "CANCELLED")" value="@rep.PlateNo" @oninput="e => SetLineReport(ln.Id, null, e.Value?.ToString() ?? string.Empty, null)" placeholder="VD: 51H-123.45" />
                                                 </td>
                                                 <td>
-                                                    <input disabled="@SelectedOrder.IsImmutable" value="@rep.VinNo" @oninput="e => SetLineReport(ln.Id, null, null, e.Value?.ToString() ?? string.Empty)" placeholder="Thông tin phụ, số khung, xe Đỗ Văn Hội..." />
+                                                    <input disabled="@(SelectedOrder.Status == "CANCELLED")" value="@rep.VinNo" @oninput="e => SetLineReport(ln.Id, null, null, e.Value?.ToString() ?? string.Empty)" placeholder="Thông tin phụ, số khung, xe Đỗ Văn Hội..." />
                                                 </td>
                                             }
                                             else
@@ -602,10 +639,19 @@
 
             <div class="so-modal-footer">
                 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
-                    <button type="button" class="btn secondary" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
-                    <button type="button" class="btn secondary" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
-                    <button type="button" class="btn" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="Complete">3. Hoàn thành đơn &amp; Kích hoạt IMEI @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho)")</button>
-                    <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" disabled="@(SelectedOrder.IsImmutable || SelectedOrder.Status == "CANCELLED")" @onclick="Cancel">Hủy đơn</button>
+                    @if(!SelectedOrder.IsImmutable && SelectedOrder.Status != "CANCELLED")
+                    {
+                        <button type="button" class="btn secondary" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
+                        <button type="button" class="btn secondary" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
+                        <button type="button" class="btn" @onclick="Complete">3. Hoàn thành đơn @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho - Cho phép nhập IMEI sau)")</button>
+                        <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" @onclick="Cancel">Hủy đơn</button>
+                    }
+                    else if(SelectedOrder.IsImmutable)
+                    {
+                        <button type="button" class="btn" @onclick="SaveCompletedOrderImeis">
+                            💾 @(SelectedOrder.HasMissingImei ? $"Lưu & Kích hoạt IMEI bổ sung ({SelectedOrder.MissingImeiCount} thiết bị)" : "Lưu cập nhật IMEI / Biển số / Ngày kích hoạt")
+                        </button>
+                    }
                 </div>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseOrderModal">Đóng</button>
             </div>
@@ -1095,8 +1141,24 @@
             Orders.Dispatch(actor, selected, source == "PARTNER", effInstaller, installerEmployeeId > 0 ? installerEmployeeId : null, !noDeductStock, warehouse > 0 ? warehouse : null);
         }
         var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
-        Orders.ReportLines(actor, selected, payload);
+        Orders.ReportLines(actor, selected, payload, allowMissingImei: true);
         return $"Đã lưu thông tin Số IMEI & Thông tin phụ từ ĐV lắp đặt gửi về cho đơn SO7-{selected:000000}.";
+    });
+
+    private Task SaveCompletedOrderImeis() => Act(actor =>
+    {
+        if (selected <= 0) throw new InvalidOperationException("Vui lòng chọn đơn hàng.");
+        var o = SelectedOrder ?? throw new InvalidOperationException("Không tìm thấy đơn hàng.");
+        var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
+        if (payload.All(x => string.IsNullOrWhiteSpace(x.Imei)))
+            throw new InvalidOperationException("Vui lòng nhập ít nhất 1 mã IMEI để lưu và kích hoạt.");
+        var actDateStr = activationDateInput.ToString("yyyy-MM-dd");
+        var newlyActivated = Orders.SupplementCompletedOrderImeis(actor, selected, payload, actDateStr);
+        showOrderModal = false;
+        var expDateStr = activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy");
+        return newlyActivated > 0
+            ? $"Đã bổ sung & kích hoạt {newlyActivated} IMEI cho đơn {o.Code} (Ngày kích hoạt: {activationDateInput:dd/MM/yyyy} → Hết hạn: {expDateStr}, không trừ tồn kho lần 2)."
+            : $"Đã cập nhật thông tin IMEI / Biển số / Ngày kích hoạt cho đơn {o.Code}.";
     });
 
     private Task Complete() => Act(actor =>
@@ -1126,10 +1188,10 @@
             editSellerId > 0 ? editSellerId : null,
             editSaleSource);
 
+        var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
         if (o.Lines.Any(x => x.IsSerialized))
         {
-            var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
-            Orders.ReportLines(actor, selected, payload);
+            Orders.ReportLines(actor, selected, payload, allowMissingImei: true);
         }
 
         var actDateStr = activationDateInput.ToString("yyyy-MM-dd");
@@ -1138,7 +1200,12 @@
         var expDateStr = activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy");
         var stockMsg = noDeductStock
             ? $"Không trừ tồn kho (Hãng lắp đặt: {effInstaller})"
-            : "Đã trừ số lượng sản phẩm tồn kho";
+            : "Đã trừ số lượng sản phẩm tồn kho ngay lập tức";
+        var missingCount = o.Lines.Count(l => l.IsSerialized && (!lineReports.TryGetValue(l.Id, out var r) || string.IsNullOrWhiteSpace(r.Imei)));
+        if (missingCount > 0)
+        {
+            return $"Hoàn thành đơn {o.Code}! {stockMsg} · Hiện còn {missingCount} thiết bị chờ bổ sung IMEI (bấm nút '📝 Bổ sung IMEI' khi ĐV lắp đặt gửi mã về).";
+        }
         return $"Hoàn thành đơn {o.Code}! {stockMsg} · Đã kích hoạt IMEI (Ngày kích hoạt: {activationDateInput:dd/MM/yyyy} → Hết hạn: {expDateStr}).";
     });
 

@@ -58,6 +58,18 @@ public record V7Order(
     public string StockEffectDisplay => DeductStock ? "Trừ tồn kho" : "Không trừ tồn kho (Hãng)";
     public long GrossProfitSnapshot => Price - CostSnapshot - InstallerFee;
     public bool IsImmutable => Status == "COMPLETED";
+    public bool HasMissingImei => Lines.Any(l => l.IsSerialized && string.IsNullOrWhiteSpace(l.Imei));
+    public int MissingImeiCount => Lines.Count(l => l.IsSerialized && string.IsNullOrWhiteSpace(l.Imei));
+    public string StatusDisplay => Status switch
+    {
+        "PENDING" => "Chờ điều phối",
+        "APPROVED" => "Đã duyệt kho",
+        "DISPATCHED" => "Đang đi lắp đặt",
+        "REPORTED" => "Đã báo IMEI",
+        "COMPLETED" => HasMissingImei ? $"Đã hoàn thành (Chờ nhập {MissingImeiCount} IMEI)" : "Đã hoàn thành",
+        "CANCELLED" => "Đã hủy",
+        _ => Status
+    };
 }
 
 public sealed class V7Orders(IWebHostEnvironment env)
@@ -113,10 +125,21 @@ public sealed class V7Orders(IWebHostEnvironment env)
               installer_fee_vnd INTEGER NOT NULL DEFAULT 0 CHECK(installer_fee_vnd>=0),
               imei TEXT,
               plate_no TEXT NOT NULL DEFAULT '',
-              vin_no TEXT NOT NULL DEFAULT ''
+              vin_no TEXT NOT NULL DEFAULT '',
+              stock_unit_id INTEGER REFERENCES stock_units(id)
             );
             CREATE INDEX IF NOT EXISTS ix_v7_order_lines_order ON v7_order_lines(order_id);
             """);
+
+        using (var lq = Cmd(c, "PRAGMA table_info(v7_order_lines)"))
+        using (var lr = lq.ExecuteReader())
+        {
+            var lineCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (lr.Read()) lineCols.Add(lr.GetString(1));
+            lr.Close();
+            if (!lineCols.Contains("stock_unit_id"))
+                Run(c, "ALTER TABLE v7_order_lines ADD COLUMN stock_unit_id INTEGER REFERENCES stock_units(id)");
+        }
 
         Run(c, """
             INSERT INTO v7_order_lines(order_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,installer_fee_vnd,imei,plate_no,vin_no)
@@ -125,11 +148,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
             WHERE NOT EXISTS (SELECT 1 FROM v7_order_lines l WHERE l.order_id=o.id);
             """);
 
-        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định
+        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định (nhưng cho phép bổ sung IMEI, biển số, thông tin phụ, ngày kích hoạt sau khi hoàn thành)
         Run(c, """
             DROP TRIGGER IF EXISTS trg_v7_orders_lock_completed_update;
             CREATE TRIGGER trg_v7_orders_lock_completed_update
-            BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, plate_no, vin_no, notes, imei, activated_at, completed_at ON v7_orders
+            BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, notes, completed_at ON v7_orders
             WHEN OLD.status = 'COMPLETED'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
@@ -137,7 +160,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
             DROP TRIGGER IF EXISTS trg_v7_order_lines_lock_completed_update;
             CREATE TRIGGER trg_v7_order_lines_lock_completed_update
-            BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd, imei, plate_no, vin_no ON v7_order_lines
+            BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd ON v7_order_lines
             WHEN (SELECT status FROM v7_orders WHERE id = OLD.order_id) = 'COMPLETED'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Dòng sản phẩm của đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
@@ -645,11 +668,12 @@ public sealed class V7Orders(IWebHostEnvironment env)
         ReportLines(actor, id, reports);
     }
 
-    public void ReportLines(long actor, long id, IReadOnlyList<V7OrderLineReport> reports)
+    public void ReportLines(long actor, long id, IReadOnlyList<V7OrderLineReport> reports, bool allowMissingImei = true)
     {
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "TECH", "INSTALLER", "WAREHOUSE", "ACCOUNTANT");
-            if (Status(c, id) is not ("DISPATCHED" or "REPORTED")) throw new InvalidOperationException("Đơn chưa được điều phối.");
+            var curSt = Status(c, id);
+            if (curSt is not ("DISPATCHED" or "REPORTED")) throw new InvalidOperationException("Đơn chưa được điều phối.");
 
             using var q = Cmd(c, @"SELECT l.id,p.is_serialized,p.name FROM v7_order_lines l JOIN products p ON p.id=l.product_id
                 WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id));
@@ -667,24 +691,27 @@ public sealed class V7Orders(IWebHostEnvironment env)
             foreach (var ln in dbLines)
             {
                 if (!ln.IsSerialized) continue;
-                if (!reportMap.TryGetValue(ln.LineId, out var rep) || string.IsNullOrWhiteSpace(rep.Imei))
+                reportMap.TryGetValue(ln.LineId, out var rep);
+                var cleanImei = (rep?.Imei ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(cleanImei) && !allowMissingImei)
                     throw new InvalidOperationException($"Thiếu mã IMEI cho sản phẩm '{ln.ProductName}'.");
-                var cleanImei = rep.Imei.Trim();
-                if (!seenImeis.Add(cleanImei))
+                if (!string.IsNullOrWhiteSpace(cleanImei) && !seenImeis.Add(cleanImei))
                     throw new InvalidOperationException($"Mã IMEI '{cleanImei}' bị trùng lặp trong cùng đơn hàng.");
-                var cleanPlate = (rep.PlateNo ?? "").Trim();
-                var cleanVin = (rep.VinNo ?? "").Trim();
+                var cleanPlate = (rep?.PlateNo ?? "").Trim();
+                var cleanVin = (rep?.VinNo ?? "").Trim();
 
                 Run(c, "UPDATE v7_order_lines SET imei=$imei,plate_no=$plate,vin_no=$vin WHERE id=$lid",
-                    ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$lid", ln.LineId));
+                    ("$imei", string.IsNullOrWhiteSpace(cleanImei) ? null : cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$lid", ln.LineId));
 
-                allImeis.Add(cleanImei);
+                if (!string.IsNullOrWhiteSpace(cleanImei)) allImeis.Add(cleanImei);
                 if (!string.IsNullOrWhiteSpace(cleanPlate)) allPlates.Add(cleanPlate);
                 if (!string.IsNullOrWhiteSpace(cleanVin)) allVins.Add(cleanVin);
             }
 
-            Run(c, "UPDATE v7_orders SET status='REPORTED',imei=$imei,plate_no=$plate,vin_no=$vin WHERE id=$id",
-                ("$imei", allImeis.Count > 0 ? string.Join(", ", allImeis) : "KHÔNG-IMEI"),
+            var nextStatus = allImeis.Count > 0 ? "REPORTED" : curSt;
+            Run(c, "UPDATE v7_orders SET status=$st,imei=$imei,plate_no=$plate,vin_no=$vin WHERE id=$id",
+                ("$st", nextStatus),
+                ("$imei", allImeis.Count > 0 ? string.Join(", ", allImeis) : "CHỜ-NHẬP-IMEI"),
                 ("$plate", string.Join(", ", allPlates.Distinct())),
                 ("$vin", string.Join(", ", allVins.Distinct())),
                 ("$id", id));
@@ -698,8 +725,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT");
             var curStatus = Status(c, id);
-            if (curStatus is not ("REPORTED" or "DISPATCHED"))
-                throw new InvalidOperationException("Đơn chưa điều phối hoặc chưa báo cáo lắp đặt.");
+            if (curStatus is "COMPLETED" or "CANCELLED")
+                throw new InvalidOperationException("Đơn hàng đã hoàn thành hoặc đã hủy.");
 
             using var q = Cmd(c, @"SELECT customer_id,warehouse_id,source,unit_price_vnd,COALESCE(installer_fee_vnd,0),
                 COALESCE(installer,''),COALESCE(code,''),COALESCE(duration_months,12),COALESCE(deduct_stock,1),COALESCE(activated_at,'')
@@ -753,45 +780,66 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9), lr.GetInt64(10), lr.GetString(11)));
             }
 
-            if (curStatus == "DISPATCHED" && lines.Any(x => x.IsSerialized && string.IsNullOrWhiteSpace(x.Imei)))
-                throw new InvalidOperationException("Đơn chưa báo cáo mã IMEI lắp đặt.");
-
             long? saleOutTxId = null;
             foreach (var ln in lines)
             {
                 if (ln.IsSerialized)
                 {
-                    if (string.IsNullOrWhiteSpace(ln.Imei))
-                        throw new InvalidOperationException($"Thiếu mã IMEI ở sản phẩm '{ln.ProductName}'.");
-                    if (Scalar(c, "SELECT COUNT(*) FROM activations a JOIN stock_units s ON s.id=a.stock_unit_id WHERE s.imei=$imei AND a.deleted_at IS NULL", ("$imei", ln.Imei)) > 0)
+                    var hasImei = !string.IsNullOrWhiteSpace(ln.Imei);
+                    if (hasImei && Scalar(c, "SELECT COUNT(*) FROM activations a JOIN stock_units s ON s.id=a.stock_unit_id WHERE s.imei=$imei AND a.deleted_at IS NULL", ("$imei", ln.Imei)) > 0)
                         throw new InvalidOperationException($"IMEI '{ln.Imei}' đã được kích hoạt.");
 
-                    long stockUnitId;
+                    long stockUnitId = 0;
                     if (deductStock)
                     {
                         long txWarehouse = warehouse;
-                        using var find = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
-                            WHERE imei=$imei AND product_id=$p AND deleted_at IS NULL
-                              AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')
-                            ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END, id ASC LIMIT 1",
-                            ("$imei", ln.Imei), ("$p", ln.ProductId), ("$w", warehouse));
-                        using var fr = find.ExecuteReader();
-                        if (fr.Read())
+                        if (hasImei)
                         {
-                            stockUnitId = fr.GetInt64(0);
-                            if (txWarehouse <= 0 && !fr.IsDBNull(1)) txWarehouse = fr.GetInt64(1);
-                            fr.Close();
+                            using var find = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
+                                WHERE imei=$imei AND product_id=$p AND deleted_at IS NULL
+                                  AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')
+                                ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END, id ASC LIMIT 1",
+                                ("$imei", ln.Imei), ("$p", ln.ProductId), ("$w", warehouse));
+                            using var fr = find.ExecuteReader();
+                            if (fr.Read())
+                            {
+                                stockUnitId = fr.GetInt64(0);
+                                if (txWarehouse <= 0 && !fr.IsDBNull(1)) txWarehouse = fr.GetInt64(1);
+                                fr.Close();
+                            }
+                            else
+                            {
+                                fr.Close();
+                                if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", ln.Imei)) > 0)
+                                    throw new InvalidOperationException($"IMEI '{ln.Imei}' đã tồn tại và không còn ở trạng thái tồn kho khả dụng.");
+
+                                Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", ln.Imei));
+
+                                using var findSlot = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
+                                    WHERE product_id=$p AND status='IN_STOCK' AND deleted_at IS NULL
+                                    ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END,
+                                             CASE WHEN imei LIKE 'KHO-%' THEN 0 ELSE 1 END,
+                                             id ASC LIMIT 1",
+                                    ("$p", ln.ProductId), ("$w", warehouse));
+                                using var sr = findSlot.ExecuteReader();
+                                if (sr.Read())
+                                {
+                                    stockUnitId = sr.GetInt64(0);
+                                    if (txWarehouse <= 0 && !sr.IsDBNull(1)) txWarehouse = sr.GetInt64(1);
+                                    sr.Close();
+                                    Run(c, "UPDATE stock_units SET imei=$imei WHERE id=$id", ("$imei", ln.Imei), ("$id", stockUnitId));
+                                }
+                                else
+                                {
+                                    sr.Close();
+                                    throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' hiện đã hết tồn kho (hoặc IMEI '{ln.Imei}' không có trong kho). Vui lòng nhập kho trước khi hoàn tất đơn có trừ tồn kho, hoặc chọn Hãng lắp đặt (Không trừ tồn kho).");
+                                }
+                            }
                         }
                         else
                         {
-                            fr.Close();
-                            if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", ln.Imei)) > 0)
-                                throw new InvalidOperationException($"IMEI '{ln.Imei}' đã tồn tại và không còn ở trạng thái tồn kho khả dụng.");
-
-                            // Nếu có bản ghi stock_units đã bị xóa mềm (deleted_at IS NOT NULL) trùng IMEI, giải phóng hậu tố IMEI cũ để không vướng UNIQUE
-                            Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", ln.Imei));
-
-                            // ĐV lắp đặt gửi mã IMEI thực tế ngoài hiện trường về -> lấy 1 thiết bị IN_STOCK của cùng sản phẩm trong kho để gán IMEI & trừ tồn kho
+                            // Hoàn thành đơn nhưng chưa nhập IMEI ("nhập IMEI sau nhưng vẫn trừ tồn kho"):
+                            // Giữ và trừ ngay 1 đơn vị IN_STOCK của sản phẩm này trong kho để tồn kho giảm ngay lập tức
                             using var findSlot = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
                                 WHERE product_id=$p AND status='IN_STOCK' AND deleted_at IS NULL
                                 ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END,
@@ -804,12 +852,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
                                 stockUnitId = sr.GetInt64(0);
                                 if (txWarehouse <= 0 && !sr.IsDBNull(1)) txWarehouse = sr.GetInt64(1);
                                 sr.Close();
-                                Run(c, "UPDATE stock_units SET imei=$imei WHERE id=$id", ("$imei", ln.Imei), ("$id", stockUnitId));
                             }
                             else
                             {
                                 sr.Close();
-                                throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' hiện đã hết tồn kho (hoặc IMEI '{ln.Imei}' không có trong kho). Vui lòng nhập kho trước khi hoàn tất đơn có trừ tồn kho, hoặc chọn Hãng lắp đặt (Không trừ tồn kho).");
+                                throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' hiện đã hết tồn kho để trừ. Vui lòng nhập kho trước khi hoàn tất đơn có trừ tồn kho, hoặc chọn Hãng lắp đặt (Không trừ tồn kho).");
                             }
                         }
 
@@ -826,10 +873,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
                         Run(c, "UPDATE stock_units SET status='INSTALLED',warehouse_id=NULL,customer_id=$c,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$id AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')",
                             ("$c", customer), ("$id", stockUnitId));
-                        if (Scalar(c, "SELECT changes()") != 1) throw new InvalidOperationException($"Không thể trừ kho IMEI '{ln.Imei}'.");
+                        if (Scalar(c, "SELECT changes()") != 1) throw new InvalidOperationException($"Không thể trừ tồn kho sản phẩm '{ln.ProductName}'.");
                         Run(c, "INSERT INTO v7_stock_effects(order_id,stock_unit_id) VALUES($o,$s)", ("$o", id), ("$s", stockUnitId));
+                        Run(c, "UPDATE v7_order_lines SET stock_unit_id=$sid WHERE id=$lid", ("$sid", stockUnitId), ("$lid", ln.LineId));
                     }
-                    else
+                    else if (hasImei)
                     {
                         using var find = Cmd(c, "SELECT id FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", ln.Imei));
                         var existing = find.ExecuteScalar();
@@ -839,12 +887,16 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         Run(c, "INSERT INTO stock_units(product_id,imei,status,customer_id) VALUES($p,$imei,'INSTALLED',$c)",
                             ("$p", ln.ProductId), ("$imei", ln.Imei), ("$c", customer));
                         stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
+                        Run(c, "UPDATE v7_order_lines SET stock_unit_id=$sid WHERE id=$lid", ("$sid", stockUnitId), ("$lid", ln.LineId));
                     }
 
-                    // Tạo thuê bao kích hoạt (activations) theo Ngày kích hoạt và Thời hạn của đơn
-                    Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
-                        VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
-                        ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", ln.PlateNo), ("$vin", ln.VinNo), ("$act", actDateStr), ("$exp", expDateStr));
+                    // Nếu dòng đã có IMEI thì tạo thuê bao kích hoạt (activations) ngay; nếu chưa có IMEI thì chờ bổ sung IMEI sau
+                    if (hasImei && stockUnitId > 0)
+                    {
+                        Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
+                            VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
+                            ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", ln.PlateNo), ("$vin", ln.VinNo), ("$act", actDateStr), ("$exp", expDateStr));
+                    }
                 }
                 else if (deductStock && ln.ProductKind == "GOODS")
                 {
@@ -925,6 +977,197 @@ public sealed class V7Orders(IWebHostEnvironment env)
             Event(c, id, actor, "COMPLETED");
             return 0;
         });
+        DemoDb.NotifyDevicesChanged();
+    }
+
+    public int SupplementCompletedOrderImeis(long actor, long id, IReadOnlyList<V7OrderLineReport> reports, string? activatedDate = null)
+    {
+        var newlyActivated = Tx(actor, c => {
+            Role(c, actor, "ADMIN", "MANAGER", "CSKH", "TECH", "INSTALLER", "WAREHOUSE", "ACCOUNTANT");
+            if (Status(c, id) != "COMPLETED")
+                throw new InvalidOperationException("Chức năng bổ sung IMEI sau chỉ áp dụng cho đơn hàng đã hoàn thành.");
+
+            using var q = Cmd(c, @"SELECT customer_id, COALESCE(warehouse_id, 0), source, COALESCE(duration_months, 12), COALESCE(deduct_stock, 1), COALESCE(activated_at, '')
+                FROM v7_orders WHERE id=$id", ("$id", id));
+            long customer, warehouse, durationMonths;
+            bool deductStock;
+            string source, existingActivatedAt;
+            using (var r = q.ExecuteReader())
+            {
+                if (!r.Read()) throw new InvalidOperationException("Không thấy đơn.");
+                customer = r.GetInt64(0);
+                warehouse = r.GetInt64(1);
+                source = r.GetString(2);
+                durationMonths = r.GetInt64(3) > 0 ? r.GetInt64(3) : 12;
+                deductStock = r.GetInt64(4) == 1 && source != "PARTNER" ? true : (r.GetInt64(4) == 1);
+                existingActivatedAt = r.GetString(5);
+            }
+
+            DateTime actDate = DateTime.Today;
+            var rawAct = !string.IsNullOrWhiteSpace(activatedDate) ? activatedDate.Trim() : existingActivatedAt.Trim();
+            if (!string.IsNullOrWhiteSpace(rawAct))
+            {
+                string[] actFormats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "yyyy-MM-dd HH:mm:ss", "dd/MM/yyyy HH:mm:ss"];
+                if (DateTime.TryParseExact(rawAct, actFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedAct))
+                    actDate = parsedAct.Date;
+                else if (DateTime.TryParse(rawAct, System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), System.Globalization.DateTimeStyles.None, out var parsedVi))
+                    actDate = parsedVi.Date;
+            }
+            var actDateStr = actDate.ToString("yyyy-MM-dd");
+            var expDateStr = actDate.AddMonths((int)durationMonths).ToString("yyyy-MM-dd");
+
+            using var lq = Cmd(c, @"SELECT l.id, l.product_id, p.name, p.is_serialized, COALESCE(l.imei,''), COALESCE(l.plate_no,''), COALESCE(l.vin_no,''), COALESCE(l.stock_unit_id, 0)
+                FROM v7_order_lines l JOIN products p ON p.id=l.product_id
+                WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id));
+            var dbLines = new List<(long LineId, long ProductId, string ProductName, bool IsSerialized, string OldImei, string OldPlate, string OldVin, long StockUnitId)>();
+            using (var lr = lq.ExecuteReader())
+            {
+                while (lr.Read())
+                    dbLines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetString(4), lr.GetString(5), lr.GetString(6), lr.GetInt64(7)));
+            }
+
+            var reportMap = (reports ?? []).ToDictionary(x => x.LineId, x => x);
+            var seenImeis = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var allImeis = new List<string>();
+            var allPlates = new List<string>();
+            var allVins = new List<string>();
+            int activatedCount = 0;
+
+            foreach (var ln in dbLines)
+            {
+                if (!ln.IsSerialized) continue;
+                reportMap.TryGetValue(ln.LineId, out var rep);
+                var cleanImei = (rep?.Imei ?? ln.OldImei).Trim();
+                var cleanPlate = (rep?.PlateNo ?? ln.OldPlate).Trim();
+                var cleanVin = (rep?.VinNo ?? ln.OldVin).Trim();
+
+                if (!string.IsNullOrWhiteSpace(cleanImei) && !seenImeis.Add(cleanImei))
+                    throw new InvalidOperationException($"Mã IMEI '{cleanImei}' bị trùng lặp trong cùng đơn hàng.");
+
+                if (string.IsNullOrWhiteSpace(cleanImei))
+                {
+                    Run(c, "UPDATE v7_order_lines SET plate_no=$plate, vin_no=$vin WHERE id=$lid",
+                        ("$plate", cleanPlate), ("$vin", cleanVin), ("$lid", ln.LineId));
+                    if (!string.IsNullOrWhiteSpace(cleanPlate)) allPlates.Add(cleanPlate);
+                    if (!string.IsNullOrWhiteSpace(cleanVin)) allVins.Add(cleanVin);
+                    continue;
+                }
+
+                long stockUnitId = ln.StockUnitId;
+                if (stockUnitId <= 0 && !string.IsNullOrWhiteSpace(ln.OldImei))
+                {
+                    stockUnitId = Scalar(c, "SELECT COALESCE((SELECT id FROM stock_units WHERE imei=$imei AND deleted_at IS NULL LIMIT 1), 0)", ("$imei", ln.OldImei));
+                }
+
+                var existingActId = stockUnitId > 0
+                    ? Scalar(c, "SELECT COALESCE((SELECT id FROM activations WHERE stock_unit_id=$sid AND deleted_at IS NULL LIMIT 1), 0)", ("$sid", stockUnitId))
+                    : 0;
+
+                if (existingActId > 0 && stockUnitId > 0)
+                {
+                    // Đã từng kích hoạt, cập nhật lại biển số / thông tin phụ / ngày kích hoạt hoặc sửa mã IMEI
+                    if (!string.Equals(cleanImei, ln.OldImei, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND id<>$sid AND deleted_at IS NULL", ("$imei", cleanImei), ("$sid", stockUnitId)) > 0)
+                            throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại trên thiết bị khác.");
+                        Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND id<>$sid AND deleted_at IS NOT NULL", ("$imei", cleanImei), ("$sid", stockUnitId));
+                        Run(c, "UPDATE stock_units SET imei=$imei, updated_at=CURRENT_TIMESTAMP WHERE id=$sid", ("$imei", cleanImei), ("$sid", stockUnitId));
+                    }
+                    Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
+                        ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
+                    Run(c, "UPDATE activations SET plate_no=$plate, vin_no=$vin, activated_at=$act, expires_at=$exp WHERE id=$aid",
+                        ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr), ("$aid", existingActId));
+                }
+                else
+                {
+                    // Dòng này hoàn thành trước khi có IMEI -> Nay bổ sung IMEI và kích hoạt thuê bao (không trừ tồn kho lần 2!)
+                    if (Scalar(c, "SELECT COUNT(*) FROM activations a JOIN stock_units s ON s.id=a.stock_unit_id WHERE s.imei=$imei AND a.deleted_at IS NULL", ("$imei", cleanImei)) > 0)
+                        throw new InvalidOperationException($"IMEI '{cleanImei}' đã được kích hoạt ở đơn khác.");
+
+                    if (stockUnitId > 0)
+                    {
+                        // Tồn kho ĐÃ được trừ vào bản ghi stockUnitId khi bấm Hoàn thành đơn trước đó
+                        var otherId = Scalar(c, "SELECT COALESCE((SELECT id FROM stock_units WHERE imei=$imei AND id<>$sid AND deleted_at IS NULL LIMIT 1), 0)",
+                            ("$imei", cleanImei), ("$sid", stockUnitId));
+                        if (otherId > 0)
+                        {
+                            var otherStatus = Str(c, "SELECT status FROM stock_units WHERE id=$id", ("$id", otherId));
+                            if (otherStatus is not ("IN_STOCK" or "CONSIGNED" or "TECHNICIAN"))
+                                throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại và không còn ở trạng thái tồn kho khả dụng.");
+
+                            var restoreWh = warehouse > 0 ? warehouse : Scalar(c, "SELECT COALESCE((SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 1)");
+                            // Hoàn lại slot tạm giữ về IN_STOCK và chuyển thiết bị thực tế sang INSTALLED để tổng tồn kho giữ nguyên (không bị trừ 2 lần)
+                            Run(c, "UPDATE stock_units SET status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                ("$w", restoreWh), ("$sid", stockUnitId));
+                            Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$oid",
+                                ("$c", customer), ("$oid", otherId));
+                            Run(c, "UPDATE inventory_transaction_lines SET stock_unit_id=$oid WHERE stock_unit_id=$sid",
+                                ("$oid", otherId), ("$sid", stockUnitId));
+                            Run(c, "UPDATE v7_stock_effects SET stock_unit_id=$oid WHERE order_id=$o AND stock_unit_id=$sid",
+                                ("$oid", otherId), ("$o", id), ("$sid", stockUnitId));
+                            stockUnitId = otherId;
+                        }
+                        else
+                        {
+                            Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND id<>$sid AND deleted_at IS NOT NULL",
+                                ("$imei", cleanImei), ("$sid", stockUnitId));
+                            Run(c, "UPDATE stock_units SET imei=$imei, status='INSTALLED', warehouse_id=NULL, customer_id=$c, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                ("$imei", cleanImei), ("$c", customer), ("$sid", stockUnitId));
+                        }
+                    }
+                    else if (deductStock)
+                    {
+                        // Phòng trường hợp dòng cũ chưa gắn stock_unit_id
+                        var matchId = Scalar(c, "SELECT COALESCE((SELECT id FROM stock_units WHERE imei=$imei AND deleted_at IS NULL LIMIT 1), 0)", ("$imei", cleanImei));
+                        if (matchId > 0)
+                        {
+                            stockUnitId = matchId;
+                            Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                ("$c", customer), ("$sid", stockUnitId));
+                        }
+                        else
+                        {
+                            Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", cleanImei));
+                            Run(c, "INSERT INTO stock_units(product_id,imei,status,customer_id) VALUES($p,$imei,'INSTALLED',$c)",
+                                ("$p", ln.ProductId), ("$imei", cleanImei), ("$c", customer));
+                            stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
+                        }
+                    }
+                    else
+                    {
+                        // Đơn Hãng lắp đặt (Không trừ tồn kho) bổ sung IMEI sau
+                        if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", cleanImei)) > 0)
+                            throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại trong danh sách thiết bị.");
+                        Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", cleanImei));
+                        Run(c, "INSERT INTO stock_units(product_id,imei,status,customer_id) VALUES($p,$imei,'INSTALLED',$c)",
+                            ("$p", ln.ProductId), ("$imei", cleanImei), ("$c", customer));
+                        stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
+                    }
+
+                    Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
+                        ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
+                    Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
+                        VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
+                        ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr));
+                    activatedCount++;
+                }
+
+                allImeis.Add(cleanImei);
+                if (!string.IsNullOrWhiteSpace(cleanPlate)) allPlates.Add(cleanPlate);
+                if (!string.IsNullOrWhiteSpace(cleanVin)) allVins.Add(cleanVin);
+            }
+
+            Run(c, "UPDATE v7_orders SET imei=$imei, plate_no=$plate, vin_no=$vin, activated_at=$act WHERE id=$id",
+                ("$imei", allImeis.Count > 0 ? string.Join(", ", allImeis) : "CHỜ-NHẬP-IMEI"),
+                ("$plate", string.Join(", ", allPlates.Distinct())),
+                ("$vin", string.Join(", ", allVins.Distinct())),
+                ("$act", actDateStr),
+                ("$id", id));
+            Event(c, id, actor, "SUPPLEMENTED_IMEI");
+            return activatedCount;
+        });
+        DemoDb.NotifyDevicesChanged();
+        return newlyActivated;
     }
 
     public void Cancel(long actor, long id)
