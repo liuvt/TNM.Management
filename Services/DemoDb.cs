@@ -1007,10 +1007,13 @@ public sealed class DemoDb
           CASE WHEN r.is_locked=1 OR COALESCE(inv.is_locked,0)=1 THEN 1 ELSE 0 END,
           COALESCE(r.locked_at, inv.locked_at, ''),
           COALESCE(inv.invoice_no, ''),
-          inv.id
+          inv.id,
+          COALESCE(NULLIF(a.device_type_label,''), CASE WHEN p.sku='SP000001' THEN 'XANHGPS' WHEN p.sku='DX00002' THEN 'NASA-4G-21000' WHEN p.sku='DX00003' THEN 'TG2000' ELSE p.name END, ''),
+          COALESCE(p.sku, '')
           FROM renewals r
           JOIN activations a ON a.id=r.activation_id
           JOIN stock_units u ON u.id=a.stock_unit_id
+          JOIN products p ON p.id=a.product_id
           LEFT JOIN customers c ON c.id=a.customer_id
           LEFT JOIN v7_sellers sl ON sl.id=r.seller_id
           LEFT JOIN invoices inv ON inv.id=(SELECT i2.id FROM invoices i2 WHERE i2.renewal_id=r.id AND i2.deleted_at IS NULL AND i2.status<>'VOID' ORDER BY i2.id DESC LIMIT 1)
@@ -1019,7 +1022,8 @@ public sealed class DemoDb
           r => new RenewalVm(
               L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), S(r,6),
               r.IsDBNull(7) ? null : L(r,7), S(r,8), S(r,9), S(r,10),
-              L(r,11), S(r,12), L(r,13) == 1, S(r,14), S(r,15), r.IsDBNull(16) ? null : L(r,16)));
+              L(r,11), S(r,12), L(r,13) == 1, S(r,14), S(r,15), r.IsDBNull(16) ? null : L(r,16),
+              S(r,17), S(r,18)));
     }
 
     public void Renew(long activationId, string source, string paymentMethod, long? sellerId = null, string? sellerName = null, long? customPriceVnd = null, string? customRenewedAt = null, string? customNewExpiry = null)
@@ -1030,13 +1034,18 @@ public sealed class DemoDb
         Tx((c,t) => {
             var device = QueryTx(c,t,@"SELECT a.expires_at,a.customer_id,a.product_id,p.renewal_fee_vnd,
                 COALESCE(o.seller_record_id, c.seller_id, 0),
-                COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), '')
-             FROM activations a JOIN products p ON p.id=a.product_id
+                COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), ''),
+                u.imei,
+                COALESCE(a.plate_no,''),
+                COALESCE(NULLIF(a.device_type_label,''), CASE WHEN p.sku='SP000001' THEN 'XANHGPS' WHEN p.sku='DX00002' THEN 'NASA-4G-21000' WHEN p.sku='DX00003' THEN 'TG2000' ELSE p.name END, p.sku)
+             FROM activations a
+             JOIN stock_units u ON u.id=a.stock_unit_id
+             JOIN products p ON p.id=a.product_id
              JOIN customers c ON c.id=a.customer_id
              LEFT JOIN v7_orders o ON o.id=a.v7_order_id
              LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
              WHERE a.id=$id AND a.status='ACTIVE' AND a.deleted_at IS NULL",
-             r => (Expires:S(r,0),CustomerId:L(r,1),ProductId:L(r,2),DefaultPrice:L(r,3),FallbackSellerId:L(r,4),FallbackSellerName:S(r,5)),("$id",activationId)).SingleOrDefault();
+             r => (Expires:S(r,0),CustomerId:L(r,1),ProductId:L(r,2),DefaultPrice:L(r,3),FallbackSellerId:L(r,4),FallbackSellerName:S(r,5),Imei:S(r,6),PlateNo:S(r,7),DeviceName:S(r,8)),("$id",activationId)).SingleOrDefault();
             if(device.CustomerId == 0) throw new InvalidOperationException("Thiết bị chưa kích hoạt hoặc đã khóa.");
 
             long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : (device.FallbackSellerId > 0 ? device.FallbackSellerId : null);
@@ -1086,7 +1095,9 @@ public sealed class DemoDb
             var renewalId = N(c,t,"SELECT last_insert_rowid()");
             Exec(c,t,"UPDATE activations SET expires_at=$new WHERE id=$id",("$new",nextStr),("$id",activationId));
             var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · NV bán hàng: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
+            var plateSegment = !string.IsNullOrWhiteSpace(device.PlateNo) ? $" · Biển số: {device.PlateNo}" : "";
+            var sellerSegment = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $" · NV bán hàng: {resolvedSellerName}" : "";
+            var sellerNote = $"Gia hạn 12 tháng · Thiết bị: {device.DeviceName} (IMEI: {device.Imei}{plateSegment}){sellerSegment}";
             Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,issued_at,due_at,amount_vnd,notes)
                VALUES($no,'RENEWAL',$c,$r,$renAt,date($renAt,'+30 days'),$price,$notes)",
                ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$renAt",renStr),("$price",price),("$notes",sellerNote));
@@ -1096,7 +1107,7 @@ public sealed class DemoDb
             if (paymentMethod == "CASH" && price > 0)
                 InsertPayment(c,t,invoiceId,price,"CASH");
             SyncUnlockedSellerCommissionInvoices(c,t);
-            Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {nextStr}; {price} VND; {source}; Seller: {resolvedSellerName}");
+            Log(c,t,"RENEW","ACTIVATION",activationId,$"Mới: {nextStr}; {price} VND; {source}; TB: {device.DeviceName}; Seller: {resolvedSellerName}");
             return 0;
         });
         NotifyDevicesChanged();
@@ -1122,10 +1133,15 @@ public sealed class DemoDb
 
         Tx((c, t) =>
         {
-            var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.is_locked, a.customer_id, a.product_id
-                FROM renewals r JOIN activations a ON a.id=r.activation_id
+            var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.is_locked, a.customer_id, a.product_id,
+                u.imei, COALESCE(a.plate_no,''),
+                COALESCE(NULLIF(a.device_type_label,''), CASE WHEN p.sku='SP000001' THEN 'XANHGPS' WHEN p.sku='DX00002' THEN 'NASA-4G-21000' WHEN p.sku='DX00003' THEN 'TG2000' ELSE p.name END, p.sku)
+                FROM renewals r
+                JOIN activations a ON a.id=r.activation_id
+                JOIN stock_units u ON u.id=a.stock_unit_id
+                JOIN products p ON p.id=a.product_id
                 WHERE r.id=$id AND r.deleted_at IS NULL",
-                r => (Id: L(r, 0), ActId: L(r, 1), IsLocked: L(r, 2) == 1, CustId: L(r, 3), ProdId: L(r, 4)),
+                r => (Id: L(r, 0), ActId: L(r, 1), IsLocked: L(r, 2) == 1, CustId: L(r, 3), ProdId: L(r, 4), Imei: S(r, 5), PlateNo: S(r, 6), DeviceName: S(r, 7)),
                 ("$id", renewalId)).SingleOrDefault();
             if (cur.Id == 0)
                 throw new InvalidOperationException("Không tìm thấy lịch sử gia hạn hoặc bản ghi đã bị xóa.");
@@ -1172,7 +1188,9 @@ public sealed class DemoDb
             }
 
             // Đồng bộ Chứng từ Kế toán (invoices, invoice_lines, payments, payment_allocations)
-            var sellerNote = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $"Gia hạn 12 tháng · NV bán hàng: {resolvedSellerName}" : "Gia hạn dịch vụ 12 tháng";
+            var plateSeg = !string.IsNullOrWhiteSpace(cur.PlateNo) ? $" · Biển số: {cur.PlateNo}" : "";
+            var sellerSeg = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $" · NV bán hàng: {resolvedSellerName}" : "";
+            var sellerNote = $"Gia hạn 12 tháng · Thiết bị: {cur.DeviceName} (IMEI: {cur.Imei}{plateSeg}){sellerSeg}";
             var invId = N(c, t, "SELECT COALESCE((SELECT id FROM invoices WHERE renewal_id=$r AND invoice_type='RENEWAL' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1), 0)", ("$r", renewalId));
             if (invId > 0)
             {
@@ -1422,8 +1440,15 @@ public sealed class DemoDb
             ELSE '-'
           END AS partner_name,
           i.amount_vnd,COALESCE(pa.paid,0),i.status,i.issued_at,i.due_at,
-          COALESCE(i.notes,''),
-          COALESCE(o.code, CASE WHEN i.renewal_id IS NOT NULL THEN 'GH#'||i.renewal_id ELSE '' END, ''),
+          CASE
+            WHEN i.renewal_id IS NOT NULL AND rp.id IS NOT NULL AND INSTR(COALESCE(i.notes,''), 'Thiết bị:') = 0
+              THEN 'Thiết bị: ' || COALESCE(NULLIF(ra.device_type_label,''), CASE WHEN rp.sku='SP000001' THEN 'XANHGPS' WHEN rp.sku='DX00002' THEN 'NASA-4G-21000' WHEN rp.sku='DX00003' THEN 'TG2000' ELSE rp.name END, rp.sku)
+                   || ' (IMEI: ' || COALESCE(ru.imei,'') || CASE WHEN COALESCE(ra.plate_no,'')<>'' THEN ' · Biển số: ' || ra.plate_no ELSE '' END || ') · ' || COALESCE(i.notes,'')
+            ELSE COALESCE(i.notes,'')
+          END,
+          COALESCE(o.code,
+            CASE WHEN i.renewal_id IS NOT NULL THEN 'GH#'||i.renewal_id || CASE WHEN rp.id IS NOT NULL THEN ' · ' || COALESCE(NULLIF(ra.device_type_label,''), CASE WHEN rp.sku='SP000001' THEN 'XANHGPS' WHEN rp.sku='DX00002' THEN 'NASA-4G-21000' WHEN rp.sku='DX00003' THEN 'TG2000' ELSE rp.name END, rp.sku) ELSE '' END ELSE '' END,
+            ''),
           CASE WHEN i.is_locked=1 OR COALESCE(r.is_locked,0)=1 THEN 1 ELSE 0 END,
           COALESCE(i.locked_at, r.locked_at, ''),
           i.renewal_id
@@ -1432,6 +1457,9 @@ public sealed class DemoDb
           LEFT JOIN suppliers s ON s.id=i.supplier_id
           LEFT JOIN v7_orders o ON o.id=i.v7_order_id
           LEFT JOIN renewals r ON r.id=i.renewal_id AND r.deleted_at IS NULL
+          LEFT JOIN activations ra ON ra.id=r.activation_id
+          LEFT JOIN stock_units ru ON ru.id=ra.stock_unit_id
+          LEFT JOIN products rp ON rp.id=ra.product_id
           LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) AS paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) pa ON pa.invoice_id=i.id
           WHERE i.deleted_at IS NULL
           ORDER BY i.id DESC",
@@ -2009,20 +2037,26 @@ public sealed class DemoDb
 
             // 3. Đối soát lịch sử gia hạn (renewals) chưa có chứng từ RENEWAL
             var missingRenewals = QueryTx(c, t, @"
-                SELECT r.id, a.customer_id, a.product_id, r.amount_vnd, r.payment_method, COALESCE(r.seller_name,'')
+                SELECT r.id, a.customer_id, a.product_id, r.amount_vnd, r.payment_method, COALESCE(r.seller_name,''),
+                       u.imei, COALESCE(a.plate_no,''),
+                       COALESCE(NULLIF(a.device_type_label,''), CASE WHEN p.sku='SP000001' THEN 'XANHGPS' WHEN p.sku='DX00002' THEN 'NASA-4G-21000' WHEN p.sku='DX00003' THEN 'TG2000' ELSE p.name END, p.sku)
                 FROM renewals r
                 JOIN activations a ON a.id=r.activation_id
+                JOIN stock_units u ON u.id=a.stock_unit_id
+                JOIN products p ON p.id=a.product_id
                 WHERE r.deleted_at IS NULL AND r.amount_vnd > 0
                   AND NOT EXISTS (
                       SELECT 1 FROM invoices i
                       WHERE i.renewal_id=r.id AND i.invoice_type='RENEWAL' AND i.deleted_at IS NULL AND i.status<>'VOID'
                   )",
-                r => (Id: L(r, 0), CustId: L(r, 1), ProdId: L(r, 2), Price: L(r, 3), PayMethod: S(r, 4), SellerName: S(r, 5)));
+                r => (Id: L(r, 0), CustId: L(r, 1), ProdId: L(r, 2), Price: L(r, 3), PayMethod: S(r, 4), SellerName: S(r, 5), Imei: S(r, 6), PlateNo: S(r, 7), DeviceName: S(r, 8)));
 
             foreach (var ren in missingRenewals)
             {
                 var invNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-                var note = !string.IsNullOrWhiteSpace(ren.SellerName) ? $"Gia hạn 12 tháng · NV bán hàng: {ren.SellerName}" : "Gia hạn dịch vụ 12 tháng";
+                var plateSeg = !string.IsNullOrWhiteSpace(ren.PlateNo) ? $" · Biển số: {ren.PlateNo}" : "";
+                var sellerSeg = !string.IsNullOrWhiteSpace(ren.SellerName) ? $" · NV bán hàng: {ren.SellerName}" : "";
+                var note = $"Gia hạn 12 tháng · Thiết bị: {ren.DeviceName} (IMEI: {ren.Imei}{plateSeg}){sellerSeg}";
                 Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,due_at,amount_vnd,notes)
                     VALUES($no,'RENEWAL',$c,$r,date('now','+30 days'),$amt,$note)",
                     ("$no", invNo), ("$c", ren.CustId), ("$r", ren.Id), ("$amt", ren.Price), ("$note", note));

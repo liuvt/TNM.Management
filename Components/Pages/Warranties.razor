@@ -144,6 +144,81 @@
     </section>
 </div>
 
+@if (editingCaseId > 0)
+{
+    <section class="panel edit-panel" style="margin-bottom:14px;background:#f8fafc;border:1px solid #93c5fd">
+        <div class="panel-head">
+            <div>
+                <h2>✏️ Chỉnh sửa phiếu bảo hành #BH-@editingCaseId.ToString("D4") (@editingCaseLabel)</h2>
+                <p>Cập nhật nội dung lỗi, ghi chú xử lý, nhà cung cấp, mốc thời gian và trạng thái phiếu bảo hành (đồng bộ tự động trạng thái thiết bị trong kho/khách hàng).</p>
+            </div>
+            <button type="button" class="btn secondary btn-sm" @onclick="CancelEditCase">Đóng</button>
+        </div>
+        <div class="form-grid">
+            <label>Mô tả lỗi / sự cố khách báo *
+                <input @bind="editProblem" placeholder="VD: Mất tín hiệu GPS, không truyền dữ liệu, lỗi nguồn..." />
+            </label>
+            <label>Ghi chú tiếp nhận / Kết quả xử lý
+                <input @bind="editNote" placeholder="VD: Đã gửi hãng / Đã sửa xong bo mạch, trả lại xe khách..." />
+            </label>
+            <label>Trạng thái phiếu bảo hành *
+                <select @bind="editStatus">
+                    <option value="RECEIVED">1. Đã tiếp nhận (Chờ xử lý - RECEIVED)</option>
+                    <option value="SENT_SUPPLIER">2. Đang gửi Nhà cung cấp / Hãng (SENT_SUPPLIER)</option>
+                    <option value="COMPLETED">3. Đã hoàn tất bảo hành (COMPLETED)</option>
+                    <option value="CANCELLED">Đã hủy phiếu bảo hành (CANCELLED)</option>
+                </select>
+            </label>
+            <label>Nhà cung cấp / Hãng bảo hành
+                <select @bind="editSupplierId">
+                    <option value="0">— Chưa chọn / Không gửi NCC —</option>
+                    @foreach (var s in suppliers)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            </label>
+            <label>Ngày tiếp nhận *
+                <input type="date" @bind="editReceivedDate" />
+            </label>
+            <label>Ngày gửi NCC (nếu có)
+                <input type="date" @bind="editSentDate" />
+            </label>
+            <label>Ngày hoàn tất / Đóng phiếu (nếu có)
+                <input type="date" @bind="editCompletedDate" />
+            </label>
+            @if (editStatus is "COMPLETED" or "CANCELLED")
+            {
+                <label>Đích trả thiết bị khi hoàn tất / hủy *
+                    <select @bind="editReturnTarget">
+                        <option value="CUSTOMER">Trả lại lắp trên xe Khách hàng / Đại lý (INSTALLED)</option>
+                        <option value="WAREHOUSE">Nhập lại vào Kho TNM (IN_STOCK)</option>
+                    </select>
+                </label>
+                @if (editReturnTarget == "WAREHOUSE")
+                {
+                    <label>Kho nhận thiết bị *
+                        <select @bind="editWarehouseId">
+                            @foreach (var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </label>
+                }
+            }
+        </div>
+        <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="btn" @onclick="SaveEditCase">💾 Lưu chỉnh sửa phiếu #BH-@editingCaseId.ToString("D4")</button>
+            <button type="button" class="btn secondary" @onclick="CancelEditCase">Hủy</button>
+            @if (!string.IsNullOrWhiteSpace(editCaseMessage))
+            {
+                <span class="feedback">@editCaseMessage</span>
+            }
+        </div>
+    </section>
+}
+
 @{
     var searchedWarranties = warranties.Where(MatchSearch).ToList();
     var countAll = searchedWarranties.Count;
@@ -276,20 +351,18 @@
                             }
                         </td>
                         <td>
-                            @if (x.Status is "RECEIVED" or "SENT_SUPPLIER")
-                            {
-                                <div style="display:flex;gap:4px;flex-wrap:wrap">
-                                    @if (x.Status == "RECEIVED")
-                                    {
-                                        <button type="button" class="btn secondary btn-sm" @onclick='() => OpenQuickUpdate(x, "SENT_SUPPLIER")'>Gửi NCC</button>
-                                    }
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+                                @if (x.Status == "RECEIVED")
+                                {
+                                    <button type="button" class="btn secondary btn-sm" @onclick='() => OpenQuickUpdate(x, "SENT_SUPPLIER")'>Gửi NCC</button>
+                                }
+                                @if (x.Status is "RECEIVED" or "SENT_SUPPLIER")
+                                {
                                     <button type="button" class="btn btn-sm" @onclick='() => OpenQuickUpdate(x, "COMPLETED")'>Hoàn tất / Trả</button>
-                                </div>
-                            }
-                            else
-                            {
-                                <small style="color:#64748b">Đã đóng phiếu</small>
-                            }
+                                }
+                                <button type="button" class="btn secondary btn-sm" title="Chỉnh sửa thông tin phiếu bảo hành #BH-@x.Id.ToString("D4")" @onclick="() => StartEditCase(x)">✏️ Sửa</button>
+                                <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" title="Xóa phiếu bảo hành #BH-@x.Id.ToString("D4")" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa phiếu bảo hành #BH-{x.Id:D4} (IMEI: {x.Imei}{(string.IsNullOrWhiteSpace(x.PlateNo) ? "" : $", Biển số: {x.PlateNo}")}) không? Nếu thiết bị đang ở trạng thái Bảo hành, hệ thống sẽ tự động trả lại trạng thái ban đầu.")" @onclick="() => DeleteCase(x)">🗑 Xóa</button>
+                            </div>
                         </td>
                     </tr>
                 }
@@ -316,6 +389,12 @@
     private List<WarehousePick> warehouses = [];
     private List<WarrantyRow> warranties = [];
 
+    // State chỉnh sửa / xóa phiếu bảo hành
+    private long editingCaseId, editSupplierId, editWarehouseId;
+    private string editingCaseLabel = "", editProblem = "", editNote = "", editStatus = "RECEIVED", editReturnTarget = "CUSTOMER", editCaseMessage = "";
+    private DateTime editReceivedDate = DateTime.Today;
+    private DateTime? editSentDate, editCompletedDate;
+
     protected override async Task OnInitializedAsync()
     {
         actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
@@ -323,6 +402,7 @@
         suppliers = Ops.Suppliers();
         supplier = suppliers.FirstOrDefault()?.Id ?? 0;
         warehouse = warehouses.FirstOrDefault()?.Id ?? 0;
+        editWarehouseId = warehouse;
         Reload();
     }
 
@@ -367,6 +447,76 @@
         statusMessage = "";
         showStatus = true;
         showCreate = false;
+        editingCaseId = 0;
+    }
+
+    private void StartEditCase(WarrantyRow row)
+    {
+        editingCaseId = row.Id;
+        editingCaseLabel = string.IsNullOrWhiteSpace(row.PlateNo) ? $"IMEI: {row.Imei}" : $"{row.PlateNo} · IMEI: {row.Imei}";
+        editProblem = row.Problem ?? "";
+        editNote = row.Notes ?? "";
+        editStatus = string.IsNullOrWhiteSpace(row.Status) ? "RECEIVED" : row.Status;
+        editSupplierId = row.SupplierId ?? 0;
+        editReturnTarget = row.CustomerId is > 0 ? "CUSTOMER" : "WAREHOUSE";
+        editWarehouseId = warehouses.FirstOrDefault()?.Id ?? 1;
+        editReceivedDate = DateTime.TryParse(row.Received, out var rdt) ? rdt.Date : DateTime.Today;
+        editSentDate = DateTime.TryParse(row.SentSupplierAt, out var sdt) ? sdt.Date : null;
+        editCompletedDate = DateTime.TryParse(row.CompletedAt, out var cdt) ? cdt.Date : null;
+        editCaseMessage = "";
+        showCreate = false;
+        showStatus = false;
+    }
+
+    private void CancelEditCase()
+    {
+        editingCaseId = 0;
+        editCaseMessage = "";
+    }
+
+    private async Task SaveEditCase()
+    {
+        try
+        {
+            actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
+            var id = editingCaseId;
+            Ops.UpdateWarranty(
+                actor,
+                id,
+                editProblem,
+                editNote,
+                editStatus,
+                editReceivedDate.ToString("yyyy-MM-dd"),
+                editSupplierId > 0 ? editSupplierId : (long?)null,
+                editSentDate?.ToString("yyyy-MM-dd"),
+                editCompletedDate?.ToString("yyyy-MM-dd"),
+                editReturnTarget,
+                editWarehouseId);
+            editingCaseId = 0;
+            editCaseMessage = "";
+            Reload();
+            message = $"Đã cập nhật chỉnh sửa phiếu bảo hành #BH-{id:D4} thành công.";
+        }
+        catch (Exception e)
+        {
+            editCaseMessage = "Lỗi: " + e.Message;
+        }
+    }
+
+    private async Task DeleteCase(WarrantyRow row)
+    {
+        try
+        {
+            actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
+            Ops.DeleteWarranty(actor, row.Id);
+            if (editingCaseId == row.Id) CancelEditCase();
+            Reload();
+            message = $"Đã xóa phiếu bảo hành #BH-{row.Id:D4} (IMEI: {row.Imei}) và khôi phục trạng thái thiết bị.";
+        }
+        catch (Exception e)
+        {
+            message = "Lỗi: " + e.Message;
+        }
     }
 
     private static string StatusLabel(string st) => st switch

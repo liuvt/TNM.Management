@@ -56,15 +56,22 @@
 </div>
 }
 
-@if(canRenew){<div class="panel edit-panel" hidden="@(!showRenew)"><div class="panel-head"><div><h2>Gia hạn thiết bị</h2><p>Chọn thiết bị IMEI và nhân viên bán hàng phụ trách gia hạn để thống kê cuối kỳ và tính hoa hồng.</p></div></div>
+@if(canRenew){
+    var selectedRenewDevice = devices.FirstOrDefault(x => x.ActivationId == activationId);
+    var selectedRenewDeviceName = selectedRenewDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedRenewDevice.DeviceTypeLabel) ? selectedRenewDevice.Sku : selectedRenewDevice.DeviceTypeLabel);
+    <div class="panel edit-panel" hidden="@(!showRenew)"><div class="panel-head"><div><h2>Gia hạn thiết bị</h2><p>Chọn thiết bị IMEI và nhân viên bán hàng phụ trách gia hạn để thống kê cuối kỳ và tính hoa hồng.</p></div></div>
 <div class="form-grid">
 <label>Thiết bị / biển số *
     <select @bind="activationId" @bind:after="OnRenewDeviceSelected">
         @foreach(var x in devices)
         {
-            <option value="@x.ActivationId">@x.Imei — @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hết hạn: @x.ExpiresAt</option>
+            var devLabel = string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel;
+            <option value="@x.ActivationId">@x.Imei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hết hạn: @x.ExpiresAt</option>
         }
     </select>
+</label>
+<label>Tên thiết bị (Mã SKU)
+    <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDeviceName} ({selectedRenewDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
 <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
     <select @bind="renewSellerId">
@@ -93,15 +100,22 @@
 <div class="form-actions"><button class="btn" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
 </div>}
 
-@if(canRenew || canUpdateDevice){<div class="panel edit-panel" hidden="@(!showEditAct)"><div class="panel-head"><div><h2>Cập nhật Thời gian gia hạn (Ngày hết hạn), Ngày kích hoạt IMEI &amp; Thông tin thiết bị</h2><p>Cho phép điều chỉnh Ngày kích hoạt, Ngày hết hạn (thời gian gia hạn), nhân viên bán hàng phụ trách, Biển số xe và Thông tin phụ cho đến khi Kế toán chốt số / khóa số.</p></div></div>
+@if(canRenew || canUpdateDevice){
+    var selectedEditDevice = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
+    var selectedEditDeviceName = selectedEditDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedEditDevice.DeviceTypeLabel) ? selectedEditDevice.Sku : selectedEditDevice.DeviceTypeLabel);
+    <div class="panel edit-panel" hidden="@(!showEditAct)"><div class="panel-head"><div><h2>Cập nhật Thời gian gia hạn (Ngày hết hạn), Ngày kích hoạt IMEI &amp; Thông tin thiết bị</h2><p>Cho phép điều chỉnh Ngày kích hoạt, Ngày hết hạn (thời gian gia hạn), nhân viên bán hàng phụ trách, Biển số xe và Thông tin phụ cho đến khi Kế toán chốt số / khóa số.</p></div></div>
 <div class="form-grid">
 <label>Chọn thiết bị IMEI
     <select @bind="editActivationId" @bind:after="OnEditDeviceSelected">
         @foreach(var x in devices)
         {
-            <option value="@x.ActivationId">@x.Imei — @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hạn: @x.ExpiresAt</option>
+            var devLabel = string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel;
+            <option value="@x.ActivationId">@x.Imei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hạn: @x.ExpiresAt</option>
         }
     </select>
+</label>
+<label>Tên thiết bị (Mã SKU)
+    <input readonly value="@(selectedEditDevice is null ? "—" : $"{selectedEditDeviceName} ({selectedEditDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
 <label>Ngày kích hoạt IMEI *
     <input type="date" @bind="editActivatedDate" @bind:after="OnEditActivatedOrDurationChanged" />
@@ -340,12 +354,15 @@
     <div class="panel edit-panel" style="margin-bottom:14px;background:#f8fafc;border:1px solid #93c5fd">
         <div class="panel-head">
             <div>
-                <h2>Cập nhật Lịch sử gia hạn #@editingRenewalId (IMEI: @editingRenewalImei)</h2>
+                <h2>Cập nhật Lịch sử gia hạn #@editingRenewalId (IMEI: @editingRenewalImei · Thiết bị: @editingRenewalDeviceName)</h2>
                 <p>Thay đổi thời gian gia hạn, số tiền, hình thức thanh toán hoặc nhân viên bán hàng sẽ tự động cập nhật lại hạn thiết bị và các luồng Kế toán (Doanh thu, Công nợ, Sổ quỹ &amp; Hoa hồng nhân viên bán hàng).</p>
             </div>
             <button type="button" class="btn secondary btn-sm" @onclick="CancelEditRenewal">Đóng</button>
         </div>
         <div class="form-grid">
+            <label>Tên thiết bị (Mã SKU)
+                <input readonly value="@editingRenewalDeviceName" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
+            </label>
             <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
                 <select @bind="editRenewalSellerId">
                     <option value="0">— Chưa gán nhân viên bán hàng —</option>
@@ -401,10 +418,17 @@
     </div>
 }
 @{ var pagedRenewals = renewalPager.Slice(FilteredRenewals, out var totalRenewals); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>NV BÁN HÀNG GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN CŨ → HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th><th>TRẠNG THÁI KT</th><th>THAO TÁC</th></tr></thead><tbody>
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>TÊN THIẾT BỊ</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>NV BÁN HÀNG GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN CŨ → HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th><th>TRẠNG THÁI KT</th><th>THAO TÁC</th></tr></thead><tbody>
 @foreach(var (stt, x) in pagedRenewals){<tr>
     <td><strong>@stt</strong></td>
     <td><strong>@x.Imei</strong></td>
+    <td>
+        <span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.DeviceName) ? (string.IsNullOrWhiteSpace(x.ProductSku) ? "—" : x.ProductSku) : x.DeviceName)</span>
+        @if(!string.IsNullOrWhiteSpace(x.ProductSku))
+        {
+            <div><small style="color:#64748b">@x.ProductSku</small></div>
+        }
+    </td>
     <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td>
     <td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td>
     <td>@x.Source</td>
@@ -516,7 +540,7 @@
 
  // State chỉnh sửa / xóa lịch sử gia hạn
  private long editingRenewalId, confirmDeleteRenewalId, editRenewalSellerId, editRenewalPrice = 500_000;
- private string editingRenewalImei = "", editRenewalSource = "TNM", editRenewalPayMethod = "DEBT";
+ private string editingRenewalImei = "", editingRenewalDeviceName = "", editRenewalSource = "TNM", editRenewalPayMethod = "DEBT";
  private DateTime editRenewalStartDate = DateTime.Today, editRenewalPrevExpiry = DateTime.Today, editRenewalEndDate = DateTime.Today.AddYears(1);
 
  private IEnumerable<RenewalVm> FilteredRenewals => renewals.Where(r => string.IsNullOrWhiteSpace(historySellerFilter) || r.SellerName.Contains(historySellerFilter, StringComparison.OrdinalIgnoreCase));
@@ -584,6 +608,9 @@
  private void StartEditRenewal(RenewalVm r){
   editingRenewalId = r.Id;
   editingRenewalImei = r.Imei;
+  editingRenewalDeviceName = string.IsNullOrWhiteSpace(r.DeviceName)
+   ? (string.IsNullOrWhiteSpace(r.ProductSku) ? "—" : r.ProductSku)
+   : (string.IsNullOrWhiteSpace(r.ProductSku) ? r.DeviceName : $"{r.DeviceName} ({r.ProductSku})");
   editRenewalSellerId = r.SellerId ?? 0;
   if (editRenewalSellerId == 0 && !string.IsNullOrWhiteSpace(r.SellerName))
   {
@@ -601,6 +628,7 @@
  private void CancelEditRenewal(){
   editingRenewalId = 0;
   editingRenewalImei = "";
+  editingRenewalDeviceName = "";
  }
  private async Task SaveRenewalEdit(){
   try{

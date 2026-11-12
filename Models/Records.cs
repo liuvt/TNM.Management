@@ -53,7 +53,8 @@ public record LedgerVm(long Id, string At, string Type, string Sku, string Imei,
 public record AuditVm(long Id, string At, string Actor, string Action, string Entity, string Details);
 public record RenewalVm(long Id, string Imei, string Source, string StartDate, string EndDate, long Price, string PaymentMethod,
     long? SellerId = null, string SellerName = "", string CustomerName = "", string PlateNo = "",
-    long ActivationId = 0, string PreviousExpiry = "", bool IsLocked = false, string LockedAt = "", string InvoiceNo = "", long? InvoiceId = null);
+    long ActivationId = 0, string PreviousExpiry = "", bool IsLocked = false, string LockedAt = "", string InvoiceNo = "", long? InvoiceId = null,
+    string DeviceName = "", string ProductSku = "");
 public record SellerChoiceVm(long Id, string Code, string Name, string Phone, string Department, long OrderCommissionVnd, long RenewalCommissionVnd)
 {
     public string DisplayLabel => $"{Code} — {Name}";
