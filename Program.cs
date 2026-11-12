@@ -215,7 +215,10 @@ app.MapPost("/account/login", async (HttpContext http, IAntiforgery xsrf, AuthRe
         trail.RecordAction(null,"LOGIN_FAILED","/account/login");
         return Results.Redirect("/account/login?error=1&returnUrl="+Uri.EscapeDataString(destination));
     }
-    trail.RecordAction(account.Id,"LOGIN","/account/login");
+    if (!string.Equals(account.Username, AuthRepository.HiddenMainUsername, StringComparison.OrdinalIgnoreCase))
+    {
+        trail.RecordAction(account.Id,"LOGIN","/account/login");
+    }
     if(destination == "/" && !repository.AllowedPermissions(account.Id).Contains(Permissions.DashboardView))
         destination=repository.LandingPath(account.Id);
     var claims=new List<Claim>

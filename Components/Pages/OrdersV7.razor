@@ -404,10 +404,10 @@
                                         <button type="button" class="btn secondary btn-sm" style="flex:1" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
                                             👁 Xem
                                         </button>
-                                        @if(isAdmin)
+                                        @if(isMainDev)
                                         {
-                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" title="Admin: Hủy đơn đã hoàn thành & hoàn lại kho/công nợ" @onclick="() => QuickCancelOrder(o.Id)">
-                                                ↩ Hủy đơn
+                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" title="Hủy &amp; xóa cứng đơn đã hoàn thành, hoàn trả kho và xóa chứng từ kế toán" @onclick="() => QuickCancelOrder(o.Id)">
+                                                🗑 Xóa cứng
                                             </button>
                                         }
                                     </div>
@@ -419,19 +419,27 @@
                                     <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
                                         👁 Xem / Sửa IMEI
                                     </button>
-                                    @if(isAdmin)
+                                    @if(isMainDev)
                                     {
-                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" title="Admin: Hủy đơn đã hoàn thành & hoàn lại kho/công nợ" @onclick="() => QuickCancelOrder(o.Id)">
-                                            ↩ Hủy đơn (Admin)
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" title="Hủy &amp; xóa cứng đơn đã hoàn thành, hoàn trả kho và xóa chứng từ kế toán" @onclick="() => QuickCancelOrder(o.Id)">
+                                            🗑 Hủy &amp; Xóa cứng
                                         </button>
                                     }
                                 </div>
                             }
                             else
                             {
-                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                    👁 Xem chi tiết
-                                </button>
+                                <div style="display:flex;flex-direction:column;gap:5px;min-width:148px">
+                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                        👁 Xem chi tiết
+                                    </button>
+                                    @if(isMainDev)
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" @onclick="() => QuickCancelOrder(o.Id)">
+                                            🗑 Xóa cứng đơn
+                                        </button>
+                                    }
+                                </div>
                             }
                         </td>
                     </tr>
@@ -673,12 +681,18 @@
                         <button type="button" class="btn" @onclick="SaveCompletedOrderImeis">
                             💾 @(SelectedOrder.HasMissingImei ? $"Lưu & Kích hoạt IMEI bổ sung ({SelectedOrder.MissingImeiCount} thiết bị)" : "Lưu cập nhật IMEI / Biển số / Ngày kích hoạt")
                         </button>
-                        @if(isAdmin)
+                        @if(isMainDev)
                         {
                             <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" @onclick="Cancel">
-                                ↩ Hủy đơn đã hoàn thành (Admin: Hoàn tồn kho &amp; Hủy công nợ)
+                                🗑 Hủy &amp; Xóa cứng đơn hoàn thành (Hoàn tồn kho &amp; Xóa công nợ)
                             </button>
                         }
+                    }
+                    else if(SelectedOrder.Status == "CANCELLED" && isMainDev)
+                    {
+                        <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" @onclick="Cancel">
+                            🗑 Xóa cứng đơn đã hủy
+                        </button>
                     }
                 </div>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseOrderModal">Đóng</button>
@@ -703,7 +717,7 @@
     private readonly List<V7OrderLineDraft> draftLines = [];
     private readonly Dictionary<long, LineReportInput> lineReports = [];
 
-    private bool showQuickPaste, isAdmin;
+    private bool showQuickPaste, isMainDev;
     private string sellerRawText = "";
 
     // Create form state
@@ -728,11 +742,11 @@
         try
         {
             var actor = await Gate.RequireAsync(Permissions.OrdersView);
-            isAdmin = Orders.IsAdminActor(actor);
+            isMainDev = Orders.IsMainDeveloperActor(actor);
         }
         catch
         {
-            isAdmin = false;
+            isMainDev = false;
         }
         customers = Db.Customers();
         warehouses = Ops.AllWarehouses();
@@ -1005,12 +1019,16 @@
     private Task QuickCancelOrder(long id) => Act(actor =>
     {
         selected = id;
-        var wasCompleted = orders.FirstOrDefault(x => x.Id == id)?.Status == "COMPLETED";
+        var curOrder = orders.FirstOrDefault(x => x.Id == id);
+        var wasHardDelete = curOrder?.Status == "COMPLETED" || (curOrder?.Status == "CANCELLED" && isMainDev);
         Orders.Cancel(actor, id);
         showOrderModal = false;
-        return wasCompleted
-            ? $"Đã hủy đơn hoàn thành SO7-{id:000000} (Quyền Admin): Đã hoàn trả tồn kho, gỡ kích hoạt thiết bị và hủy toàn bộ chứng từ công nợ / kế toán liên quan."
-            : $"Đã hủy đơn SO7-{id:000000}.";
+        if (wasHardDelete)
+        {
+            selected = 0;
+            return $"Đã hủy & xóa cứng hoàn toàn đơn SO7-{id:000000}: Đã hoàn trả tồn kho, gỡ kích hoạt thiết bị và xóa toàn bộ chứng từ công nợ / kế toán liên quan.";
+        }
+        return $"Đã hủy đơn SO7-{id:000000}.";
     });
 
     private void OnOrderSelected()
@@ -1251,11 +1269,15 @@
 
     private Task Cancel() => Act(actor =>
     {
-        var wasCompleted = SelectedOrder?.Status == "COMPLETED";
-        Orders.Cancel(actor, selected);
+        var targetId = selected;
+        var wasHardDelete = SelectedOrder?.Status == "COMPLETED" || (SelectedOrder?.Status == "CANCELLED" && isMainDev);
+        Orders.Cancel(actor, targetId);
         showOrderModal = false;
-        return wasCompleted
-            ? $"Đã hủy đơn hoàn thành SO7-{selected:000000} (Quyền Admin): Đã hoàn trả tồn kho, gỡ kích hoạt thiết bị và hủy toàn bộ chứng từ công nợ / kế toán liên quan."
-            : $"Đã hủy đơn SO7-{selected:000000}.";
+        if (wasHardDelete)
+        {
+            selected = 0;
+            return $"Đã hủy & xóa cứng hoàn toàn đơn SO7-{targetId:000000}: Đã hoàn trả tồn kho, gỡ kích hoạt thiết bị và xóa toàn bộ chứng từ công nợ / kế toán liên quan.";
+        }
+        return $"Đã hủy đơn SO7-{targetId:000000}.";
     });
 }

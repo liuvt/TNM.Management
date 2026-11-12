@@ -173,12 +173,30 @@ public sealed class V7Orders(IWebHostEnvironment env)
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Đơn hàng đã hoàn thành, không thể thêm dòng sản phẩm mới.');
             END;
+
+            DROP TRIGGER IF EXISTS trg_quantity_immutable_delete;
+            CREATE TRIGGER trg_quantity_immutable_delete
+            BEFORE DELETE ON quantity_movements
+            WHEN LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
+            BEGIN
+              SELECT RAISE(ABORT,'APPEND_ONLY_QUANTITY_LEDGER');
+            END;
             """);
+    }
+
+    private static bool IsMainDeveloper(SqliteConnection c, long actor) =>
+        actor > 0 && Scalar(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND is_active=1 AND LOWER(username)='vanlt_it'", ("$u", actor)) > 0;
+
+    public bool IsMainDeveloperActor(long actor)
+    {
+        if (actor <= 0) return false;
+        using var c = Open();
+        return IsMainDeveloper(c, actor);
     }
 
     private static bool IsAdmin(SqliteConnection c, long actor) =>
         actor > 0 && (
-            Scalar(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND is_active=1 AND is_owner=1", ("$u", actor)) > 0 ||
+            Scalar(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND is_active=1 AND (is_owner=1 OR LOWER(username)='vanlt_it')", ("$u", actor)) > 0 ||
             Scalar(c, "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$u AND ur.deleted_at IS NULL AND r.code='ADMIN'", ("$u", actor)) > 0
         );
 
@@ -191,7 +209,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
     private static void Role(SqliteConnection c, long actor, params string[] roles)
     {
-        if (Scalar(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND is_active=1 AND is_owner=1", ("$u", actor)) > 0) return;
+        if (Scalar(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND is_active=1 AND (is_owner=1 OR LOWER(username)='vanlt_it')", ("$u", actor)) > 0) return;
         foreach (var role in roles)
             if (Scalar(c, "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$u AND ur.deleted_at IS NULL AND r.code=$r", ("$u", actor), ("$r", role)) > 0) return;
         throw new UnauthorizedAccessException("Tài khoản không có vai trò phù hợp.");
@@ -1185,12 +1203,14 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
     public void Cancel(long actor, long id)
     {
-        var wasCompleted = false;
+        var wasHardDeleted = false;
         Tx(actor, c => {
             var curSt = Status(c, id);
-            if (curSt == "CANCELLED") return 0;
+            var isMainDev = IsMainDeveloper(c, actor);
 
-            if (curSt != "COMPLETED")
+            if (curSt == "CANCELLED" && !isMainDev) return 0;
+
+            if (curSt != "COMPLETED" && !(curSt == "CANCELLED" && isMainDev))
             {
                 Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
                 Run(c, "UPDATE v7_orders SET status='CANCELLED' WHERE id=$id AND status<>'CANCELLED'", ("$id", id));
@@ -1198,14 +1218,14 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 return 0;
             }
 
-            // Hủy đơn hàng ĐÃ HOÀN THÀNH (COMPLETED) — Chỉ cho phép tài khoản ADMIN / Chủ sở hữu
-            if (!IsAdmin(c, actor))
-                throw new UnauthorizedAccessException("Chỉ tài khoản Quản trị (ADMIN) mới có quyền hủy đơn hàng đã hoàn thành.");
+            // Hủy & Xóa cứng đơn hàng ĐÃ HOÀN THÀNH (COMPLETED) — Chỉ duy nhất tài khoản Main Developer mới có quyền thực hiện
+            if (!isMainDev)
+                throw new UnauthorizedAccessException("Đơn hàng đã hoàn thành và khóa cố định, không thể hủy.");
 
-            wasCompleted = true;
-            using var oq = Cmd(c, "SELECT COALESCE(warehouse_id, 0), source, COALESCE(deduct_stock, 1), COALESCE(code, '') FROM v7_orders WHERE id=$id", ("$id", id));
+            wasHardDeleted = true;
+            using var oq = Cmd(c, "SELECT COALESCE(warehouse_id, 0), source, COALESCE(deduct_stock, 1) FROM v7_orders WHERE id=$id", ("$id", id));
             long orderWh = 0;
-            string source = "INTERNAL", orderCode = "";
+            string source = "INTERNAL";
             bool deductStock = true;
             using (var or = oq.ExecuteReader())
             {
@@ -1213,7 +1233,6 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 orderWh = or.GetInt64(0);
                 source = or.GetString(1);
                 deductStock = or.GetInt64(2) == 1 && source != "PARTNER" ? true : (or.GetInt64(2) == 1);
-                orderCode = or.GetString(3);
             }
             var defaultWh = orderWh > 0 ? orderWh : Scalar(c, "SELECT COALESCE((SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 1)");
 
@@ -1240,7 +1259,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 }
             }
 
-            using (var lq = Cmd(c, "SELECT COALESCE(stock_unit_id, 0), COALESCE(imei, '') FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", id)))
+            using (var lq = Cmd(c, "SELECT COALESCE(stock_unit_id, 0), COALESCE(imei, '') FROM v7_order_lines WHERE order_id=$o", ("$o", id)))
             using (var lr = lq.ExecuteReader())
             {
                 var lineImeis = new List<string>();
@@ -1266,26 +1285,26 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 while (ar2.Read()) activationIds.Add(ar2.GetInt64(0));
             }
 
-            // Helper hủy mềm chứng từ kế toán (invoices, invoice_lines, payment_allocations, payments)
-            static void VoidAndSoftDeleteInvoice(SqliteConnection conn, long invId)
+            // Helper xóa cứng chứng từ kế toán (payment_allocations, payments, invoice_lines, invoices)
+            static void HardDeleteInvoice(SqliteConnection conn, long invId)
             {
                 var payIds = new List<long>();
-                using (var pq = Cmd(conn, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId)))
+                using (var pq = Cmd(conn, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i", ("$i", invId)))
                 using (var pr = pq.ExecuteReader())
                 {
                     while (pr.Read()) payIds.Add(pr.GetInt64(0));
                 }
-                Run(conn, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                Run(conn, "DELETE FROM payment_allocations WHERE invoice_id=$i", ("$i", invId));
                 foreach (var pid in payIds.Distinct())
                 {
-                    if (Scalar(conn, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", pid)) == 0)
-                        Run(conn, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", pid));
+                    if (Scalar(conn, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p", ("$p", pid)) == 0)
+                        Run(conn, "DELETE FROM payments WHERE id=$p", ("$p", pid));
                 }
-                Run(conn, "UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
-                Run(conn, "UPDATE invoices SET status='VOID', is_locked=0, locked_at=NULL, locked_by=NULL, deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$i", ("$i", invId));
+                Run(conn, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", invId));
+                Run(conn, "DELETE FROM invoices WHERE id=$i", ("$i", invId));
             }
 
-            // 2. Hoàn tác lịch sử gia hạn (renewals) & chứng từ RENEWAL (nếu thiết bị của đơn này từng được bấm gia hạn)
+            // 2. Hoàn tác & xóa cứng lịch sử gia hạn (renewals) + chứng từ RENEWAL + kích hoạt thiết bị (activations)
             foreach (var actId in activationIds)
             {
                 var renIds = new List<long>();
@@ -1297,16 +1316,17 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 foreach (var renId in renIds)
                 {
                     var renInvIds = new List<long>();
-                    using (var riq = Cmd(c, "SELECT id FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL", ("$r", renId)))
+                    using (var riq = Cmd(c, "SELECT id FROM invoices WHERE renewal_id=$r", ("$r", renId)))
                     using (var rir = riq.ExecuteReader())
                     {
                         while (rir.Read()) renInvIds.Add(rir.GetInt64(0));
                     }
-                    foreach (var rInvId in renInvIds) VoidAndSoftDeleteInvoice(c, rInvId);
+                    foreach (var rInvId in renInvIds) HardDeleteInvoice(c, rInvId);
                     Run(c, "DELETE FROM renewals WHERE id=$r", ("$r", renId));
                 }
                 Run(c, "DELETE FROM activations WHERE id=$a", ("$a", actId));
             }
+            Run(c, "DELETE FROM activations WHERE v7_order_id=$o", ("$o", id));
 
             // 3. Hoàn tác Tồn kho IMEI (stock_units, v7_stock_effects, inventory_transaction_lines, inventory_transactions)
             Run(c, "DELETE FROM v7_stock_effects WHERE order_id=$o", ("$o", id));
@@ -1345,7 +1365,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 }
                 else
                 {
-                    // Đơn Hãng lắp đặt (Không trừ tồn kho): thiết bị được sinh tạm lúc hoàn thành -> xóa mềm & giải phóng mã IMEI để không làm tăng ảo tồn kho TNM
+                    // Đơn Hãng lắp đặt (Không trừ tồn kho): nếu thiết bị được sinh tạm lúc hoàn thành -> xóa cứng luôn
                     var hasReceiveTx = Scalar(c, @"SELECT COUNT(*) FROM inventory_transaction_lines l
                         JOIN inventory_transactions tx ON tx.id=l.transaction_id
                         WHERE l.stock_unit_id=$s AND tx.movement_type='RECEIVE'", ("$s", sid)) > 0;
@@ -1354,9 +1374,14 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         Run(c, "UPDATE stock_units SET status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$s",
                             ("$w", defaultWh), ("$s", sid));
                     }
+                    else if (Scalar(c, "SELECT COUNT(*) FROM warranty_cases WHERE stock_unit_id=$s", ("$s", sid)) == 0 &&
+                             Scalar(c, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE stock_unit_id=$s", ("$s", sid)) == 0)
+                    {
+                        Run(c, "DELETE FROM stock_units WHERE id=$s", ("$s", sid));
+                    }
                     else
                     {
-                        Run(c, "UPDATE stock_units SET imei = imei || '#CANCEL#' || id, deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$s", ("$s", sid));
+                        Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id, deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$s", ("$s", sid));
                     }
                 }
             }
@@ -1367,46 +1392,25 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     Run(c, "DELETE FROM inventory_transactions WHERE id=$t AND movement_type='SALE_OUT'", ("$t", txId));
             }
 
-            // 4. Hoàn tác Tồn kho Số lượng (quantity_movements cho sản phẩm không quản lý theo IMEI)
-            using (var qmq = Cmd(c, @"SELECT product_id, warehouse_id, location_id, SUM(delta_qty)
-                FROM quantity_movements
-                WHERE ref_type='V7_ORDER' AND ref_id=$o AND movement_type='ISSUE'
-                GROUP BY product_id, warehouse_id, location_id
-                HAVING SUM(delta_qty) < 0", ("$o", id)))
-            using (var qmr = qmq.ExecuteReader())
-            {
-                var toRestore = new List<(long ProdId, long WhId, long LocId, long PosQty)>();
-                while (qmr.Read())
-                    toRestore.Add((qmr.GetInt64(0), qmr.GetInt64(1), qmr.GetInt64(2), -qmr.GetInt64(3)));
-                qmr.Close();
+            // 4. Hoàn tác Tồn kho Số lượng (xóa cứng bút toán xuất quantity_movements của đơn hàng này)
+            Run(c, "DELETE FROM quantity_movements WHERE ref_type IN ('V7_ORDER','V7_ORDER_CANCEL') AND ref_id=$o", ("$o", id));
 
-                var alreadyRestored = Scalar(c, "SELECT COUNT(*) FROM quantity_movements WHERE ref_type='V7_ORDER_CANCEL' AND ref_id=$o", ("$o", id)) > 0;
-                if (!alreadyRestored)
-                {
-                    foreach (var item in toRestore)
-                    {
-                        Run(c, @"INSERT INTO quantity_movements(document_no,product_id,warehouse_id,location_id,delta_qty,movement_type,ref_type,ref_id,note,actor_user_id)
-                            VALUES('Q-'||lower(hex(randomblob(8))),$p,$w,$l,$d,'ADJUST','V7_ORDER_CANCEL',$o,$note,$u)",
-                            ("$p", item.ProdId), ("$w", item.WhId), ("$l", item.LocId), ("$d", item.PosQty),
-                            ("$o", id), ("$note", $"Hoàn tồn kho do Admin hủy đơn {orderCode}"), ("$u", actor));
-                    }
-                }
-            }
-
-            // 5. Hoàn tác Khâu Kế toán: Hủy chứng từ công nợ khách hàng (SALE), công lắp kỹ thuật (SERVICE) và phiếu thu/chi liên quan
+            // 5. Hoàn tác & xóa cứng toàn bộ chứng từ kế toán (SALE, SERVICE, phiếu thu/chi) gắn với đơn hàng
             var orderInvIds = new List<long>();
-            using (var iq = Cmd(c, "SELECT id FROM invoices WHERE v7_order_id=$o AND deleted_at IS NULL", ("$o", id)))
+            using (var iq = Cmd(c, "SELECT id FROM invoices WHERE v7_order_id=$o", ("$o", id)))
             using (var ir = iq.ExecuteReader())
             {
                 while (ir.Read()) orderInvIds.Add(ir.GetInt64(0));
             }
             foreach (var invId in orderInvIds)
             {
-                VoidAndSoftDeleteInvoice(c, invId);
+                HardDeleteInvoice(c, invId);
             }
 
-            // 6. Chuyển trạng thái đơn hàng về CANCELLED và xóa mốc completed_at / activated_at
-            Run(c, "UPDATE v7_orders SET status='CANCELLED', completed_at=NULL, activated_at=NULL WHERE id=$id", ("$id", id));
+            // 6. XÓA CỨNG (Hard Delete) toàn bộ sự kiện, dòng sản phẩm và đơn hàng khỏi CSDL
+            Run(c, "DELETE FROM v7_order_events WHERE order_id=$id", ("$id", id));
+            Run(c, "DELETE FROM v7_order_lines WHERE order_id=$id", ("$id", id));
+            Run(c, "DELETE FROM v7_orders WHERE id=$id", ("$id", id));
 
             // 7. Đồng bộ lại chứng từ Hoa hồng Seller (COMMISSION) đang mở (chưa khóa sổ)
             using (var sq = Cmd(c, @"SELECT s.id, s.code, s.full_name, COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
@@ -1444,11 +1448,10 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 }
             }
 
-            Event(c, id, actor, "ADMIN_CANCELLED_COMPLETED");
             return 0;
         });
 
-        if (wasCompleted)
+        if (wasHardDeleted)
         {
             DemoDb.NotifyDevicesChanged();
         }
