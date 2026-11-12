@@ -41,7 +41,7 @@
         </label>
     </div>
     <div class="form-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button type="button" class="btn" disabled="@isImporting" @onclick="ExecuteImportDevices">
+        <button type="button" class="btn" disabled="@isImporting" data-confirm="edit" data-confirm-title="Xác nhận Import &amp; Cập nhật Thiết bị" data-confirm-msg="Bạn có chắc chắn muốn thực hiện Import và cập nhật trùng dữ liệu thiết bị theo danh sách đã chọn không?" @onclick="ExecuteImportDevices">
             @(isImporting ? "Đang kiểm tra trùng & cập nhật..." : "Thực hiện Import & Cập nhật trùng dữ liệu")
         </button>
         @if (!string.IsNullOrWhiteSpace(selectedImportFileName))
@@ -97,7 +97,7 @@
     </select>
 </label>
 </div>
-<div class="form-actions"><button class="btn" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
+<div class="form-actions"><button class="btn" data-confirm="add" data-confirm-title="Xác nhận Gia hạn thiết bị 12 tháng" data-confirm-msg="@($"Bạn có chắc chắn muốn gia hạn 12 tháng cho thiết bị {(selectedRenewDevice is null ? "" : $"{selectedRenewDevice.Imei} ({selectedRenewDeviceName})")} và đồng bộ doanh thu sang Kế toán không?")" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
 </div>}
 
 @if(canRenew || canUpdateDevice){
@@ -143,7 +143,7 @@
 <label>Biển số xe<input @bind="editPlate" placeholder="VD: 51H-123.45" /></label>
 <label>Thông tin phụ / Số khung<input @bind="editVin" placeholder="Thông tin phụ, số khung, chủ xe..." /></label>
 </div>
-<div class="form-actions"><button class="btn" @onclick="SaveActivationUpdate">Lưu Thời gian gia hạn &amp; Thông tin thiết bị</button><span class="feedback">@editMessage</span></div>
+<div class="form-actions"><button class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật thông tin thiết bị" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Ngày hết hạn ({editExpiresDate:yyyy-MM-dd}) và thông tin thiết bị {(selectedEditDevice is null ? "" : $"{selectedEditDevice.Imei} ({selectedEditDeviceName})")} không?")" @onclick="SaveActivationUpdate">Lưu Thời gian gia hạn &amp; Thông tin thiết bị</button><span class="feedback">@editMessage</span></div>
 </div>}
 
 @{
@@ -400,8 +400,8 @@
             </label>
         </div>
         <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button type="button" class="btn" @onclick="SaveRenewalEdit">Lưu cập nhật &amp; Đồng bộ Kế toán</button>
-            <button type="button" class="btn secondary" @onclick="CancelEditRenewal">Hủy</button>
+            <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật Lịch sử gia hạn" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật lịch sử gia hạn #{editingRenewalId} (IMEI: {editingRenewalImei} · Thiết bị: {editingRenewalDeviceName}) và đồng bộ lại Kế toán không?")" @onclick="SaveRenewalEdit">Lưu cập nhật &amp; Đồng bộ Kế toán</button>
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="CancelEditRenewal">Hủy</button>
         </div>
     </div>
 }
@@ -453,7 +453,7 @@
             @if(!x.IsLocked && (canUpdateDevice || canRenew))
             {
                 <button type="button" class="btn secondary btn-sm" @onclick="() => StartEditRenewal(x)">Sửa</button>
-                <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa lịch sử gia hạn của IMEI {x.Imei} (Hạn {x.PreviousExpiry} → {x.EndDate}, số tiền {x.Price:N0} ₫) và đồng bộ lại Kế toán không?")" @onclick="() => ConfirmDeleteRenewal(x.Id)">Xóa</button>
+                <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa lịch sử gia hạn của IMEI {x.Imei} (Thiết bị: {(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)} · Hạn {x.PreviousExpiry} → {x.EndDate}, số tiền {x.Price:N0} ₫) và đồng bộ lại Kế toán không?")" @onclick="() => ConfirmDeleteRenewal(x.Id)">Xóa</button>
             }
             else if(x.IsLocked)
             {
@@ -461,7 +461,7 @@
             }
             @if(canFinanceLock)
             {
-                <button type="button" class="btn secondary btn-sm" title="@(x.IsLocked ? "Mở khóa chốt số Kế toán" : "Kế toán chốt số / khóa số đợt gia hạn này")" @onclick="() => ToggleRenewalLock(x)">
+                <button type="button" class="btn secondary btn-sm" data-confirm="edit" data-confirm-title="@(x.IsLocked ? "Xác nhận Mở khóa chốt số Kế toán" : "Xác nhận Chốt số / Khóa sổ Kế toán")" data-confirm-msg="@(x.IsLocked ? $"Bạn có chắc chắn muốn mở khóa chốt số Kế toán cho đợt gia hạn IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)}) không?" : $"Bạn có chắc chắn muốn Chốt số / Khóa sổ Kế toán cho đợt gia hạn IMEI {x.Imei} (Thiết bị: {(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)} · Số tiền: {x.Price:N0} ₫) không?")" title="@(x.IsLocked ? "Mở khóa chốt số Kế toán" : "Kế toán chốt số / khóa số đợt gia hạn này")" @onclick="() => ToggleRenewalLock(x)">
                     @(x.IsLocked ? "🔓 Mở khóa" : "🔒 Chốt số")
                 </button>
             }

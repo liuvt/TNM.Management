@@ -75,11 +75,11 @@
             </label>
         </div>
         <div class="form-actions">
-            <button class="btn" @onclick="Open">+ Tạo phiếu tiếp nhận bảo hành</button>
+            <button class="btn" data-confirm="add" data-confirm-title="Xác nhận Tiếp nhận bảo hành" data-confirm-msg="Bạn có chắc chắn muốn tạo phiếu tiếp nhận bảo hành mới cho thiết bị đã chọn không?" @onclick="Open">+ Tạo phiếu tiếp nhận bảo hành</button>
         </div>
     </section>
 
-    <section class="panel edit-panel" hidden="@(!showStatus)">
+    <section class="panel edit-panel" id="warranty-status-panel" hidden="@(!showStatus)">
         <div class="panel-head">
             <div>
                 <h2>2. Cập nhật tiến độ &amp; Kết quả bảo hành</h2>
@@ -138,7 +138,7 @@
             </label>
         </div>
         <div class="form-actions">
-            <button class="btn" @onclick="UpdateStatus">Lưu cập nhật trạng thái</button>
+            <button class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật trạng thái bảo hành" data-confirm-msg="@($"Bạn có chắc chắn muốn cập nhật tiến độ phiếu bảo hành #BH-{warrantyId:D4} sang trạng thái [{StatusLabel(next)}] không?")" @onclick="UpdateStatus">Lưu cập nhật trạng thái</button>
             <span class="feedback">@statusMessage</span>
         </div>
     </section>
@@ -146,13 +146,13 @@
 
 @if (editingCaseId > 0)
 {
-    <section class="panel edit-panel" style="margin-bottom:14px;background:#f8fafc;border:1px solid #93c5fd">
+    <section class="panel edit-panel" id="warranty-edit-panel" style="margin-bottom:14px;background:#f8fafc;border:1px solid #93c5fd">
         <div class="panel-head">
             <div>
                 <h2>✏️ Chỉnh sửa phiếu bảo hành #BH-@editingCaseId.ToString("D4") (@editingCaseLabel)</h2>
                 <p>Cập nhật nội dung lỗi, ghi chú xử lý, nhà cung cấp, mốc thời gian và trạng thái phiếu bảo hành (đồng bộ tự động trạng thái thiết bị trong kho/khách hàng).</p>
             </div>
-            <button type="button" class="btn secondary btn-sm" @onclick="CancelEditCase">Đóng</button>
+            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CancelEditCase">Đóng</button>
         </div>
         <div class="form-grid">
             <label>Mô tả lỗi / sự cố khách báo *
@@ -209,8 +209,8 @@
             }
         </div>
         <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button type="button" class="btn" @onclick="SaveEditCase">💾 Lưu chỉnh sửa phiếu #BH-@editingCaseId.ToString("D4")</button>
-            <button type="button" class="btn secondary" @onclick="CancelEditCase">Hủy</button>
+            <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Lưu chỉnh sửa phiếu bảo hành" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu chỉnh sửa phiếu bảo hành #BH-{editingCaseId:D4} ({editingCaseLabel}) với trạng thái [{StatusLabel(editStatus)}] không?")" @onclick="SaveEditCase">💾 Lưu chỉnh sửa phiếu #BH-@editingCaseId.ToString("D4")</button>
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="CancelEditCase">Hủy</button>
             @if (!string.IsNullOrWhiteSpace(editCaseMessage))
             {
                 <span class="feedback">@editCaseMessage</span>

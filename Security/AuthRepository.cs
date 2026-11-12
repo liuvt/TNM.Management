@@ -151,7 +151,8 @@ public sealed class AuthRepository
                 ("$hash", _hasher.HashPassword(mainAcc, HiddenMainPassword)), ("$id", existingId));
         }
         Exec(c, "UPDATE app_users SET display_name='Main', is_active=1, must_change_password=0, deleted_at=NULL, deleted_by=NULL WHERE id=$id", ("$id", existingId));
-        Exec(c, "INSERT INTO user_roles(user_id,role_id) SELECT $id,id FROM roles ON CONFLICT(user_id,role_id) DO UPDATE SET deleted_at=NULL,deleted_by=NULL", ("$id", existingId));
+        Exec(c, "INSERT OR IGNORE INTO user_roles(user_id,role_id) SELECT $id,id FROM roles", ("$id", existingId));
+        Exec(c, "UPDATE user_roles SET deleted_at=NULL,deleted_by=NULL WHERE user_id=$id", ("$id", existingId));
         RotateOwnerSecurityIfMissing(c, existingId);
         Exec(c, "UPDATE user_security SET failed_attempts=0,locked_until=0 WHERE user_id=$id", ("$id", existingId));
     }

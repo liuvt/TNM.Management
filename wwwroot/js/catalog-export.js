@@ -116,8 +116,8 @@ window.tnmScrollCatalogEditor = function () {
             };
         }
 
-        // Ignore navigation, sidebar, topbar, tabs, and pagination controls
-        if (btn.closest('.sidebar, .topbar, .tabs, .table-pager, .catalog-pagination')) return null;
+        // Ignore navigation, sidebar, topbar, tabs, summary filter bars, and pagination controls
+        if (btn.closest('.sidebar, .topbar, .tabs, .device-summary-bar, .device-due10-note, .table-pager, .catalog-pagination')) return null;
         if (btn.classList.contains('mobile-scrim') || btn.classList.contains('mobile-toggle')) return null;
         if (/^(«|‹|›|»|\d+$)/.test(rawText) || rawText === '« Đầu' || rawText === '‹ Trước' || rawText === 'Sau ›' || rawText === 'Cuối »') return null;
 
@@ -125,6 +125,7 @@ window.tnmScrollCatalogEditor = function () {
         if (!rawText) return null;
         if (
             lower === 'đóng' ||
+            lower === '✕ đóng' ||
             lower.startsWith('đóng ') ||
             lower.startsWith('đóng ·') ||
             lower === 'hủy' ||
@@ -134,6 +135,12 @@ window.tnmScrollCatalogEditor = function () {
             lower === 'xóa lọc sp' ||
             lower === 'trước / sau' ||
             lower === 'chi tiết' ||
+            lower === '👁 xem' ||
+            lower === '👁 xem chi tiết' ||
+            lower === '👁 xem / sửa imei' ||
+            lower === 'nhập imei' ||
+            lower.startsWith('📝 bổ sung imei') ||
+            lower.startsWith('⚙ điều chỉnh') ||
             lower === 'làm mới' ||
             lower === 'làm mới danh mục' ||
             lower === 'nạp quyền user' ||
@@ -153,14 +160,17 @@ window.tnmScrollCatalogEditor = function () {
         }
 
         // Ignore table row buttons that only load/open the edit or quick-pay form without mutating DB yet
-        const inFormActions = !!btn.closest('.form-actions');
+        const inFormActions = !!btn.closest('.form-actions, .so-modal-footer');
         if (!inFormActions) {
             if (
                 lower === 'sửa' ||
+                lower === '✏️ sửa' ||
                 lower === 'cấu hình & sửa' ||
                 lower === 'phân quyền / sửa' ||
                 lower === 'sửa hạn / tt' ||
                 lower === '+ gia hạn' ||
+                lower === 'gửi ncc' ||
+                lower === 'hoàn tất / trả' ||
                 lower === 'chỉnh sửa quyền role' ||
                 lower === '+ thêm nhân viên' ||
                 lower === '+ tạo nhà cung cấp mới' ||
@@ -180,15 +190,18 @@ window.tnmScrollCatalogEditor = function () {
         // 1. DELETE / CANCEL / DISABLE actions
         if (
             lower === 'xóa' ||
+            lower === '🗑 xóa' ||
+            lower.includes('xóa cứng') ||
+            lower.includes('hủy & xóa') ||
+            lower.includes('hủy đơn') ||
             lower.startsWith('xác nhận xóa') ||
             lower === 'ngừng bán' ||
             lower.startsWith('xác nhận ngừng bán') ||
-            lower === 'hủy đơn' ||
             lower === 'đặt lại 0 ₫'
         ) {
             return {
                 type: 'delete',
-                title: lower.includes('hủy đơn') ? 'Xác nhận Hủy đơn hàng' :
+                title: lower.includes('hủy') ? 'Xác nhận Hủy / Xóa đơn hàng' :
                        lower.includes('ngừng bán') ? 'Xác nhận Ngừng bán sản phẩm' :
                        'Xác nhận Xóa dữ liệu',
                 message: `Bạn có chắc chắn muốn thực hiện thao tác <strong>"${rawText}"</strong> không?`
@@ -228,6 +241,7 @@ window.tnmScrollCatalogEditor = function () {
             lower.includes('chốt số') ||
             lower.includes('mở khóa') ||
             lower.includes('đồng bộ') ||
+            lower.includes('import') ||
             lower === 'áp dụng' ||
             /^\d+k$/i.test(rawText)
         ) {
@@ -299,6 +313,31 @@ window.tnmScrollCatalogEditor = function () {
             e.stopPropagation();
             e.stopImmediatePropagation();
             openConfirmModal(btn, confirmInfo);
+            return;
+        }
+
+        // Auto-scroll to opened .edit-panel when clicking row-level edit/open buttons
+        const rawText = (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (
+            rawText === 'sửa' ||
+            rawText === '✏️ sửa' ||
+            rawText === 'cấu hình & sửa' ||
+            rawText === 'phân quyền / sửa' ||
+            rawText === 'sửa hạn / tt' ||
+            rawText === '+ gia hạn' ||
+            rawText === 'gửi ncc' ||
+            rawText === 'hoàn tất / trả' ||
+            rawText === 'thu khách' ||
+            rawText === 'chi nhập hàng' ||
+            rawText === 'chi trả'
+        ) {
+            setTimeout(() => {
+                const panels = Array.from(document.querySelectorAll('.edit-panel:not([hidden])'));
+                const targetPanel = panels[panels.length - 1];
+                if (targetPanel) {
+                    targetPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 120);
         }
     }, true);
 
