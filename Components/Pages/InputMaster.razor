@@ -171,41 +171,62 @@ else
                 {
                     @if(CurrentSection=="customer-groups")
                     {
-                        <label>Loại nhóm / Thuộc Nhóm khách hàng chính (Tùy chọn)
+                        <label>Thuộc Nhóm khách hàng (Để trống nếu là Nhóm chính, chọn nếu là Nhóm con)
                             <select @bind="parentGroupId">
-                                <option value="0">— Nhóm khách hàng chính (Nhóm gốc, VD: Đại lý / HTX, Khách lẻ) —</option>
+                                <option value="0">— Đây là Nhóm khách hàng chính (VD: Đại lý, Hợp tác xã, Khách lẻ) —</option>
                                 @foreach(var pg in RootCustomerGroups.Where(x => x.Id != editingId))
                                 {
-                                    <option value="@pg.Id">↳ Nhóm con tạo giá thuộc: @pg.Name (@pg.Code)</option>
+                                    <option value="@pg.Id">↳ Nhóm con trực thuộc: @pg.Name (@pg.Code)</option>
                                 }
                             </select>
                         </label>
                     }
-                    <label>@(Section=="areas"?"Mã khu vực":CurrentSection=="customer-groups" && parentGroupId>0 ? "Mã nhóm giá con *" : "Mã nhóm *")<input @bind="code" placeholder="@(CurrentSection=="customer-groups" && parentGroupId>0 ? "VD: DL-NHOM-1" : CodeExample)" maxlength="32" /></label>
-                    <label>@(Section=="areas"?"Tên khu vực":CurrentSection=="customer-groups" && parentGroupId>0 ? "Tên nhóm giá con (gom các Đại lý cùng mức giá) *" : "Tên nhóm *")<input @bind="name" placeholder="@(CurrentSection=="customer-groups" && parentGroupId>0 ? "VD: Nhóm giá Đại lý Cấp 1 / Nhóm Đại lý Miền Tây" : NameExample)" maxlength="160" /></label>
+                    <label>@(Section=="areas"?"Mã khu vực *":CurrentSection=="customer-groups" ? "Mã nhóm (Để trống tự động tạo mã)" : "Mã nhóm *")<input @bind="code" placeholder="@(CurrentSection=="customer-groups" ? "Tự động tạo nếu để trống (VD: DL-NHOM-1)" : CodeExample)" maxlength="32" /></label>
+                    <label>@(Section=="areas"?"Tên khu vực *":CurrentSection=="customer-groups" && parentGroupId>0 ? "Tên nhóm con *" : "Tên nhóm *")<input @bind="name" placeholder="@(CurrentSection=="customer-groups" && parentGroupId>0 ? "VD: Đại lý — Nhóm giá 1 / Đại lý Miền Tây" : NameExample)" maxlength="160" /></label>
                 }
                 else if(Section is "suppliers" or "customers" or "warehouses")
                 {
                     @if(CurrentSection=="customers")
                     {
-                        <label>Nhóm khách hàng chính *
-                            <select @bind="groupId" @bind:after="OnCustomerMainGroupChanged">
-                                <option value="0">— Chọn nhóm khách hàng chính —</option>
-                                @foreach(var g in RootCustomerGroups)
+                        <div style="grid-column:1 / -1;padding:0.85rem 1rem;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.85rem;align-items:start">
+                            <label style="margin:0">
+                                <span style="font-weight:700;color:#0369a1">1. Chọn Nhóm khách hàng *</span>
+                                <select @bind="groupId" @bind:after="OnCustomerMainGroupChanged" style="border-color:#7dd3fc;font-weight:600;background:#fff">
+                                    <option value="0">— Bấm chọn Nhóm (Đại lý / HTX / Khách lẻ...) —</option>
+                                    @foreach(var g in RootCustomerGroups)
+                                    {
+                                        <option value="@g.Id">@g.Name (@g.Code)</option>
+                                    }
+                                </select>
+                            </label>
+                            <div style="display:flex;flex-direction:column;gap:0.4rem">
+                                <label style="margin:0">
+                                    <span style="font-weight:700;color:#0f766e">2. Chọn Nhóm con của nhóm @(SelectedMainGroupName is { Length: > 0 } mgn ? $"({mgn})" : "")</span>
+                                    <div style="display:flex;gap:0.4rem;align-items:center">
+                                        <select @bind="subGroupId" disabled="@(groupId <= 0)" style="flex:1;border-color:#5eead4;font-weight:600;background:@(groupId <= 0 ? "#f1f5f9" : "#fff")">
+                                            <option value="0">@(groupId <= 0 ? "— Chọn Bước 1 (Nhóm khách hàng) trước —" : $"— Giá chuẩn mặc định của {SelectedMainGroupName} —")</option>
+                                            @foreach(var sg in SubGroupsForSelectedMainGroup)
+                                            {
+                                                <option value="@sg.Id">↳ @sg.Name</option>
+                                            }
+                                        </select>
+                                        @if(groupId > 0)
+                                        {
+                                            <button type="button" class="btn secondary btn-sm" style="white-space:nowrap;border-color:#0d9488;color:#0f766e" @onclick="() => showQuickSubGroup = !showQuickSubGroup">
+                                                @(showQuickSubGroup ? "Đóng" : "+ Tạo nhóm con")
+                                            </button>
+                                        }
+                                    </div>
+                                </label>
+                                @if(showQuickSubGroup && groupId > 0)
                                 {
-                                    <option value="@g.Id">@g.Name (@g.Code)</option>
+                                    <div style="display:flex;gap:0.4rem;align-items:center;background:#fff;padding:0.45rem;border:1px dashed #0d9488;border-radius:8px">
+                                        <input @bind="quickSubGroupName" placeholder="@($"Tên nhóm con mới thuộc {SelectedMainGroupName} (VD: Nhóm giá VIP)...")" style="flex:1;min-height:32px;padding:4px 8px" />
+                                        <button type="button" class="btn btn-sm" @onclick="QuickCreateSubGroupInline">Tạo &amp; Chọn ngay</button>
+                                    </div>
                                 }
-                            </select>
-                        </label>
-                        <label>Nhóm giá con (Dành cho Đại lý / HTX gom nhóm tạo giá riêng)
-                            <select @bind="subGroupId" disabled="@(groupId <= 0 || SubGroupsForSelectedMainGroup.Count == 0)">
-                                <option value="0">@(groupId <= 0 ? "— Chọn Nhóm khách hàng chính trước —" : SubGroupsForSelectedMainGroup.Count == 0 ? "— Áp dụng bảng giá chuẩn của Nhóm chính (Chưa có nhóm con) —" : "— Áp dụng bảng giá chuẩn của Nhóm chính —")</option>
-                                @foreach(var sg in SubGroupsForSelectedMainGroup)
-                                {
-                                    <option value="@sg.Id">↳ @sg.Name (@sg.Code)</option>
-                                }
-                            </select>
-                        </label>
+                            </div>
+                        </div>
                     }
                     else
                     {
@@ -309,8 +330,54 @@ else
                 }
                 else if(Section is "buy-prices" or "sale-prices")
                 {
-                    <label>@(Section=="buy-prices"?"Nhóm NCC":"Nhóm khách hàng / Nhóm giá con Đại lý") *
-                        <select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@(Section=="buy-prices" ? g.Name : g.HierarchyLabel)</option>}</select></label>
+                    @if(Section=="buy-prices")
+                    {
+                        <label>Nhóm NCC *
+                            <select @bind="groupId"><option value="0">— Chọn nhóm NCC —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@g.Name</option>}</select>
+                        </label>
+                    }
+                    else
+                    {
+                        <div style="grid-column:1 / -1;padding:0.85rem 1rem;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.85rem;align-items:start">
+                            <label style="margin:0">
+                                <span style="font-weight:700;color:#0369a1">1. Chọn Nhóm khách hàng *</span>
+                                <select @bind="groupId" @bind:after="OnCustomerMainGroupChanged" style="border-color:#7dd3fc;font-weight:600;background:#fff">
+                                    <option value="0">— Bấm chọn Nhóm (Đại lý / HTX / Khách lẻ...) —</option>
+                                    @foreach(var g in RootCustomerGroups)
+                                    {
+                                        <option value="@g.Id">@g.Name (@g.Code)</option>
+                                    }
+                                </select>
+                            </label>
+                            <div style="display:flex;flex-direction:column;gap:0.4rem">
+                                <label style="margin:0">
+                                    <span style="font-weight:700;color:#0f766e">2. Chọn Nhóm con của nhóm @(SelectedMainGroupName is { Length: > 0 } mgn ? $"({mgn})" : "")</span>
+                                    <div style="display:flex;gap:0.4rem;align-items:center">
+                                        <select @bind="subGroupId" disabled="@(groupId <= 0)" style="flex:1;border-color:#5eead4;font-weight:600;background:@(groupId <= 0 ? "#f1f5f9" : "#fff")">
+                                            <option value="0">@(groupId <= 0 ? "— Chọn Bước 1 (Nhóm khách hàng) trước —" : $"— Giá chuẩn áp dụng chung cả nhóm {SelectedMainGroupName} —")</option>
+                                            @foreach(var sg in SubGroupsForSelectedMainGroup)
+                                            {
+                                                <option value="@sg.Id">↳ @sg.Name</option>
+                                            }
+                                        </select>
+                                        @if(groupId > 0)
+                                        {
+                                            <button type="button" class="btn secondary btn-sm" style="white-space:nowrap;border-color:#0d9488;color:#0f766e" @onclick="() => showQuickSubGroup = !showQuickSubGroup">
+                                                @(showQuickSubGroup ? "Đóng" : "+ Tạo nhóm con")
+                                            </button>
+                                        }
+                                    </div>
+                                </label>
+                                @if(showQuickSubGroup && groupId > 0)
+                                {
+                                    <div style="display:flex;gap:0.4rem;align-items:center;background:#fff;padding:0.45rem;border:1px dashed #0d9488;border-radius:8px">
+                                        <input @bind="quickSubGroupName" placeholder="@($"Tên nhóm con mới thuộc {SelectedMainGroupName}...")" style="flex:1;min-height:32px;padding:4px 8px" />
+                                        <button type="button" class="btn btn-sm" @onclick="QuickCreateSubGroupInline">Tạo &amp; Chọn ngay</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
                     <label>Sản phẩm *<select @bind="productId"><option value="0">— Chọn sản phẩm —</option>@foreach(var p in products){<option value="@p.Id">@p.Code — @p.Name</option>}</select></label>
                     <label>Ngày bắt đầu áp dụng *<input type="date" @bind="effective" @bind:format="yyyy-MM-dd" /></label>
                     @if(Section=="buy-prices")
@@ -326,7 +393,18 @@ else
                 }
                 else if(Section=="campaigns")
                 {
-                    <label>Nhóm khách hàng / Nhóm giá con Đại lý *<select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var g in customerGroups){<option value="@g.Id">@g.HierarchyLabel</option>}</select></label>
+                    <label>1. Chọn Nhóm khách hàng *
+                        <select @bind="groupId" @bind:after="OnCustomerMainGroupChanged">
+                            <option value="0">— Chọn nhóm khách hàng —</option>
+                            @foreach(var g in RootCustomerGroups){<option value="@g.Id">@g.Name (@g.Code)</option>}
+                        </select>
+                    </label>
+                    <label>2. Chọn Nhóm con của nhóm (Tùy chọn)
+                        <select @bind="subGroupId" disabled="@(groupId <= 0)">
+                            <option value="0">@(groupId <= 0 ? "— Chọn Nhóm khách hàng trước —" : $"— Áp dụng chung toàn nhóm {SelectedMainGroupName} —")</option>
+                            @foreach(var sg in SubGroupsForSelectedMainGroup){<option value="@sg.Id">↳ @sg.Name</option>}
+                        </select>
+                    </label>
                     <label>Tên chương trình *<input @bind="name" placeholder="Ưu đãi đại lý" /></label>
                     <label>Chiết khấu (%) *<input type="number" min="0" max="100" @bind="discount" /></label>
                     <label>Ngày bắt đầu *<input type="date" @bind="effective" @bind:format="yyyy-MM-dd" /></label>
@@ -589,6 +667,10 @@ else
                                 {
                                     <td class="catalog-row-actions">
                                         @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/{ActivityTable}/{row.Id}")">Lịch sử</a>}
+                                        @if(canCreate && CurrentSection=="customer-groups" && customerGroups.FirstOrDefault(g => g.Id == row.Id)?.ParentId is null)
+                                        {
+                                            <button type="button" class="btn secondary btn-sm" style="color:#0f766e;border-color:#5eead4" @onclick="() => AddChildGroup(row.Id)">+ Thêm nhóm con</button>
+                                        }
                                         @if(canUpdate)
                                         {
                                         <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Sửa</button>
@@ -618,8 +700,8 @@ else
     private readonly PagerState instProdPager = new();
     private readonly PagerState catalogPager = new();
     private long? editingId,pendingDelete;
-    private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending;
-    private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật",installerProdSearch="";
+    private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending,showQuickSubGroup;
+    private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật",installerProdSearch="",quickSubGroupName="";
     private long groupId,parentGroupId,subGroupId,productId,buyPrice,standard,installed,renewal,bulkInstallerRate=150000,selectedSellerId;
     private int discount;
     private DateTime effective=DateTime.Today,until=DateTime.Today.AddDays(30);
@@ -677,6 +759,7 @@ else
     private List<InputCatalog.Choice> GroupChoices=>CurrentSection switch {"suppliers" or "buy-prices"=>supplierGroupChoices,"warehouses"=>areas.Select(x=>new InputCatalog.Choice(x.Id,x.Code,x.Name)).ToList(),_=>customerGroups};
     private List<InputCatalog.Choice> RootCustomerGroups => customerGroups.Where(x => x.ParentId is null).ToList();
     private List<InputCatalog.Choice> SubGroupsForSelectedMainGroup => groupId > 0 ? customerGroups.Where(x => x.ParentId == groupId).ToList() : [];
+    private string SelectedMainGroupName => customerGroups.FirstOrDefault(x => x.Id == groupId)?.Name ?? "";
     private List<CatalogRow> Rows => CurrentSection switch {
         "supplier-groups"=>supplierGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{x.Suppliers} NCC")).ToList(),
         "product-groups"=>productGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{products.Count(p=>p.GroupId==x.Id)} sản phẩm đang bán")).ToList(),
@@ -754,12 +837,51 @@ else
     private void ResetPage(){catalogPager.Reset();}
     private void ToggleRow(long id,bool value){if(value)selected.Add(id);else selected.Remove(id);}
     private void TogglePage(ChangeEventArgs e){bool check=e.Value is bool b && b;foreach(var r in PageRows){if(check)selected.Add(r.Id);else selected.Remove(r.Id);}}
-    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch="";department=CurrentSection=="sellers"?"Sale Nội bộ (Kinh doanh)":"Kỹ thuật";groupId=parentGroupId=subGroupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
+    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch=quickSubGroupName="";showQuickSubGroup=false;department=CurrentSection=="sellers"?"Sale Nội bộ (Kinh doanh)":"Kỹ thuật";groupId=parentGroupId=subGroupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
     private void OnCustomerMainGroupChanged()
     {
         if (subGroupId > 0 && !customerGroups.Any(x => x.Id == subGroupId && x.ParentId == groupId))
         {
             subGroupId = 0;
+        }
+    }
+    private void AddChildGroup(long parentId)
+    {
+        ResetFields();
+        parentGroupId = parentId;
+        var parentName = customerGroups.FirstOrDefault(x => x.Id == parentId)?.Name ?? "Đại lý";
+        var nextIndex = customerGroups.Count(x => x.ParentId == parentId) + 1;
+        name = $"{parentName} — Nhóm giá {nextIndex}";
+        showEditor = true;
+        scrollEditorPending = true;
+        message = "";
+    }
+    private async Task QuickCreateSubGroupInline()
+    {
+        try
+        {
+            if (groupId <= 0)
+            {
+                message = "Vui lòng chọn Bước 1 (Nhóm khách hàng) trước khi tạo nhóm con.";
+                return;
+            }
+            var trimmed = (quickSubGroupName ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                message = "Vui lòng nhập tên nhóm con cần tạo.";
+                return;
+            }
+            var actor = await Gate.RequireAsync(Permissions.CustomersCreate);
+            var createdSubId = Catalog.SaveGroup(actor, "CUSTOMER", null, "", trimmed, groupId);
+            customerGroups = Catalog.CustomerGroupChoices();
+            subGroupId = createdSubId;
+            quickSubGroupName = "";
+            showQuickSubGroup = false;
+            message = $"Đã tạo và chọn ngay nhóm con \"{trimmed}\".";
+        }
+        catch (Exception ex)
+        {
+            message = "Không thể tạo nhóm con: " + ex.Message;
         }
     }
     private void OnCustomerSellerSelected()
@@ -814,8 +936,27 @@ else
             case "installer-rates":{var x=installerRates.First(r=>r.Id==row.Id);groupId=x.EmployeeId;productId=x.ProductId;buyPrice=x.InstallRate;effective=DateTime.ParseExact(x.EffectiveFrom,"yyyy-MM-dd",CultureInfo.InvariantCulture);break;}
             case "warehouses":{var x=warehouses.First(w=>w.Id==row.Id);code=x.Code;name=x.Name;address=x.Address;groupId=x.AreaId??0;break;}
             case "buy-prices":{var x=purchasePrices.First(p=>p.Id==row.Id);groupId=x.GroupId;productId=x.ProductId;buyPrice=x.UnitCost;effective=DateTime.ParseExact(x.EffectiveFrom,"yyyy-MM-dd",CultureInfo.InvariantCulture);break;}
-            case "sale-prices":{var x=salePrices.First(p=>p.Id==row.Id);groupId=x.GroupId;productId=x.ProductId;standard=x.Standard;installed=x.Installed;renewal=x.Renewal;effective=DateTime.ParseExact(x.EffectiveFrom,"yyyy-MM-dd",CultureInfo.InvariantCulture);break;}
-            case "campaigns":{var x=campaigns.First(c=>c.Id==row.Id);groupId=x.GroupId;name=x.Name;discount=x.Discount;effective=DateTime.ParseExact(x.From,"yyyy-MM-dd",CultureInfo.InvariantCulture);until=DateTime.ParseExact(x.To,"yyyy-MM-dd",CultureInfo.InvariantCulture);break;}
+            case "sale-prices":
+            {
+                var x=salePrices.First(p=>p.Id==row.Id);
+                var cg = customerGroups.FirstOrDefault(g => g.Id == x.GroupId);
+                if (cg?.ParentId is > 0) { groupId = cg.ParentId.Value; subGroupId = cg.Id; }
+                else { groupId = x.GroupId; subGroupId = 0; }
+                productId=x.ProductId;standard=x.Standard;installed=x.Installed;renewal=x.Renewal;
+                effective=DateTime.ParseExact(x.EffectiveFrom,"yyyy-MM-dd",CultureInfo.InvariantCulture);
+                break;
+            }
+            case "campaigns":
+            {
+                var x=campaigns.First(c=>c.Id==row.Id);
+                var cg = customerGroups.FirstOrDefault(g => g.Id == x.GroupId);
+                if (cg?.ParentId is > 0) { groupId = cg.ParentId.Value; subGroupId = cg.Id; }
+                else { groupId = x.GroupId; subGroupId = 0; }
+                name=x.Name;discount=x.Discount;
+                effective=DateTime.ParseExact(x.From,"yyyy-MM-dd",CultureInfo.InvariantCulture);
+                until=DateTime.ParseExact(x.To,"yyyy-MM-dd",CultureInfo.InvariantCulture);
+                break;
+            }
         }
     }
     private async Task Save()
@@ -823,6 +964,7 @@ else
         try
         {
             var actor=await Gate.RequireAsync(editingId.HasValue?UpdatePermission:CreatePermission);
+            var targetCustomerGroupId = subGroupId > 0 ? subGroupId : groupId;
             switch(CurrentSection)
             {
                 case "supplier-groups":case "product-groups":case "customer-groups":case "areas": Catalog.SaveGroup(actor,GroupType,editingId,code,name,parentGroupId>0?parentGroupId:null);break;
@@ -833,8 +975,8 @@ else
                 case "installer-rates":if(editingId.HasValue)Catalog.UpdateInstallerRate(actor,editingId.Value,groupId,productId,buyPrice,effective);else Catalog.SetInstallerRate(actor,groupId,productId,buyPrice,effective);break;
                 case "warehouses":Catalog.SaveWarehouse(actor,editingId,code,name,groupId,address);break;
                 case "buy-prices":if(editingId.HasValue)Catalog.UpdateSupplierGroupPrice(actor,editingId.Value,groupId,productId,buyPrice,effective);else Catalog.SetSupplierGroupPrice(actor,groupId,productId,buyPrice,effective);break;
-                case "sale-prices":if(editingId.HasValue)Catalog.UpdateCustomerGroupPrice(actor,editingId.Value,groupId,productId,standard,installed,renewal,effective);else Catalog.SetCustomerGroupPrice(actor,groupId,productId,standard,installed,renewal,effective);break;
-                case "campaigns":Catalog.SaveCampaign(actor,editingId,groupId,name,discount,effective,until);break;
+                case "sale-prices":if(editingId.HasValue)Catalog.UpdateCustomerGroupPrice(actor,editingId.Value,targetCustomerGroupId,productId,standard,installed,renewal,effective);else Catalog.SetCustomerGroupPrice(actor,targetCustomerGroupId,productId,standard,installed,renewal,effective);break;
+                case "campaigns":Catalog.SaveCampaign(actor,editingId,targetCustomerGroupId,name,discount,effective,until);break;
             }
             CloseEditor();Reload();selected.Clear();message="Đã lưu dữ liệu thành công.";
         }

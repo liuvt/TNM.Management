@@ -96,6 +96,34 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             if (!cgCols.Any(x => string.Equals(x, "parent_id", StringComparison.OrdinalIgnoreCase)))
                 Do(c, "ALTER TABLE customer_groups ADD COLUMN parent_id INTEGER REFERENCES customer_groups(id)");
 
+            // Khởi tạo sẵn các nhóm con mẫu cho Đại lý / Hợp tác xã / Doanh nghiệp nếu chưa có nhóm con nào
+            if (Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id IS NOT NULL") == 0)
+            {
+                var dealerId = OptId(c, "SELECT id FROM customer_groups WHERE code='DEALER' AND deleted_at IS NULL LIMIT 1");
+                if (dealerId.HasValue)
+                {
+                    Do(c, @"INSERT OR IGNORE INTO customer_groups(code, name, parent_id) VALUES
+                        ('DL-NHOM-1', 'Đại lý — Nhóm giá 1', $p),
+                        ('DL-NHOM-2', 'Đại lý — Nhóm giá 2', $p),
+                        ('DL-NHOM-3', 'Đại lý — Nhóm giá 3', $p)", ("$p", dealerId.Value));
+                }
+                var coopId = OptId(c, "SELECT id FROM customer_groups WHERE code='COOP' AND deleted_at IS NULL LIMIT 1");
+                if (coopId.HasValue)
+                {
+                    Do(c, @"INSERT OR IGNORE INTO customer_groups(code, name, parent_id) VALUES
+                        ('HTX-NHOM-1', 'HTX — Nhóm giá 1', $p),
+                        ('HTX-NHOM-2', 'HTX — Nhóm giá 2', $p),
+                        ('HTX-NHOM-3', 'HTX — Nhóm giá 3', $p)", ("$p", coopId.Value));
+                }
+                var corpId = OptId(c, "SELECT id FROM customer_groups WHERE code='CORP' AND deleted_at IS NULL LIMIT 1");
+                if (corpId.HasValue)
+                {
+                    Do(c, @"INSERT OR IGNORE INTO customer_groups(code, name, parent_id) VALUES
+                        ('DN-NHOM-1', 'Doanh nghiệp — Nhóm giá 1', $p),
+                        ('DN-NHOM-2', 'Doanh nghiệp — Nhóm giá 2', $p)", ("$p", corpId.Value));
+                }
+            }
+
             var custCols = Read(c, "PRAGMA table_info(customers)", r => Txt(r, 1));
             if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
                 Do(c, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
@@ -416,10 +444,16 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public List<SalePrice> SalePrices() { using var c = Open(); return Read(c, "SELECT x.id,x.group_id,CASE WHEN pg.id IS NOT NULL THEN pg.name||' › '||g.name ELSE g.name END,x.product_id,p.sku||' · '||p.name,x.standard_price_vnd,x.installed_price_vnd,x.renewal_price_vnd,x.effective_from FROM v7_group_prices x JOIN customer_groups g ON g.id=x.group_id LEFT JOIN customer_groups pg ON pg.id=g.parent_id AND pg.deleted_at IS NULL JOIN products p ON p.id=x.product_id WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new SalePrice(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5), r.GetInt64(6), r.GetInt64(7), Txt(r, 8))); }
     public List<Campaign> Campaigns() { using var c = Open(); return Read(c, "SELECT x.id,x.group_id,CASE WHEN pg.id IS NOT NULL THEN pg.name||' › '||g.name ELSE g.name END,x.name,x.discount_percent,x.start_date,x.end_date,x.is_active FROM v7_group_campaigns x JOIN customer_groups g ON g.id=x.group_id LEFT JOIN customer_groups pg ON pg.id=g.parent_id AND pg.deleted_at IS NULL WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new Campaign(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), Txt(r, 3), r.GetInt32(4), Txt(r, 5), Txt(r, 6), r.GetInt64(7) == 1)); }
 
+    private static long? OptId(SqliteConnection c, string sql, params (string, object?)[] p)
+    {
+        var v = Cell(c, sql, p);
+        return v is null || v is DBNull ? null : Convert.ToInt64(v);
+    }
+
     public long SaveGroup(long actor, string type, long? id, string code, string name, long? parentId = null)
     {
         var table = type switch { "SUPPLIER" => "supplier_groups", "PRODUCT" => "product_groups", "CUSTOMER" => "customer_groups", "AREA" => "warehouse_areas", _ => throw new InvalidOperationException("Loại nhóm không hợp lệ.") };
-        code = Code(code); name = Required(name, "Tên nhóm");
+        name = Required(name, "Tên nhóm");
         return Write(actor, c => {
             long? resolvedParent = null;
             if (type == "CUSTOMER" && parentId is > 0)
@@ -432,6 +466,30 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 if (id.HasValue && Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$id AND deleted_at IS NULL", ("$id", id.Value)) > 0)
                     throw new InvalidOperationException("Nhóm này đang chứa các nhóm con bên trong nên không thể chuyển thành nhóm con của nhóm khác.");
                 resolvedParent = parentId.Value;
+            }
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                if (id.HasValue)
+                {
+                    code = Convert.ToString(Cell(c, $"SELECT code FROM {table} WHERE id=$id", ("$id", id.Value))) ?? "";
+                }
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    var prefix = resolvedParent.HasValue
+                        ? (Convert.ToString(Cell(c, "SELECT code FROM customer_groups WHERE id=$p", ("$p", resolvedParent.Value))) ?? "NHOM") + "-CON"
+                        : "NHOM";
+                    var seq = Num(c, $"SELECT COUNT(*)+1 FROM {table}");
+                    code = $"{prefix}-{seq:D2}";
+                    while (Num(c, $"SELECT COUNT(*) FROM {table} WHERE code=$c", ("$c", code)) > 0)
+                    {
+                        seq++;
+                        code = $"{prefix}-{seq:D2}";
+                    }
+                }
+            }
+            else
+            {
+                code = Code(code);
             }
             long result;
             if (id.HasValue)
