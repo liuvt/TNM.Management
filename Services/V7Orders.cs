@@ -224,14 +224,23 @@ public sealed class V7Orders(IWebHostEnvironment env)
             (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
             NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
             0)", ("$p", productId));
-        var basePrice = Scalar(c, @"SELECT CASE
-            WHEN installed_price_vnd>0 THEN installed_price_vnd
-            WHEN standard_price_vnd>0 THEN standard_price_vnd
-            ELSE renewal_price_vnd END
-            FROM v7_group_prices
-            WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p
-              AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
-            ORDER BY effective_from DESC,id DESC LIMIT 1", ("$c", customerId), ("$p", productId));
+        var basePrice = Scalar(c, @"SELECT COALESCE(
+            NULLIF((SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd WHEN standard_price_vnd>0 THEN standard_price_vnd ELSE renewal_price_vnd END
+                    FROM v7_group_prices
+                    WHERE group_id=(SELECT sub_group_id FROM customers WHERE id=$c) AND product_id=$p
+                      AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
+                    ORDER BY effective_from DESC,id DESC LIMIT 1), 0),
+            NULLIF((SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd WHEN standard_price_vnd>0 THEN standard_price_vnd ELSE renewal_price_vnd END
+                    FROM v7_group_prices
+                    WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p
+                      AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
+                    ORDER BY effective_from DESC,id DESC LIMIT 1), 0),
+            NULLIF((SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd WHEN standard_price_vnd>0 THEN standard_price_vnd ELSE renewal_price_vnd END
+                    FROM v7_group_prices
+                    WHERE group_id=(SELECT cg.parent_id FROM customers cu JOIN customer_groups cg ON cg.id=cu.group_id WHERE cu.id=$c) AND product_id=$p
+                      AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
+                    ORDER BY effective_from DESC,id DESC LIMIT 1), 0),
+            0)", ("$c", customerId), ("$p", productId));
         if (basePrice <= 0)
         {
             basePrice = Scalar(c, @"SELECT CASE
@@ -249,9 +258,17 @@ public sealed class V7Orders(IWebHostEnvironment env)
         }
         if (basePrice <= 0)
             basePrice = cost + Scalar(c, "SELECT install_fee_vnd FROM products WHERE id=$p", ("$p", productId));
-        var discount = Scalar(c, @"SELECT COALESCE(MAX(discount_percent),0) FROM v7_group_campaigns
-            WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND is_active=1 AND deleted_at IS NULL
-              AND start_date<=date('now') AND end_date>=date('now')", ("$c", customerId));
+        var discount = Scalar(c, @"SELECT COALESCE(
+            NULLIF((SELECT MAX(discount_percent) FROM v7_group_campaigns
+                    WHERE group_id=(SELECT sub_group_id FROM customers WHERE id=$c) AND is_active=1 AND deleted_at IS NULL
+                      AND start_date<=date('now') AND end_date>=date('now')), 0),
+            NULLIF((SELECT MAX(discount_percent) FROM v7_group_campaigns
+                    WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND is_active=1 AND deleted_at IS NULL
+                      AND start_date<=date('now') AND end_date>=date('now')), 0),
+            NULLIF((SELECT MAX(discount_percent) FROM v7_group_campaigns
+                    WHERE group_id=(SELECT cg.parent_id FROM customers cu JOIN customer_groups cg ON cg.id=cu.group_id WHERE cu.id=$c) AND is_active=1 AND deleted_at IS NULL
+                      AND start_date<=date('now') AND end_date>=date('now')), 0),
+            0)", ("$c", customerId));
         var finalPrice = (long)((decimal)basePrice * (100 - discount) / 100m);
         return (finalPrice, cost);
     }
@@ -303,12 +320,20 @@ public sealed class V7Orders(IWebHostEnvironment env)
             o.product_id,p.name,o.status,o.source,o.imei,w.name,o.installer,
             o.installer_employee_id,COALESCE(o.installer_fee_vnd,0),
             COALESCE(o.install_address,''),COALESCE(o.install_at,''),COALESCE(o.plate_no,''),o.unit_price_vnd,
-            COALESCE(c.code,''),COALESCE(cg.name,'-'),COALESCE(c.representative_name,''),
+            COALESCE(c.code,''),
+            CASE
+                WHEN sg.id IS NOT NULL THEN COALESCE(cg.name,'') || ' › ' || sg.name
+                WHEN pg.id IS NOT NULL THEN pg.name || ' › ' || COALESCE(cg.name,'')
+                ELSE COALESCE(cg.name,'-')
+            END,
+            COALESCE(c.representative_name,''),
             COALESCE(o.contact_name,''),COALESCE(o.duration_months,12),COALESCE(o.deduct_stock,1),
             COALESCE(o.activated_at,''),o.warehouse_id,COALESCE(o.notes,''),COALESCE(o.collect_on_delivery,0),
             COALESCE(o.seller_record_id, c.seller_id),COALESCE(o.unit_cost_snapshot_vnd,0)
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
             LEFT JOIN customer_groups cg ON cg.id=c.group_id
+            LEFT JOIN customer_groups pg ON pg.id=cg.parent_id
+            LEFT JOIN customer_groups sg ON sg.id=c.sub_group_id AND sg.deleted_at IS NULL
             LEFT JOIN warehouses w ON w.id=o.warehouse_id
             LEFT JOIN app_users u ON u.id=o.seller_id
             LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)

@@ -106,11 +106,17 @@ public sealed class DemoDb
             Exec(c, null, File.ReadAllText(Path.Combine(_contentRoot, "Data", demo ? "seed.sql" : "seed_empty.sql")));
         }
         Exec(c, null, "INSERT OR IGNORE INTO warehouse_locations(warehouse_id,code,name) SELECT id,'MAIN','Vị trí chính' FROM warehouses");
+        var cgCols = Query(c, "PRAGMA table_info(customer_groups)", r => S(r, 1));
+        if (!cgCols.Any(x => string.Equals(x, "parent_id", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE customer_groups ADD COLUMN parent_id INTEGER REFERENCES customer_groups(id)");
+
         var custCols = Query(c, "PRAGMA table_info(customers)", r => S(r, 1));
         if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
         if (!custCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE customers ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+        if (!custCols.Any(x => string.Equals(x, "sub_group_id", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE customers ADD COLUMN sub_group_id INTEGER REFERENCES customer_groups(id)");
 
         var renCols = Query(c, "PRAGMA table_info(renewals)", r => S(r, 1));
         if (!renCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
@@ -266,11 +272,18 @@ public sealed class DemoDb
     public List<CustomerVm> Customers()
     {
         using var c = Open();
-        return Query(c, @"SELECT c.id,c.code,c.name,COALESCE(g.name,'-'),
+        return Query(c, @"SELECT c.id,c.code,c.name,
+            CASE
+                WHEN sg.id IS NOT NULL THEN COALESCE(g.name,'') || ' › ' || sg.name
+                WHEN pg.id IS NOT NULL THEN pg.name || ' › ' || COALESCE(g.name,'')
+                ELSE COALESCE(g.name,'-')
+            END,
             COALESCE(s.code||' — '||s.full_name, NULLIF(c.source_name,''), ''),
             c.phone,c.address,COALESCE(c.representative_name,''),c.seller_id
             FROM customers c
             LEFT JOIN customer_groups g ON g.id=c.group_id
+            LEFT JOIN customer_groups pg ON pg.id=g.parent_id
+            LEFT JOIN customer_groups sg ON sg.id=c.sub_group_id AND sg.deleted_at IS NULL
             LEFT JOIN v7_sellers s ON s.id=c.seller_id
             WHERE c.deleted_at IS NULL ORDER BY c.id DESC",
           r => new CustomerVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),S(r,7),r.IsDBNull(8) ? null : L(r,8)));
@@ -1070,11 +1083,25 @@ public sealed class DemoDb
                 resolvedSellerName = device.FallbackSellerName;
             }
 
-            // Lấy giá gia hạn cố định tại thời điểm phát sinh gia hạn (hoặc giá tùy chỉnh nếu Admin nhập)
-            var price = customPriceVnd is >= 0 ? customPriceVnd.Value : N(c,t,@"SELECT renewal_price_vnd FROM v7_group_prices
-               WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p AND deleted_at IS NULL AND effective_from<=date('now')
-                 AND (effective_to IS NULL OR effective_to>=date('now'))
-               ORDER BY effective_from DESC,id DESC LIMIT 1",("$c",device.CustomerId),("$p",device.ProductId));
+            // Lấy giá gia hạn cố định theo phân cấp: Nhóm con Đại lý (sub_group_id) -> Nhóm khách hàng chính (group_id) -> Nhóm cha -> Giá mặc định SP
+            var price = customPriceVnd is >= 0 ? customPriceVnd.Value : N(c,t,@"
+               SELECT COALESCE(
+                   NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+                           WHERE gp.group_id=(SELECT sub_group_id FROM customers WHERE id=$c)
+                             AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                             AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
+                           ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+                   NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+                           WHERE gp.group_id=(SELECT group_id FROM customers WHERE id=$c)
+                             AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                             AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
+                           ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+                   NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+                           WHERE gp.group_id=(SELECT cg.parent_id FROM customers cu JOIN customer_groups cg ON cg.id=cu.group_id WHERE cu.id=$c)
+                             AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                             AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
+                           ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+                   0)",("$c",device.CustomerId),("$p",device.ProductId));
             if(customPriceVnd is null && price == 0) price = device.DefaultPrice;
 
             var renDate = DateTime.Today;
@@ -1981,8 +2008,12 @@ public sealed class DemoDb
             var actByCustProd = QueryTx(c, t, @"
                 SELECT a.customer_id, a.product_id, p.sku||' — '||p.name, COUNT(*) AS act_qty,
                        COALESCE(
+                           NULLIF((SELECT gp.installed_price_vnd FROM v7_group_prices gp WHERE gp.group_id=cu.sub_group_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           NULLIF((SELECT gp.standard_price_vnd FROM v7_group_prices gp WHERE gp.group_id=cu.sub_group_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
                            NULLIF((SELECT gp.installed_price_vnd FROM v7_group_prices gp WHERE gp.group_id=cu.group_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
                            NULLIF((SELECT gp.standard_price_vnd FROM v7_group_prices gp WHERE gp.group_id=cu.group_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           NULLIF((SELECT gp.installed_price_vnd FROM v7_group_prices gp JOIN customer_groups cg ON cg.id=cu.group_id WHERE gp.group_id=cg.parent_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                           NULLIF((SELECT gp.standard_price_vnd FROM v7_group_prices gp JOIN customer_groups cg ON cg.id=cu.group_id WHERE gp.group_id=cg.parent_id AND gp.product_id=a.product_id AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
                            NULLIF((SELECT gp2.installed_price_vnd FROM v7_group_prices gp2 WHERE gp2.product_id=a.product_id AND gp2.deleted_at IS NULL ORDER BY gp2.effective_from DESC, gp2.id DESC LIMIT 1), 0),
                            p.base_cost_vnd,
                            0

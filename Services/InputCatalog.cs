@@ -11,15 +11,21 @@ namespace TNM.Management.Services;
 public sealed class InputCatalog(IWebHostEnvironment env)
 {
     private readonly string dbPath = Path.Combine(env.ContentRootPath, "App_Data", "tnm-local.db");
-    public record Choice(long Id, string Code, string Name);
+    public record Choice(long Id, string Code, string Name, long? ParentId = null, string ParentName = "")
+    {
+        public string HierarchyLabel => ParentId is > 0 && !string.IsNullOrWhiteSpace(ParentName)
+            ? $"↳ [Nhóm con] {ParentName} › {Name}"
+            : Name;
+    }
     public record SupplierGroup(long Id, string Code, string Name, long Suppliers);
     public record Supplier(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string TaxCode);
     public record Area(long Id, string Code, string Name, long Warehouses);
     public record Warehouse(long Id, string Code, string Name, long? AreaId, string Area, string Address, long ImeiCount = 0, long InStockCount = 0, long InstalledCount = 0);
     public record Product(long Id, string Code, string Name, long GroupId, string Group, bool Active);
-    public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "", string RepresentativeName = "", long? SellerId = null)
+    public record Customer(long Id, string Code, string Name, long? GroupId, string Group, string Phone, string Address, string SourceName = "", string RepresentativeName = "", long? SellerId = null, long? SubGroupId = null, string SubGroupName = "")
     {
         public string B2BDisplayName => string.IsNullOrWhiteSpace(RepresentativeName) ? Name : $"{Name} (ĐD: {RepresentativeName})";
+        public string FullGroupDisplay => string.IsNullOrWhiteSpace(SubGroupName) ? Group : $"{Group} › {SubGroupName}";
     }
     public record Seller(
         long Id,
@@ -86,11 +92,17 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 );
                 """);
 
+            var cgCols = Read(c, "PRAGMA table_info(customer_groups)", r => Txt(r, 1));
+            if (!cgCols.Any(x => string.Equals(x, "parent_id", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE customer_groups ADD COLUMN parent_id INTEGER REFERENCES customer_groups(id)");
+
             var custCols = Read(c, "PRAGMA table_info(customers)", r => Txt(r, 1));
             if (!custCols.Any(x => string.Equals(x, "representative_name", StringComparison.OrdinalIgnoreCase)))
                 Do(c, "ALTER TABLE customers ADD COLUMN representative_name TEXT NOT NULL DEFAULT ''");
             if (!custCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
                 Do(c, "ALTER TABLE customers ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+            if (!custCols.Any(x => string.Equals(x, "sub_group_id", StringComparison.OrdinalIgnoreCase)))
+                Do(c, "ALTER TABLE customers ADD COLUMN sub_group_id INTEGER REFERENCES customer_groups(id)");
 
             var orderCols = Read(c, "PRAGMA table_info(v7_orders)", r => Txt(r, 1));
             if (!orderCols.Any(x => string.Equals(x, "seller_record_id", StringComparison.OrdinalIgnoreCase)))
@@ -260,7 +272,17 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     }
 
     public List<Choice> SupplierGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM supplier_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
-    public List<Choice> CustomerGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM customer_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
+    public List<Choice> CustomerGroupChoices()
+    {
+        using var c = Open();
+        return Read(c, @"
+            SELECT g.id, g.code, g.name, g.parent_id, COALESCE(pg.name, '')
+            FROM customer_groups g
+            LEFT JOIN customer_groups pg ON pg.id = g.parent_id AND pg.deleted_at IS NULL
+            WHERE g.deleted_at IS NULL
+            ORDER BY COALESCE(pg.name, g.name) ASC, CASE WHEN g.parent_id IS NULL THEN 0 ELSE 1 END ASC, g.name ASC",
+            r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4)));
+    }
     public List<Choice> ProductGroupChoices() { using var c = Open(); return Read(c, "SELECT id,code,name FROM product_groups WHERE deleted_at IS NULL ORDER BY name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<Choice> InstallerChoices() { using var c = Open(); return Read(c, "SELECT id,code,full_name FROM employees WHERE is_active=1 AND deleted_at IS NULL ORDER BY full_name", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
     public List<Choice> SellerChoices() { using var c = Open(); return Read(c, "SELECT id,code,full_name FROM v7_sellers WHERE is_active=1 AND deleted_at IS NULL ORDER BY id ASC, full_name ASC", r => new Choice(r.GetInt64(0), Txt(r, 1), Txt(r, 2))); }
@@ -285,7 +307,23 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             r => new Warehouse(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), r.GetInt64(6), r.GetInt64(7), r.GetInt64(8)));
     }
     public List<Product> Products() { using var c = Open(); return Read(c, "SELECT id,sku,name,group_id,group_name,is_active FROM v7_product_master WHERE is_active=1 ORDER BY id DESC", r => new Product(r.GetInt64(0), Txt(r, 1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5) == 1)); }
-    public List<Customer> Customers() { using var c = Open(); return Read(c, "SELECT c.id,c.code,c.name,c.group_id,COALESCE(g.name,''),COALESCE(c.phone,''),COALESCE(c.address,''),COALESCE(s.code||' — '||s.full_name, NULLIF(c.source_name,''), ''),COALESCE(c.representative_name,''),c.seller_id FROM customers c LEFT JOIN customer_groups g ON g.id=c.group_id LEFT JOIN v7_sellers s ON s.id=c.seller_id WHERE c.deleted_at IS NULL ORDER BY c.id ASC", r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7), Txt(r, 8), Opt(r, 9))); }
+    public List<Customer> Customers()
+    {
+        using var c = Open();
+        return Read(c, @"
+            SELECT c.id, c.code, c.name, c.group_id, COALESCE(g.name,''),
+                   COALESCE(c.phone,''), COALESCE(c.address,''),
+                   COALESCE(s.code||' — '||s.full_name, NULLIF(c.source_name,''), ''),
+                   COALESCE(c.representative_name,''), c.seller_id,
+                   c.sub_group_id, COALESCE(sg.name,'')
+            FROM customers c
+            LEFT JOIN customer_groups g ON g.id=c.group_id
+            LEFT JOIN customer_groups sg ON sg.id=c.sub_group_id AND sg.deleted_at IS NULL
+            LEFT JOIN v7_sellers s ON s.id=c.seller_id
+            WHERE c.deleted_at IS NULL
+            ORDER BY c.id ASC",
+            r => new Customer(r.GetInt64(0), Txt(r, 1), Txt(r, 2), Opt(r, 3), Txt(r, 4), Txt(r, 5), Txt(r, 6), Txt(r, 7), Txt(r, 8), Opt(r, 9), Opt(r, 10), Txt(r, 11)));
+    }
     public string PeekNextSellerCode()
     {
         using var c = Open();
@@ -375,17 +413,44 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             r => new InstallerRate(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), Txt(r, 3), r.GetInt64(4), Txt(r, 5), r.GetInt64(6), Txt(r, 7)));
     }
     public List<PurchasePrice> PurchasePrices() { using var c = Open(); return Read(c, "SELECT x.id,x.supplier_group_id,g.name,x.product_id,p.sku||' · '||p.name,x.unit_cost_vnd,x.effective_from FROM v7_supplier_group_prices x JOIN supplier_groups g ON g.id=x.supplier_group_id JOIN products p ON p.id=x.product_id WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new PurchasePrice(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5), Txt(r, 6))); }
-    public List<SalePrice> SalePrices() { using var c = Open(); return Read(c, "SELECT x.id,x.group_id,g.name,x.product_id,p.sku||' · '||p.name,x.standard_price_vnd,x.installed_price_vnd,x.renewal_price_vnd,x.effective_from FROM v7_group_prices x JOIN customer_groups g ON g.id=x.group_id JOIN products p ON p.id=x.product_id WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new SalePrice(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5), r.GetInt64(6), r.GetInt64(7), Txt(r, 8))); }
-    public List<Campaign> Campaigns() { using var c = Open(); return Read(c, "SELECT x.id,x.group_id,g.name,x.name,x.discount_percent,x.start_date,x.end_date,x.is_active FROM v7_group_campaigns x JOIN customer_groups g ON g.id=x.group_id WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new Campaign(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), Txt(r, 3), r.GetInt32(4), Txt(r, 5), Txt(r, 6), r.GetInt64(7) == 1)); }
+    public List<SalePrice> SalePrices() { using var c = Open(); return Read(c, "SELECT x.id,x.group_id,CASE WHEN pg.id IS NOT NULL THEN pg.name||' › '||g.name ELSE g.name END,x.product_id,p.sku||' · '||p.name,x.standard_price_vnd,x.installed_price_vnd,x.renewal_price_vnd,x.effective_from FROM v7_group_prices x JOIN customer_groups g ON g.id=x.group_id LEFT JOIN customer_groups pg ON pg.id=g.parent_id AND pg.deleted_at IS NULL JOIN products p ON p.id=x.product_id WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new SalePrice(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), r.GetInt64(3), Txt(r, 4), r.GetInt64(5), r.GetInt64(6), r.GetInt64(7), Txt(r, 8))); }
+    public List<Campaign> Campaigns() { using var c = Open(); return Read(c, "SELECT x.id,x.group_id,CASE WHEN pg.id IS NOT NULL THEN pg.name||' › '||g.name ELSE g.name END,x.name,x.discount_percent,x.start_date,x.end_date,x.is_active FROM v7_group_campaigns x JOIN customer_groups g ON g.id=x.group_id LEFT JOIN customer_groups pg ON pg.id=g.parent_id AND pg.deleted_at IS NULL WHERE x.deleted_at IS NULL ORDER BY x.id DESC", r => new Campaign(r.GetInt64(0), r.GetInt64(1), Txt(r, 2), Txt(r, 3), r.GetInt32(4), Txt(r, 5), Txt(r, 6), r.GetInt64(7) == 1)); }
 
-    public long SaveGroup(long actor, string type, long? id, string code, string name)
+    public long SaveGroup(long actor, string type, long? id, string code, string name, long? parentId = null)
     {
         var table = type switch { "SUPPLIER" => "supplier_groups", "PRODUCT" => "product_groups", "CUSTOMER" => "customer_groups", "AREA" => "warehouse_areas", _ => throw new InvalidOperationException("Loại nhóm không hợp lệ.") };
         code = Code(code); name = Required(name, "Tên nhóm");
         return Write(actor, c => {
+            long? resolvedParent = null;
+            if (type == "CUSTOMER" && parentId is > 0)
+            {
+                if (id.HasValue && id.Value == parentId.Value)
+                    throw new InvalidOperationException("Nhóm khách hàng không thể nhận chính nó làm nhóm cha.");
+                Exists(c, "customer_groups", parentId.Value);
+                if (Cell(c, "SELECT parent_id FROM customer_groups WHERE id=$p AND deleted_at IS NULL", ("$p", parentId.Value)) is not null)
+                    throw new InvalidOperationException("Vui lòng chọn một Nhóm khách hàng chính (nhóm gốc) làm nhóm cha.");
+                if (id.HasValue && Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$id AND deleted_at IS NULL", ("$id", id.Value)) > 0)
+                    throw new InvalidOperationException("Nhóm này đang chứa các nhóm con bên trong nên không thể chuyển thành nhóm con của nhóm khác.");
+                resolvedParent = parentId.Value;
+            }
             long result;
-            if (id.HasValue) { Exists(c, table, id.Value); Do(c, $"UPDATE {table} SET code=$code,name=$name WHERE id=$id", ("$code", code), ("$name", name), ("$id", id.Value)); result = id.Value; }
-            else { Do(c, $"INSERT INTO {table}(code,name) VALUES($code,$name)", ("$code", code), ("$name", name)); result = Num(c, "SELECT last_insert_rowid()"); }
+            if (id.HasValue)
+            {
+                Exists(c, table, id.Value);
+                if (type == "CUSTOMER")
+                    Do(c, $"UPDATE {table} SET code=$code,name=$name,parent_id=$parent WHERE id=$id", ("$code", code), ("$name", name), ("$parent", resolvedParent), ("$id", id.Value));
+                else
+                    Do(c, $"UPDATE {table} SET code=$code,name=$name WHERE id=$id", ("$code", code), ("$name", name), ("$id", id.Value));
+                result = id.Value;
+            }
+            else
+            {
+                if (type == "CUSTOMER")
+                    Do(c, $"INSERT INTO {table}(code,name,parent_id) VALUES($code,$name,$parent)", ("$code", code), ("$name", name), ("$parent", resolvedParent));
+                else
+                    Do(c, $"INSERT INTO {table}(code,name) VALUES($code,$name)", ("$code", code), ("$name", name));
+                result = Num(c, "SELECT last_insert_rowid()");
+            }
             if (type == "SUPPLIER" && code != "DEFAULT" && Num(c, "SELECT COUNT(*) FROM suppliers WHERE group_id=$g AND deleted_at IS NULL", ("$g", result)) == 0)
             {
                 var nextNo = Num(c, "SELECT COALESCE(MAX(id),0)+1 FROM suppliers");
@@ -404,7 +469,18 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     {
         var (table, child, foreign) = type switch { "SUPPLIER" => ("supplier_groups", "suppliers", "group_id"), "PRODUCT" => ("product_groups", "products", "group_id"), "CUSTOMER" => ("customer_groups", "customers", "group_id"), "AREA" => ("warehouse_areas", "warehouses", "area_id"), _ => throw new InvalidOperationException("Loại nhóm không hợp lệ.") };
         Write(actor, c => {
-            Exists(c, table, id); if (Num(c, $"SELECT COUNT(*) FROM {child} WHERE {foreign}=$id AND deleted_at IS NULL", ("$id", id)) > 0) throw new InvalidOperationException("Nhóm đang có dữ liệu, không thể xóa.");
+            Exists(c, table, id);
+            if (type == "CUSTOMER")
+            {
+                if (Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$id AND deleted_at IS NULL", ("$id", id)) > 0)
+                    throw new InvalidOperationException("Nhóm đang chứa các nhóm con bên trong, không thể xóa.");
+                if (Num(c, "SELECT COUNT(*) FROM customers WHERE (group_id=$id OR sub_group_id=$id) AND deleted_at IS NULL", ("$id", id)) > 0)
+                    throw new InvalidOperationException("Nhóm đang có khách hàng / đại lý trực thuộc, không thể xóa.");
+            }
+            else if (Num(c, $"SELECT COUNT(*) FROM {child} WHERE {foreign}=$id AND deleted_at IS NULL", ("$id", id)) > 0)
+            {
+                throw new InvalidOperationException("Nhóm đang có dữ liệu, không thể xóa.");
+            }
             Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id)); Audit(c, actor, "DELETE", table.ToUpperInvariant(), id, ""); return 0;
         });
     }
@@ -430,12 +506,32 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "WAREHOUSE", wid, code); return wid;
         });
     }
-    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "", string representativeName = "", long? sellerId = null)
+    public long SaveCustomer(long actor, long? id, string? code, string name, long groupId, string phone, string address, string sourceName = "", string representativeName = "", long? sellerId = null, long? subGroupId = null)
     {
         name = Required(name, "Tên khách hàng");
         var rep = (representativeName ?? "").Trim();
         return Write(actor, c => {
             Exists(c, "customer_groups", groupId);
+            long resolvedMainGroupId = groupId;
+            long? resolvedSubGroupId = subGroupId is > 0 ? subGroupId.Value : null;
+
+            // If user selected a child group directly as groupId, normalize main group = parent_id and sub_group = groupId
+            var mainGroupParent = Cell(c, "SELECT parent_id FROM customer_groups WHERE id=$g AND deleted_at IS NULL", ("$g", resolvedMainGroupId));
+            if (mainGroupParent is not null)
+            {
+                resolvedSubGroupId = resolvedMainGroupId;
+                resolvedMainGroupId = Convert.ToInt64(mainGroupParent);
+            }
+            else if (resolvedSubGroupId.HasValue)
+            {
+                Exists(c, "customer_groups", resolvedSubGroupId.Value);
+                var subParent = Cell(c, "SELECT parent_id FROM customer_groups WHERE id=$sg AND deleted_at IS NULL", ("$sg", resolvedSubGroupId.Value));
+                if (subParent is null || Convert.ToInt64(subParent) != resolvedMainGroupId)
+                {
+                    resolvedSubGroupId = null;
+                }
+            }
+
             long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : null;
             var srcText = (sourceName ?? "").Trim();
             if (resolvedSellerId.HasValue)
@@ -457,15 +553,15 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 Exists(c, "customers", id.Value);
                 var existingCode = Convert.ToString(Cell(c, "SELECT code FROM customers WHERE id=$id", ("$id", id.Value))) ?? "";
                 finalCode = string.IsNullOrWhiteSpace(code) ? existingCode : Code(code);
-                Do(c, "UPDATE customers SET code=$code,name=$name,representative_name=$rep,group_id=$g,phone=$phone,address=$address,source_name=$src,seller_id=$seller WHERE id=$id",
-                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", srcText), ("$seller", resolvedSellerId), ("$id", id.Value));
+                Do(c, "UPDATE customers SET code=$code,name=$name,representative_name=$rep,group_id=$g,sub_group_id=$sg,phone=$phone,address=$address,source_name=$src,seller_id=$seller WHERE id=$id",
+                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", resolvedMainGroupId), ("$sg", resolvedSubGroupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", srcText), ("$seller", resolvedSellerId), ("$id", id.Value));
                 cid = id.Value;
             }
             else
             {
                 finalCode = NextCustomerCode(c);
-                Do(c, "INSERT INTO customers(code,name,representative_name,group_id,phone,address,source_name,seller_id) VALUES($code,$name,$rep,$g,$phone,$address,$src,$seller)",
-                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", groupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", srcText), ("$seller", resolvedSellerId));
+                Do(c, "INSERT INTO customers(code,name,representative_name,group_id,sub_group_id,phone,address,source_name,seller_id) VALUES($code,$name,$rep,$g,$sg,$phone,$address,$src,$seller)",
+                    ("$code", finalCode), ("$name", name), ("$rep", rep), ("$g", resolvedMainGroupId), ("$sg", resolvedSubGroupId), ("$phone", (phone ?? "").Trim()), ("$address", (address ?? "").Trim()), ("$src", srcText), ("$seller", resolvedSellerId));
                 cid = Num(c, "SELECT last_insert_rowid()");
             }
             Audit(c, actor, id.HasValue ? "UPDATE" : "CREATE", "CUSTOMER", cid, finalCode);
@@ -714,20 +810,41 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         if (priceType is not ("STANDARD" or "INSTALLED" or "RENEWAL")) throw new InvalidOperationException("Loại giá không hợp lệ.");
         using var c = Open(); var day = (at ?? DateTime.Today).ToString("yyyy-MM-dd");
         using var q = Cmd(c, """
-            SELECT c.group_id,p.sku,gp.standard_price_vnd,gp.installed_price_vnd,gp.renewal_price_vnd
-            FROM customers c JOIN products p ON p.id=$p
-            JOIN v7_group_prices gp ON gp.group_id=c.group_id AND gp.product_id=p.id
+            SELECT gp.group_id, p.sku, gp.standard_price_vnd, gp.installed_price_vnd, gp.renewal_price_vnd,
+                   c.group_id, c.sub_group_id, cg.parent_id
+            FROM customers c
+            JOIN products p ON p.id=$p
+            LEFT JOIN customer_groups cg ON cg.id=c.group_id
+            JOIN v7_group_prices gp ON gp.product_id=p.id
+              AND (gp.group_id=c.sub_group_id OR gp.group_id=c.group_id OR gp.group_id=cg.parent_id)
             WHERE c.id=$c AND c.is_active=1 AND c.deleted_at IS NULL AND p.is_active=1 AND p.deleted_at IS NULL AND gp.deleted_at IS NULL
               AND gp.effective_from<=$d AND (gp.effective_to IS NULL OR gp.effective_to>=$d)
-            ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1
+            ORDER BY CASE
+                WHEN c.sub_group_id IS NOT NULL AND gp.group_id=c.sub_group_id THEN 1
+                WHEN gp.group_id=c.group_id THEN 2
+                ELSE 3
+            END ASC, gp.effective_from DESC, gp.id DESC LIMIT 1
             """, ("$c", customerId), ("$p", productId), ("$d", day));
-        long group, basePrice; string sku;
-        using (var r = q.ExecuteReader()) { if (!r.Read()) throw new InvalidOperationException("Khách hàng chưa có bảng giá hiệu lực theo nhóm và sản phẩm."); group = r.GetInt64(0); sku = r.GetString(1); basePrice = priceType == "STANDARD" ? r.GetInt64(2) : priceType == "INSTALLED" ? r.GetInt64(3) : r.GetInt64(4); }
+        long group, mainGroup, basePrice; long? subGroup, parentGroup; string sku;
+        using (var r = q.ExecuteReader())
+        {
+            if (!r.Read()) throw new InvalidOperationException("Khách hàng chưa có bảng giá hiệu lực theo nhóm và sản phẩm.");
+            group = r.GetInt64(0);
+            sku = r.GetString(1);
+            basePrice = priceType == "STANDARD" ? r.GetInt64(2) : priceType == "INSTALLED" ? r.GetInt64(3) : r.GetInt64(4);
+            mainGroup = r.GetInt64(5);
+            subGroup = r.IsDBNull(6) ? null : r.GetInt64(6);
+            parentGroup = r.IsDBNull(7) ? null : r.GetInt64(7);
+        }
         using var cp = Cmd(c, """
             SELECT id,name,discount_percent FROM v7_group_campaigns
-            WHERE group_id=$g AND is_active=1 AND deleted_at IS NULL AND start_date<=$d AND end_date>=$d
-            ORDER BY discount_percent DESC,id ASC LIMIT 1
-            """, ("$g", group), ("$d", day));
+            WHERE (group_id=$sg OR group_id=$g OR group_id=$pg) AND is_active=1 AND deleted_at IS NULL AND start_date<=$d AND end_date>=$d
+            ORDER BY CASE
+                WHEN $sg IS NOT NULL AND group_id=$sg THEN 1
+                WHEN group_id=$g THEN 2
+                ELSE 3
+            END ASC, discount_percent DESC, id ASC LIMIT 1
+            """, ("$sg", subGroup), ("$g", mainGroup), ("$pg", parentGroup), ("$d", day));
         using var cr = cp.ExecuteReader(); long? campaignId = null; string? campaignName = null; int discount = 0;
         if (cr.Read()) { campaignId = cr.GetInt64(0); campaignName = cr.GetString(1); discount = cr.GetInt32(2); }
         var final = (long)((decimal)basePrice * (100 - discount) / 100m);

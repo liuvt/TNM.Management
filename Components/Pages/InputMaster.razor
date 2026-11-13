@@ -169,13 +169,49 @@ else
             <div class="form-grid">
                 @if(IsGroup)
                 {
-                    <label>@(Section=="areas"?"Mã khu vực":"Mã nhóm") *<input @bind="code" placeholder="@CodeExample" maxlength="32" /></label>
-                    <label>@(Section=="areas"?"Tên khu vực":"Tên nhóm") *<input @bind="name" placeholder="@NameExample" maxlength="160" /></label>
+                    @if(CurrentSection=="customer-groups")
+                    {
+                        <label>Loại nhóm / Thuộc Nhóm khách hàng chính (Tùy chọn)
+                            <select @bind="parentGroupId">
+                                <option value="0">— Nhóm khách hàng chính (Nhóm gốc, VD: Đại lý / HTX, Khách lẻ) —</option>
+                                @foreach(var pg in RootCustomerGroups.Where(x => x.Id != editingId))
+                                {
+                                    <option value="@pg.Id">↳ Nhóm con tạo giá thuộc: @pg.Name (@pg.Code)</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    <label>@(Section=="areas"?"Mã khu vực":CurrentSection=="customer-groups" && parentGroupId>0 ? "Mã nhóm giá con *" : "Mã nhóm *")<input @bind="code" placeholder="@(CurrentSection=="customer-groups" && parentGroupId>0 ? "VD: DL-NHOM-1" : CodeExample)" maxlength="32" /></label>
+                    <label>@(Section=="areas"?"Tên khu vực":CurrentSection=="customer-groups" && parentGroupId>0 ? "Tên nhóm giá con (gom các Đại lý cùng mức giá) *" : "Tên nhóm *")<input @bind="name" placeholder="@(CurrentSection=="customer-groups" && parentGroupId>0 ? "VD: Nhóm giá Đại lý Cấp 1 / Nhóm Đại lý Miền Tây" : NameExample)" maxlength="160" /></label>
                 }
                 else if(Section is "suppliers" or "customers" or "warehouses")
                 {
-                    <label>@(Section=="suppliers"?"Nhóm nhà cung cấp":Section=="customers"?"Nhóm khách hàng":"Khu vực") *
-                        <select @bind="groupId"><option value="0">— Chọn —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@g.Name</option>}</select></label>
+                    @if(CurrentSection=="customers")
+                    {
+                        <label>Nhóm khách hàng chính *
+                            <select @bind="groupId" @bind:after="OnCustomerMainGroupChanged">
+                                <option value="0">— Chọn nhóm khách hàng chính —</option>
+                                @foreach(var g in RootCustomerGroups)
+                                {
+                                    <option value="@g.Id">@g.Name (@g.Code)</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Nhóm giá con (Dành cho Đại lý / HTX gom nhóm tạo giá riêng)
+                            <select @bind="subGroupId" disabled="@(groupId <= 0 || SubGroupsForSelectedMainGroup.Count == 0)">
+                                <option value="0">@(groupId <= 0 ? "— Chọn Nhóm khách hàng chính trước —" : SubGroupsForSelectedMainGroup.Count == 0 ? "— Áp dụng bảng giá chuẩn của Nhóm chính (Chưa có nhóm con) —" : "— Áp dụng bảng giá chuẩn của Nhóm chính —")</option>
+                                @foreach(var sg in SubGroupsForSelectedMainGroup)
+                                {
+                                    <option value="@sg.Id">↳ @sg.Name (@sg.Code)</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    else
+                    {
+                        <label>@(Section=="suppliers"?"Nhóm nhà cung cấp":"Khu vực") *
+                            <select @bind="groupId"><option value="0">— Chọn —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@g.Name</option>}</select></label>
+                    }
                     @if(CurrentSection=="customers")
                     {
                         <label>Mã khách hàng (tự động)
@@ -273,8 +309,8 @@ else
                 }
                 else if(Section is "buy-prices" or "sale-prices")
                 {
-                    <label>@(Section=="buy-prices"?"Nhóm NCC":"Nhóm khách hàng") *
-                        <select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@g.Name</option>}</select></label>
+                    <label>@(Section=="buy-prices"?"Nhóm NCC":"Nhóm khách hàng / Nhóm giá con Đại lý") *
+                        <select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var g in GroupChoices){<option value="@g.Id">@(Section=="buy-prices" ? g.Name : g.HierarchyLabel)</option>}</select></label>
                     <label>Sản phẩm *<select @bind="productId"><option value="0">— Chọn sản phẩm —</option>@foreach(var p in products){<option value="@p.Id">@p.Code — @p.Name</option>}</select></label>
                     <label>Ngày bắt đầu áp dụng *<input type="date" @bind="effective" @bind:format="yyyy-MM-dd" /></label>
                     @if(Section=="buy-prices")
@@ -290,7 +326,7 @@ else
                 }
                 else if(Section=="campaigns")
                 {
-                    <label>Nhóm khách hàng *<select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var g in customerGroups){<option value="@g.Id">@g.Name</option>}</select></label>
+                    <label>Nhóm khách hàng / Nhóm giá con Đại lý *<select @bind="groupId"><option value="0">— Chọn nhóm —</option>@foreach(var g in customerGroups){<option value="@g.Id">@g.HierarchyLabel</option>}</select></label>
                     <label>Tên chương trình *<input @bind="name" placeholder="Ưu đãi đại lý" /></label>
                     <label>Chiết khấu (%) *<input type="number" min="0" max="100" @bind="discount" /></label>
                     <label>Ngày bắt đầu *<input type="date" @bind="effective" @bind:format="yyyy-MM-dd" /></label>
@@ -584,7 +620,7 @@ else
     private long? editingId,pendingDelete;
     private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending;
     private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật",installerProdSearch="";
-    private long groupId,productId,buyPrice,standard,installed,renewal,bulkInstallerRate=150000,selectedSellerId;
+    private long groupId,parentGroupId,subGroupId,productId,buyPrice,standard,installed,renewal,bulkInstallerRate=150000,selectedSellerId;
     private int discount;
     private DateTime effective=DateTime.Today,until=DateTime.Today.AddDays(30);
     private readonly Dictionary<long, long> installerProductRates=[];
@@ -639,13 +675,22 @@ else
     private string CreatePermission => CurrentSection switch {"product-groups"=>Permissions.ProductsCreate,"customer-groups" or "customers" or "sellers"=>Permissions.CustomersCreate,"buy-prices" or "sale-prices" or "campaigns" or "installer-rates"=>Permissions.PricesUpdate,_=>Permissions.MasterDataManage};
     private string UpdatePermission => CurrentSection switch {"product-groups"=>Permissions.ProductsUpdate,"customer-groups" or "customers" or "sellers"=>Permissions.CustomersUpdate,"buy-prices" or "sale-prices" or "campaigns" or "installer-rates"=>Permissions.PricesUpdate,_=>Permissions.MasterDataManage};
     private List<InputCatalog.Choice> GroupChoices=>CurrentSection switch {"suppliers" or "buy-prices"=>supplierGroupChoices,"warehouses"=>areas.Select(x=>new InputCatalog.Choice(x.Id,x.Code,x.Name)).ToList(),_=>customerGroups};
+    private List<InputCatalog.Choice> RootCustomerGroups => customerGroups.Where(x => x.ParentId is null).ToList();
+    private List<InputCatalog.Choice> SubGroupsForSelectedMainGroup => groupId > 0 ? customerGroups.Where(x => x.ParentId == groupId).ToList() : [];
     private List<CatalogRow> Rows => CurrentSection switch {
         "supplier-groups"=>supplierGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{x.Suppliers} NCC")).ToList(),
         "product-groups"=>productGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{products.Count(p=>p.GroupId==x.Id)} sản phẩm đang bán")).ToList(),
-        "customer-groups"=>customerGroups.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{customers.Count(c=>c.GroupId==x.Id)} khách hàng")).ToList(),
+        "customer-groups"=>customerGroups.Select(x=>new CatalogRow(
+            x.Id,
+            x.Code,
+            x.ParentId.HasValue ? $"↳ {x.Name}" : x.Name,
+            x.ParentId.HasValue ? $"Nhóm giá con thuộc: {x.ParentName}" : "Nhóm khách hàng chính (Nhóm gốc)",
+            x.ParentId.HasValue
+                ? $"{customers.Count(c=>c.SubGroupId==x.Id || c.GroupId==x.Id)} đại lý / KH áp dụng nhóm giá con này"
+                : $"{customers.Count(c=>c.GroupId==x.Id)} khách hàng / đại lý trực thuộc · {customerGroups.Count(sg=>sg.ParentId==x.Id)} nhóm giá con bên trong")).ToList(),
         "areas"=>areas.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,"—",$"{x.Warehouses} kho")).ToList(),
         "suppliers"=>suppliers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Group,$"{x.Phone} · MST {x.TaxCode}")).ToList(),
-        "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.B2BDisplayName,x.Group,$"{(string.IsNullOrWhiteSpace(x.Phone)?"Chưa có SĐT":x.Phone)}{(string.IsNullOrWhiteSpace(x.RepresentativeName)?"":$" · Người đại diện: {x.RepresentativeName}")} · NV bán hàng: {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa gán NV bán hàng":x.SourceName)}{(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
+        "customers"=>customers.Select(x=>new CatalogRow(x.Id,x.Code,x.B2BDisplayName,x.FullGroupDisplay,$"{(string.IsNullOrWhiteSpace(x.Phone)?"Chưa có SĐT":x.Phone)}{(string.IsNullOrWhiteSpace(x.RepresentativeName)?"":$" · Người đại diện: {x.RepresentativeName}")}{(x.SubGroupId.HasValue?$" · Nhóm giá con: {x.SubGroupName}":"")} · NV bán hàng: {(string.IsNullOrWhiteSpace(x.SourceName)?"Chưa gán NV bán hàng":x.SourceName)}{(string.IsNullOrWhiteSpace(x.Address)?"":$" · {x.Address}")}")).ToList(),
         "sellers"=>sellers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Department,$"SĐT: {(string.IsNullOrWhiteSpace(x.Phone)?"—":x.Phone)} · KH: {x.CustomerCount} · Đơn HT: {x.CompletedOrders} ({x.CompletedDevices} TB, {Money(x.SalesRevenueVnd)}) · Gia hạn: {x.RenewalCount} ({Money(x.RenewalRevenueVnd)}) · HH dự kiến: {Money(x.EstimatedCommissionVnd)}")).ToList(),
         "installers"=>installers.Select(x=>new CatalogRow(x.Id,x.Code,x.Name,x.Department,$"SĐT: {(string.IsNullOrWhiteSpace(x.Phone)?"—":x.Phone)} · Đơn giá lắp: {x.RateSummary}")).ToList(),
         "installer-rates"=>installerRates.Select(x=>new CatalogRow(x.Id,x.EmployeeCode,$"{x.EmployeeName} → {x.Product}",x.EmployeeName,$"Đơn giá đi lắp: {Money(x.InstallRate)} · hiệu lực {x.EffectiveFrom}")).ToList(),
@@ -709,7 +754,14 @@ else
     private void ResetPage(){catalogPager.Reset();}
     private void ToggleRow(long id,bool value){if(value)selected.Add(id);else selected.Remove(id);}
     private void TogglePage(ChangeEventArgs e){bool check=e.Value is bool b && b;foreach(var r in PageRows){if(check)selected.Add(r.Id);else selected.Remove(r.Id);}}
-    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch="";department=CurrentSection=="sellers"?"Sale Nội bộ (Kinh doanh)":"Kỹ thuật";groupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
+    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch="";department=CurrentSection=="sellers"?"Sale Nội bộ (Kinh doanh)":"Kỹ thuật";groupId=parentGroupId=subGroupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
+    private void OnCustomerMainGroupChanged()
+    {
+        if (subGroupId > 0 && !customerGroups.Any(x => x.Id == subGroupId && x.ParentId == groupId))
+        {
+            subGroupId = 0;
+        }
+    }
     private void OnCustomerSellerSelected()
     {
         var sl = sellerChoices.FirstOrDefault(x => x.Id == selectedSellerId);
@@ -733,10 +785,30 @@ else
         ResetFields();editingId=row.Id;showEditor=true;scrollEditorPending=true;message="";
         switch(CurrentSection)
         {
-            case "supplier-groups":case "product-groups":case "customer-groups":case "areas":
+            case "supplier-groups":case "product-groups":case "areas":
                 code=row.Code;name=row.Name;break;
+            case "customer-groups":
+            {
+                var cg = customerGroups.FirstOrDefault(g => g.Id == row.Id);
+                code = cg?.Code ?? row.Code;
+                name = cg?.Name ?? row.Name;
+                parentGroupId = cg?.ParentId ?? 0;
+                break;
+            }
             case "suppliers":{var x=suppliers.First(s=>s.Id==row.Id);code=x.Code;name=x.Name;phone=x.Phone;tax=x.TaxCode;groupId=x.GroupId??0;break;}
-            case "customers":{var x=customers.First(c=>c.Id==row.Id);code=x.Code;name=x.Name;representativeName=x.RepresentativeName;phone=x.Phone;address=x.Address;sourceName=x.SourceName;groupId=x.GroupId??0;selectedSellerId=x.SellerId??0;break;}
+            case "customers":
+            {
+                var x=customers.First(c=>c.Id==row.Id);
+                code=x.Code;name=x.Name;representativeName=x.RepresentativeName;phone=x.Phone;address=x.Address;sourceName=x.SourceName;
+                groupId=x.GroupId??0;subGroupId=x.SubGroupId??0;selectedSellerId=x.SellerId??0;
+                var cg = customerGroups.FirstOrDefault(g => g.Id == groupId);
+                if (cg?.ParentId is > 0)
+                {
+                    subGroupId = cg.Id;
+                    groupId = cg.ParentId.Value;
+                }
+                break;
+            }
             case "sellers":{var x=sellers.First(s=>s.Id==row.Id);code=x.Code;name=x.Name;phone=x.Phone;department=x.Department;standard=x.OrderCommissionVnd;renewal=x.RenewalCommissionVnd;address=x.Notes;break;}
             case "installers":{var x=installers.First(i=>i.Id==row.Id);code=x.Code;name=x.Name;phone=x.Phone;department=x.Department;foreach(var kv in Catalog.InstallerRatesForEmployee(x.Id))installerProductRates[kv.Key]=kv.Value;break;}
             case "installer-rates":{var x=installerRates.First(r=>r.Id==row.Id);groupId=x.EmployeeId;productId=x.ProductId;buyPrice=x.InstallRate;effective=DateTime.ParseExact(x.EffectiveFrom,"yyyy-MM-dd",CultureInfo.InvariantCulture);break;}
@@ -753,9 +825,9 @@ else
             var actor=await Gate.RequireAsync(editingId.HasValue?UpdatePermission:CreatePermission);
             switch(CurrentSection)
             {
-                case "supplier-groups":case "product-groups":case "customer-groups":case "areas": Catalog.SaveGroup(actor,GroupType,editingId,code,name);break;
+                case "supplier-groups":case "product-groups":case "customer-groups":case "areas": Catalog.SaveGroup(actor,GroupType,editingId,code,name,parentGroupId>0?parentGroupId:null);break;
                 case "suppliers":Catalog.SaveSupplier(actor,editingId,code,name,groupId,phone,tax);break;
-                case "customers":Catalog.SaveCustomer(actor,editingId,code,name,groupId,phone,address,sourceName,representativeName,selectedSellerId>0?selectedSellerId:null);break;
+                case "customers":Catalog.SaveCustomer(actor,editingId,code,name,groupId,phone,address,sourceName,representativeName,selectedSellerId>0?selectedSellerId:null,subGroupId>0?subGroupId:null);break;
                 case "sellers":Catalog.SaveSeller(actor,editingId,code,name,phone,department,standard,renewal,address);break;
                 case "installers":Catalog.SaveInstaller(actor,editingId,code,name,phone,department,installerProductRates);break;
                 case "installer-rates":if(editingId.HasValue)Catalog.UpdateInstallerRate(actor,editingId.Value,groupId,productId,buyPrice,effective);else Catalog.SetInstallerRate(actor,groupId,productId,buyPrice,effective);break;
