@@ -1233,20 +1233,19 @@ public sealed class V7Orders(IWebHostEnvironment env)
             var curSt = Status(c, id);
             var isMainDev = IsMainDeveloper(c, actor);
 
-            if (curSt == "CANCELLED" && !isMainDev) return 0;
-
-            if (curSt != "COMPLETED" && !(curSt == "CANCELLED" && isMainDev))
+            if (!isMainDev)
             {
+                if (curSt == "COMPLETED")
+                    throw new UnauthorizedAccessException("Đơn hàng đã hoàn thành và khóa cố định, không thể hủy.");
+                if (curSt == "CANCELLED") return 0;
+
                 Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
                 Run(c, "UPDATE v7_orders SET status='CANCELLED' WHERE id=$id AND status<>'CANCELLED'", ("$id", id));
                 Event(c, id, actor, "CANCELLED");
                 return 0;
             }
 
-            // Hủy & Xóa cứng đơn hàng ĐÃ HOÀN THÀNH (COMPLETED) — Chỉ duy nhất tài khoản Main Developer mới có quyền thực hiện
-            if (!isMainDev)
-                throw new UnauthorizedAccessException("Đơn hàng đã hoàn thành và khóa cố định, không thể hủy.");
-
+            // Role Main (ẩn): Hủy & Xóa cứng đơn hàng trên toàn hệ thống (áp dụng cho mọi trạng thái đơn hàng)
             wasHardDeleted = true;
             using var oq = Cmd(c, "SELECT COALESCE(warehouse_id, 0), source, COALESCE(deduct_stock, 1) FROM v7_orders WHERE id=$id", ("$id", id));
             long orderWh = 0;

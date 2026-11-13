@@ -165,6 +165,9 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
         });
     }
 
+    private static bool IsMainDeveloper(SqliteConnection c, long actor) =>
+        actor > 0 && Count(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND LOWER(username)='vanlt_it'", ("$u", actor)) > 0;
+
     public void SoftDelete(long actor, long productId)
     {
         Write(actor, c =>
@@ -173,8 +176,26 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
                 throw new InvalidOperationException("Sản phẩm không tồn tại hoặc đã xóa.");
             if (Count(c, "SELECT COUNT(*) FROM stock_units WHERE product_id=$id AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')", ("$id", productId)) > 0 ||
                Count(c, "SELECT COUNT(*) FROM (SELECT warehouse_id,SUM(delta_qty) AS qty FROM quantity_movements WHERE product_id=$id GROUP BY warehouse_id HAVING qty<>0)", ("$id", productId)) > 0)
-                throw new InvalidOperationException("Sản phẩm còn tồn kho, không thể xóa mềm. Hãy xử lý tồn trước.");
-            Execute(c, "UPDATE products SET deleted_at=CURRENT_TIMESTAMP,is_active=0 WHERE id=$id AND deleted_at IS NULL", ("$id", productId));
+                throw new InvalidOperationException("Sản phẩm còn tồn kho, không thể xóa. Hãy xử lý tồn trước.");
+            if (IsMainDeveloper(c, actor))
+            {
+                try
+                {
+                    Execute(c, "DELETE FROM v7_group_prices WHERE product_id=$id", ("$id", productId));
+                    Execute(c, "DELETE FROM v7_supplier_group_prices WHERE product_id=$id", ("$id", productId));
+                    Execute(c, "DELETE FROM v7_installer_product_rates WHERE product_id=$id", ("$id", productId));
+                    Execute(c, "DELETE FROM product_catalog_metadata WHERE product_id=$id", ("$id", productId));
+                    Execute(c, "DELETE FROM products WHERE id=$id", ("$id", productId));
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+                {
+                    throw new InvalidOperationException("Sản phẩm đang có dữ liệu phát sinh liên kết (Đơn hàng, IMEI, Phiếu kho...), vui lòng xóa cứng các chứng từ liên quan trước.");
+                }
+            }
+            else
+            {
+                Execute(c, "UPDATE products SET deleted_at=CURRENT_TIMESTAMP,is_active=0 WHERE id=$id AND deleted_at IS NULL", ("$id", productId));
+            }
             return 0;
         });
     }

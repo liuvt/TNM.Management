@@ -652,8 +652,9 @@
  }
  private async Task ConfirmDeleteRenewal(long renewalId){
   try{
-   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
-   Db.DeleteRenewal(renewalId);
+   var actor = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   Db.ActorId = actor;
+   Db.DeleteRenewal(renewalId, actor);
    confirmDeleteRenewalId = 0;
    if (editingRenewalId == renewalId) CancelEditRenewal();
    Reload();
