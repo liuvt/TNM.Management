@@ -63,8 +63,8 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     }
     private static SqliteCommand Cmd(SqliteConnection c, string sql, params (string, object?)[] p) { var cmd = c.CreateCommand(); cmd.CommandText = sql; foreach (var (n, v) in p) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value); return cmd; }
     private static void Do(SqliteConnection c, string sql, params (string, object?)[] p) { using var cmd = Cmd(c, sql, p); cmd.ExecuteNonQuery(); }
-    private static long Num(SqliteConnection c, string sql, params (string, object?)[] p) { using var cmd = Cmd(c, sql, p); return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L); }
-    private static object? Cell(SqliteConnection c, string sql, params (string, object?)[] p) { using var cmd = Cmd(c, sql, p); return cmd.ExecuteScalar(); }
+    private static long Num(SqliteConnection c, string sql, params (string, object?)[] p) { using var cmd = Cmd(c, sql, p); var v = cmd.ExecuteScalar(); return v is null or DBNull ? 0L : Convert.ToInt64(v); }
+    private static object? Cell(SqliteConnection c, string sql, params (string, object?)[] p) { using var cmd = Cmd(c, sql, p); var v = cmd.ExecuteScalar(); return v is DBNull ? null : v; }
     private static string Txt(SqliteDataReader r, int i) => r.IsDBNull(i) ? "" : r.GetString(i);
     private static long? Opt(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt64(i);
     private static List<T> Read<T>(SqliteConnection c, string sql, Func<SqliteDataReader, T> map, params (string, object?)[] p) { using var cmd = Cmd(c, sql, p); using var r = cmd.ExecuteReader(); var list = new List<T>(); while (r.Read()) list.Add(map(r)); return list; }
@@ -96,31 +96,31 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             if (!cgCols.Any(x => string.Equals(x, "parent_id", StringComparison.OrdinalIgnoreCase)))
                 Do(c, "ALTER TABLE customer_groups ADD COLUMN parent_id INTEGER REFERENCES customer_groups(id)");
 
-            // Khởi tạo sẵn các nhóm con mẫu cho Đại lý / Hợp tác xã / Doanh nghiệp nếu chưa có nhóm con nào
-            if (Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id IS NOT NULL") == 0)
+            // Khởi tạo sẵn các nhóm con mẫu cho Đại lý / HTX (AGENCY / DEALER / COOP) nếu nhóm đó chưa có nhóm con nào
+            var agencyRoots = Read(c, @"
+                SELECT id, code, name FROM customer_groups
+                WHERE parent_id IS NULL AND deleted_at IS NULL
+                  AND (code IN ('AGENCY', 'DEALER', 'COOP', 'CORP') OR name LIKE '%Đại lý%' OR name LIKE '%HTX%' OR name LIKE '%Hợp tác xã%')",
+                r => (Id: r.GetInt64(0), Code: Txt(r, 1), Name: Txt(r, 2)));
+            foreach (var rg in agencyRoots)
             {
-                var dealerId = OptId(c, "SELECT id FROM customer_groups WHERE code='DEALER' AND deleted_at IS NULL LIMIT 1");
-                if (dealerId.HasValue)
+                if (Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$p", ("$p", rg.Id)) == 0)
                 {
+                    var pfx = rg.Code switch
+                    {
+                        "AGENCY" or "DEALER" => "DL-NHOM",
+                        "COOP" => "HTX-NHOM",
+                        "CORP" => "DN-NHOM",
+                        _ => $"{rg.Code}-NHOM"
+                    };
                     Do(c, @"INSERT OR IGNORE INTO customer_groups(code, name, parent_id) VALUES
-                        ('DL-NHOM-1', 'Đại lý — Nhóm giá 1', $p),
-                        ('DL-NHOM-2', 'Đại lý — Nhóm giá 2', $p),
-                        ('DL-NHOM-3', 'Đại lý — Nhóm giá 3', $p)", ("$p", dealerId.Value));
-                }
-                var coopId = OptId(c, "SELECT id FROM customer_groups WHERE code='COOP' AND deleted_at IS NULL LIMIT 1");
-                if (coopId.HasValue)
-                {
-                    Do(c, @"INSERT OR IGNORE INTO customer_groups(code, name, parent_id) VALUES
-                        ('HTX-NHOM-1', 'HTX — Nhóm giá 1', $p),
-                        ('HTX-NHOM-2', 'HTX — Nhóm giá 2', $p),
-                        ('HTX-NHOM-3', 'HTX — Nhóm giá 3', $p)", ("$p", coopId.Value));
-                }
-                var corpId = OptId(c, "SELECT id FROM customer_groups WHERE code='CORP' AND deleted_at IS NULL LIMIT 1");
-                if (corpId.HasValue)
-                {
-                    Do(c, @"INSERT OR IGNORE INTO customer_groups(code, name, parent_id) VALUES
-                        ('DN-NHOM-1', 'Doanh nghiệp — Nhóm giá 1', $p),
-                        ('DN-NHOM-2', 'Doanh nghiệp — Nhóm giá 2', $p)", ("$p", corpId.Value));
+                        ($c1, $n1, $p),
+                        ($c2, $n2, $p),
+                        ($c3, $n3, $p)",
+                        ("$c1", $"{pfx}-1"), ("$n1", $"{rg.Name} — Nhóm giá 1"),
+                        ("$c2", $"{pfx}-2"), ("$n2", $"{rg.Name} — Nhóm giá 2"),
+                        ("$c3", $"{pfx}-3"), ("$n3", $"{rg.Name} — Nhóm giá 3"),
+                        ("$p", rg.Id));
                 }
             }
 
@@ -461,7 +461,7 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 if (id.HasValue && id.Value == parentId.Value)
                     throw new InvalidOperationException("Nhóm khách hàng không thể nhận chính nó làm nhóm cha.");
                 Exists(c, "customer_groups", parentId.Value);
-                if (Cell(c, "SELECT parent_id FROM customer_groups WHERE id=$p AND deleted_at IS NULL", ("$p", parentId.Value)) is not null)
+                if (OptId(c, "SELECT parent_id FROM customer_groups WHERE id=$p AND deleted_at IS NULL", ("$p", parentId.Value)) is not null)
                     throw new InvalidOperationException("Vui lòng chọn một Nhóm khách hàng chính (nhóm gốc) làm nhóm cha.");
                 if (id.HasValue && Num(c, "SELECT COUNT(*) FROM customer_groups WHERE parent_id=$id AND deleted_at IS NULL", ("$id", id.Value)) > 0)
                     throw new InvalidOperationException("Nhóm này đang chứa các nhóm con bên trong nên không thể chuyển thành nhóm con của nhóm khác.");
@@ -574,17 +574,17 @@ public sealed class InputCatalog(IWebHostEnvironment env)
             long? resolvedSubGroupId = subGroupId is > 0 ? subGroupId.Value : null;
 
             // If user selected a child group directly as groupId, normalize main group = parent_id and sub_group = groupId
-            var mainGroupParent = Cell(c, "SELECT parent_id FROM customer_groups WHERE id=$g AND deleted_at IS NULL", ("$g", resolvedMainGroupId));
-            if (mainGroupParent is not null)
+            var mainGroupParent = OptId(c, "SELECT parent_id FROM customer_groups WHERE id=$g AND deleted_at IS NULL", ("$g", resolvedMainGroupId));
+            if (mainGroupParent.HasValue)
             {
                 resolvedSubGroupId = resolvedMainGroupId;
-                resolvedMainGroupId = Convert.ToInt64(mainGroupParent);
+                resolvedMainGroupId = mainGroupParent.Value;
             }
             else if (resolvedSubGroupId.HasValue)
             {
                 Exists(c, "customer_groups", resolvedSubGroupId.Value);
-                var subParent = Cell(c, "SELECT parent_id FROM customer_groups WHERE id=$sg AND deleted_at IS NULL", ("$sg", resolvedSubGroupId.Value));
-                if (subParent is null || Convert.ToInt64(subParent) != resolvedMainGroupId)
+                var subParent = OptId(c, "SELECT parent_id FROM customer_groups WHERE id=$sg AND deleted_at IS NULL", ("$sg", resolvedSubGroupId.Value));
+                if (!subParent.HasValue || subParent.Value != resolvedMainGroupId)
                 {
                     resolvedSubGroupId = null;
                 }
