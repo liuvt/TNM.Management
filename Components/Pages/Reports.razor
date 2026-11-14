@@ -6,7 +6,6 @@
 <PageTitle>Báo cáo · TNM</PageTitle>
 <div class="page-head"><div><div class="eyebrow">BÁO CÁO KẾ TOÁN, KHO &amp; TRUY VẾT</div><h1>Báo cáo Kế toán, Kho &amp; Nhật ký hệ thống</h1><p>Tổng hợp báo cáo Công nợ (Nhà cung cấp, Khách hàng, Nhân viên bán hàng), Sổ quỹ (Thu / Chi / Tồn: Tiền mặt &amp; Ngân hàng), sổ xuất nhập kho và lịch sử dữ liệu.</p></div>
 <div class="button-group">
-    <a class="btn" href="/finance">Báo cáo Công nợ &amp; Sổ quỹ →</a>
     @if(canInventoryExport){<a class="btn secondary" href="/export/inventory.csv">↓ Báo cáo kho CSV</a>}
     @if(canFinanceExport){<a class="btn secondary" href="/export/invoices.csv">↓ Báo cáo Công nợ CSV</a><a class="btn secondary" href="/export/cashbook.csv">↓ Sổ quỹ (Thu/Chi/Tồn) CSV</a>}
 </div></div>
@@ -20,7 +19,6 @@
                 <h2>1. Báo cáo Công nợ (Nhà cung cấp · Khách hàng · Nhân viên bán hàng)</h2>
                 <p>Tổng hợp công nợ phải trả Nhà cung cấp, phải thu Khách hàng và hoa hồng nhân viên bán hàng.</p>
             </div>
-            <a class="btn secondary btn-sm" href="/finance">Chi tiết →</a>
         </div>
         <div class="table-wrap">
             <table>
@@ -59,7 +57,6 @@
                 <h2>2. Sổ quỹ: Khoản Thu / Chi / Tồn (Tiền mặt &amp; Ngân hàng)</h2>
                 <p>Khoản thu (Thu khách / công nợ) · Khoản chi (Nhập hàng / chi trả) · Tồn quỹ.</p>
             </div>
-            <a class="btn secondary btn-sm" href="/finance">Mở Sổ quỹ →</a>
         </div>
         <div class="table-wrap">
             <table>

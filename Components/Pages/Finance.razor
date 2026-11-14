@@ -650,7 +650,6 @@ else if (activeTab == "SNAPSHOT_STATS")
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@sellerStats.Count)</button>
-        <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
       </div>
     </div>
 
@@ -825,7 +824,7 @@ else
           <h2>Bảng theo dõi Công nợ Nhân viên bán hàng (Hoa hồng)</h2>
           <p>Đối chiếu hoa hồng phát sinh từ đơn lắp đặt &amp; gia hạn của từng nhân viên bán hàng với chứng từ công nợ đã lập và đã chi trả.</p>
         </div>
-        <a class="btn secondary btn-sm" href="/catalog/sellers">Khai báo định mức NV bán hàng →</a>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@sellerStats.Count)</button>
       </div>
       @{ var pagedOtherSellers = otherSellerPager.Slice(sellerStats, out var totalOtherSellers); }
       <div class="table-wrap">

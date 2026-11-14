@@ -14,16 +14,6 @@
         <p>@Description</p>
     </div>
     <div class="button-group">
-        @if(CurrentSection is "installers" or "installer-rates")
-        {
-            <a class="btn secondary" href="/sales-orders">Đơn hàng &amp; Điều phối →</a>
-        }
-        else if(CurrentSection=="sellers")
-        {
-            <a class="btn secondary" href="/sales-orders">Đơn hàng lắp đặt (SO) →</a>
-            <a class="btn secondary" href="/devices">Gia hạn thiết bị →</a>
-            <a class="btn secondary" href="/finance">Kế toán &amp; Thống kê cuối kỳ →</a>
-        }
         @if(canCreate && IsValidSection)
         {
             <button type="button" class="btn" @onclick="Create">@(CurrentSection=="installers" ? "+ Khai báo người lắp đặt" : CurrentSection=="sellers" ? "+ Khai báo nhân viên bán hàng" : CurrentSection=="warehouses" ? "+ Thêm Kho mới" : CurrentSection=="areas" ? "+ Thêm Khu vực" : "+ Thêm mới")</button>

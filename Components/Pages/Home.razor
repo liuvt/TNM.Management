@@ -3,7 +3,7 @@
 @inject DemoDb Db
 @inject PermissionGate Gate
 <PageTitle>Dashboard · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">BẢNG ĐIỀU HÀNH</div><h1>Tổng quan hoạt động</h1><p>Dữ liệu xuyên suốt từ kho, đơn hàng, kích hoạt, gia hạn đến công nợ.</p></div>@if(canReports){<a class="btn secondary" href="/reports">Xem báo cáo →</a>}</div>
+<div class="page-head"><div><div class="eyebrow">BẢNG ĐIỀU HÀNH</div><h1>Tổng quan hoạt động</h1><p>Dữ liệu xuyên suốt từ kho, đơn hàng, kích hoạt, gia hạn đến công nợ.</p></div></div>
 @if(canRevenue||canProfit||canDebt){
 <div class="stats-grid">
     @if(canRevenue){<div class="stat"><small>Doanh thu đã ghi nhận</small><strong>@Money(data.Revenue)</strong><span>Hóa đơn bán và gia hạn</span></div>}

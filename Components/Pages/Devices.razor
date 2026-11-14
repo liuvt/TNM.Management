@@ -11,8 +11,6 @@
     @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showImportPanel?"":"secondary")" @onclick="()=>ToggleForm(nameof(showImportPanel))">@(showImportPanel?"Đóng · 📥 Import / Quản lý File Thiết bị":"📥 Import / Quản lý File Thiết bị (12 cột)")</button>}
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
     <a class="btn secondary" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải File Chuẩn (.xlsx)</a>
-    <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
-    <a class="btn secondary" href="/finance">Báo cáo Công nợ &amp; Chốt số Kế toán →</a>
 </div>
 
 @if(canRenew || canUpdateDevice){
