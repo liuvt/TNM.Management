@@ -2,6 +2,7 @@
 @page "/reports"
 @inject DemoDb Db
 @inject PermissionGate Gate
+@inject IJSRuntime JS
 <PageTitle>Báo cáo · TNM</PageTitle>
 <div class="page-head"><div><div class="eyebrow">BÁO CÁO KẾ TOÁN, KHO &amp; TRUY VẾT</div><h1>Báo cáo Kế toán, Kho &amp; Nhật ký hệ thống</h1><p>Tổng hợp báo cáo Công nợ (Nhà cung cấp, Khách hàng, Nhân viên bán hàng), Sổ quỹ (Thu / Chi / Tồn: Tiền mặt &amp; Ngân hàng), sổ xuất nhập kho và lịch sử dữ liệu.</p></div>
 <div class="button-group">
@@ -93,15 +94,23 @@
 </div>
 }
 
-@if(canLedger){<section class="panel"><div class="panel-head"><div><h2>Sổ nhập / xuất / điều chuyển</h2><p>Giao dịch phát sinh được lưu kể cả sau khi IMEI thay đổi vị trí.</p></div><input class="search-input" @bind="search" @bind:event="oninput" placeholder="IMEI / SKU / người tác động..." /></div>
-@{ var pagedLedger = ledgerPager.Slice(ledger.Where(x=>(x.Imei+x.Sku+x.Target+x.Actor).Contains(search,StringComparison.OrdinalIgnoreCase)), out var totalLedger); }
+@if(canLedger){<section class="panel"><div class="panel-head"><div><h2>Sổ nhập / xuất / điều chuyển</h2><p>Giao dịch phát sinh được lưu kể cả sau khi IMEI thay đổi vị trí.</p></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input class="search-input" @bind="search" @bind:event="oninput" @bind:after="() => ledgerPager.Reset()" placeholder="IMEI / SKU / người tác động..." />
+    <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportLedgerExcel">📥 Xuất Excel (@FilteredLedger.Count)</button>
+</div></div>
+@{ var pagedLedger = ledgerPager.Slice(FilteredLedger, out var totalLedger); }
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ</th><th>SKU</th><th>IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
 @foreach(var (stt, r) in pagedLedger){<tr><td><strong>@stt</strong></td><td>#@r.Id</td><td>@r.At</td><td><span class="chip">@r.Type</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td class="wrap-cell">@r.Target</td><td>@r.Actor</td></tr>}
 </tbody></table></div>
 <TablePager Pager="ledgerPager" TotalCount="totalLedger" />
 </section>}
-@if(canAudit){<section class="panel"><div class="panel-head"><div><h2>Audit log</h2><p>Ghi nhận thao tác, bảng dữ liệu bị ảnh hưởng và nội dung thay đổi.</p></div></div>
-@{ var pagedAudit = auditPager.Slice(audit, out var totalAudit); }
+@if(canAudit){<section class="panel"><div class="panel-head"><div><h2>Audit log</h2><p>Ghi nhận thao tác, bảng dữ liệu bị ảnh hưởng và nội dung thay đổi.</p></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input class="search-input" @bind="auditSearch" @bind:event="oninput" @bind:after="() => auditPager.Reset()" placeholder="Tìm người dùng, hành động, đối tượng, ghi chú..." />
+    <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportAuditExcel">📥 Xuất Excel (@FilteredAudit.Count)</button>
+</div></div>
+@{ var pagedAudit = auditPager.Slice(FilteredAudit, out var totalAudit); }
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>ID</th><th>THỜI GIAN</th><th>NGƯỜI DÙNG</th><th>HÀNH ĐỘNG</th><th>ĐỐI TƯỢNG</th><th>GHI CHÚ</th></tr></thead><tbody>
 @foreach(var (stt, a) in pagedAudit){<tr><td><strong>@stt</strong></td><td>#@a.Id</td><td>@a.At</td><td>@a.Actor</td><td><span class="chip">@a.Action</span></td><td>@a.Entity</td><td class="wrap-cell">@a.Details</td></tr>}
 </tbody></table></div>
@@ -113,7 +122,23 @@
  private readonly PagerState cashSummaryPager = new();
  private readonly PagerState ledgerPager = new();
  private readonly PagerState auditPager = new();
- private List<LedgerVm> ledger=[];private List<AuditVm> audit=[];private string search="";
+ private List<LedgerVm> ledger=[];private List<AuditVm> audit=[];private string search="",auditSearch="";
+ private List<LedgerVm> FilteredLedger => ledger.Where(x=>(x.Imei+" "+x.Sku+" "+x.Target+" "+x.Actor+" "+x.Type).Contains(search,StringComparison.OrdinalIgnoreCase)).ToList();
+ private List<AuditVm> FilteredAudit => audit.Where(a => string.IsNullOrWhiteSpace(auditSearch) || ($"{a.Actor} {a.Action} {a.Entity} {a.Details} {a.At}").Contains(auditSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+ private async Task ExportLedgerExcel()
+ {
+  var list = FilteredLedger;
+  var headers = new[] { "STT", "Mã giao dịch", "Thời gian", "Nghiệp vụ", "Mã SKU", "Số IMEI", "Đối tượng nhận", "Người thực hiện" };
+  var rows = list.Select((r, idx) => new object?[] { idx + 1, $"#{r.Id}", r.At, r.Type, r.Sku, r.Imei, r.Target, r.Actor });
+  await ExcelExporter.DownloadAsync(JS, "so-nhap-xuat-dieu-chuyen-imei", "Sổ xuất nhập IMEI", headers, rows);
+ }
+ private async Task ExportAuditExcel()
+ {
+  var list = FilteredAudit;
+  var headers = new[] { "STT", "ID", "Thời gian", "Người dùng", "Hành động", "Đối tượng", "Chi tiết" };
+  var rows = list.Select((a, idx) => new object?[] { idx + 1, a.Id, a.At, a.Actor, a.Action, a.Entity, a.Details });
+  await ExcelExporter.DownloadAsync(JS, "nhat-ky-audit-log", "Audit Log", headers, rows);
+ }
  private CashBookSummaryVm cashBook = new(0,0,0,0,0,0,0,0,0,0,0,0);
  private long supTotal, supPaid, custTotal, custPaid, sellTechTotal, sellTechPaid;
  protected override async Task OnInitializedAsync(){

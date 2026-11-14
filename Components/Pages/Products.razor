@@ -66,7 +66,7 @@
             <button type="button" class="btn secondary" @onclick="ClearSearch">Xóa lọc</button>
             <select class="search-input" @bind="groupFilter" @bind:after="ResetPage"><option value="0">Tất cả nhóm</option>@foreach(var g in groups){<option value="@g.Id">@g.Name</option>}</select>
             <select class="search-input" @bind="statusFilter" @bind:after="ResetPage"><option value="ACTIVE">Đang kinh doanh</option><option value="INACTIVE">Ngừng kinh doanh</option><option value="ALL">Tất cả</option></select>
-            @if(canExport){<button type="button" class="btn secondary" @onclick="ExportCsv">@(selected.Count>0?$"Xuất đã chọn ({selected.Count})":"Xuất dữ liệu")</button>}
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportCsv">📥 @(selected.Count>0?$"Xuất Excel đã chọn ({selected.Count})":$"Xuất Excel ({Filtered.Count()})")</button>
             <label class="catalog-page-size">Số dòng<select @bind="prodPager.PageSize" @bind:after="ResetPage"><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>
         </div>
     </div>
@@ -140,14 +140,25 @@
     private void TogglePage(ChangeEventArgs e){var check=e.Value is bool b&&b;foreach(var p in PageRows){if(check)selected.Add(p.Id);else selected.Remove(p.Id);}}
     private async Task ExportCsv()
     {
-        if(!canExport)return;
         var rows=(selected.Count>0?products.Where(p=>selected.Contains(p.Id)):Filtered).ToList();
-        static string Cell(string value){if(value.Length>0&&"=+-@\t\r".Contains(value[0]))value="'"+value;return "\""+value.Replace("\"","\"\"")+"\"";}
-        var csv=new System.Text.StringBuilder("Mã sản phẩm,Tên sản phẩm,Nhóm,Loại,ĐVT,IMEI,Bảo hành tháng,Trạng thái\r\n");
-        foreach(var p in rows)csv.AppendLine(string.Join(",",new[]{Cell(p.Sku),Cell(p.Name),Cell(p.GroupName),Cell(KindName(p.Kind)),Cell(p.Unit),Cell(p.UsesImei?"Có":"Không"),p.WarrantyMonths.ToString(),Cell(p.IsActive?"Đang bán":"Ngừng bán")}));
-        Trail.RecordAction(await Gate.RequireAsync(Permissions.ProductsExport),"EXPORT","products",$"{rows.Count} bản ghi");
-        await JS.InvokeVoidAsync("tnmDownloadCsv",$"san-pham-{DateTime.Now:yyyyMMdd-HHmmss}.csv",csv.ToString());
-        message=$"Đã tạo CSV cho {rows.Count} sản phẩm.";
+        var headers = new[] { "STT", "Mã sản phẩm", "Tên sản phẩm", "Nhóm sản phẩm", "Phân loại", "Đơn vị tính", "Quản lý IMEI", "Tồn kho hiện tại", "Bảo hành (tháng)", "Trạng thái" };
+        var dataRows = rows.Select((p, idx) => new object?[]
+        {
+            idx + 1,
+            p.Sku,
+            p.Name,
+            p.GroupName,
+            KindName(p.Kind),
+            p.Unit,
+            p.UsesImei ? "Có IMEI" : "Theo số lượng",
+            p.Kind == "GOODS" ? p.StockInHand : 0L,
+            p.WarrantyMonths,
+            p.IsActive ? "Đang bán" : "Ngừng bán"
+        });
+        var actor = await Gate.RequireAsync(Permissions.ProductsView);
+        Trail.RecordAction(actor,"EXPORT","products",$"{rows.Count} bản ghi");
+        await ExcelExporter.DownloadAsync(JS, "danh-muc-san-pham", "Sản phẩm", headers, dataRows);
+        message=$"Đã xuất file Excel (.xlsx) gồm {rows.Count} sản phẩm.";
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

@@ -2,6 +2,7 @@
 @page "/activity/{TableName}/{RecordId:long}"
 @attribute [Authorize(Policy = Permissions.ReportsAuditView)]
 @inject AuditTrail Trail
+@inject IJSRuntime JS
 <PageTitle>Nhật ký hoạt động · TNM.Management</PageTitle>
 
 <div class="page-head">
@@ -33,6 +34,7 @@
             <select class="search-input" @bind="action"><option value="">Mọi thao tác</option><option value="CREATE">Tạo mới</option><option value="UPDATE">Cập nhật</option><option value="DELETE">Xóa mềm</option><option value="RESTORE">Khôi phục</option></select>
             <button type="button" class="btn secondary" @onclick="Search">Tìm kiếm</button>
             <button type="button" class="btn secondary" @onclick="Reset">Xóa lọc</button>
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportEventsExcel">📥 Xuất Excel (@total)</button>
         </div>
     </div>
     <div class="table-wrap"><table>
@@ -68,7 +70,7 @@
     <TablePager Pager="eventPager" TotalCount="(int)total" OnChange="OnEventPagerChanged" />
 </section>
 <section class="panel">
-    <div class="panel-head"><div><h2>Hoạt động ngoài dữ liệu</h2><p>Đăng nhập, đăng xuất và các thao tác xuất báo cáo được ghi riêng.</p></div></div>
+    <div class="panel-head"><div><h2>Hoạt động ngoài dữ liệu</h2><p>Đăng nhập, đăng xuất và các thao tác xuất báo cáo được ghi riêng.</p></div><button type="button" class="btn secondary" data-confirm="none" @onclick="ExportActionsExcel">📥 Xuất Excel (@recentActions.Count)</button></div>
     @{ var pagedActions = actionPager.Slice(recentActions, out var totalActions); }
     <div class="table-wrap"><table><thead><tr><th>STT</th><th>THỜI GIAN UTC</th><th>TÀI KHOẢN</th><th>HÀNH ĐỘNG</th><th>TÀI NGUYÊN</th></tr></thead><tbody>
         @foreach(var (stt, x) in pagedActions){<tr><td><strong>@stt</strong></td><td>@x.At</td><td>@x.Actor</td><td>@x.Action</td><td>@x.Resource</td></tr>}
@@ -104,6 +106,22 @@
     private void Reset(){table="";key="";action="";actorFilter="";fromDate=null;toDate=null;eventPager.Reset();selected=null;recordSummary=null;Reload();}
     private void OnEventPagerChanged(){selected=null;Reload();}
     private static string ActionName(string action)=>action switch {"CREATE"=>"Tạo","UPDATE"=>"Sửa","DELETE"=>"Xóa mềm","RESTORE"=>"Khôi phục",_=>action};
+    private async Task ExportEventsExcel()
+    {
+        var allFiltered = Trail.Search(table, key, action, 1, 10000, actorFilter, DateFilter(fromDate), DateFilter(toDate));
+        var headers = new[] { "STT", "Thời gian UTC", "Tài khoản", "Thao tác", "Bảng dữ liệu", "Khóa bản ghi", "Dữ liệu trước", "Dữ liệu sau" };
+        var rows = allFiltered.Select((r, idx) => new object?[]
+        {
+            idx + 1, r.At, r.Actor, ActionName(r.Action), r.Table, r.RecordKey, r.Before, r.After
+        });
+        await ExcelExporter.DownloadAsync(JS, "nhat-ky-thay-doi-du-lieu", "Tra cứu thay đổi", headers, rows);
+    }
+    private async Task ExportActionsExcel()
+    {
+        var headers = new[] { "STT", "Thời gian UTC", "Tài khoản", "Hành động", "Tài nguyên" };
+        var rows = recentActions.Select((x, idx) => new object?[] { idx + 1, x.At, x.Actor, x.Action, x.Resource });
+        await ExcelExporter.DownloadAsync(JS, "hoat-dong-ngoai-du-lieu", "Hoạt động hệ thống", headers, rows);
+    }
     private static string Pretty(string json)
     {
         if(string.IsNullOrWhiteSpace(json))return "—";

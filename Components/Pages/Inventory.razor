@@ -5,6 +5,7 @@
 @inject V6Ops Ops
 @inject PermissionGate Gate
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 <PageTitle>Kho (Kho IMEI &amp; Kho số lượng) · TNM</PageTitle>
 
 <div class="page-head">
@@ -189,6 +190,7 @@ else if (activeTab == "IMEI" && canImeiView)
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="chip green-chip">Tổng tồn trong kho: @summaries.Sum(x => x.InStockQty).ToString("N0")</span>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportSummariesExcel">📥 Xuất Excel (@summaries.Count)</button>
       </div>
     </div>
     @{ var pagedSummaries = summaryPager.Slice(summaries, out var totalSummaries); }
@@ -246,6 +248,7 @@ else if (activeTab == "IMEI" && canImeiView)
           }
         </select>
         <input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportStockExcel">📥 Xuất Excel (@FilteredStock.Count())</button>
       </div>
     </div>
     @{ var pagedStock = stockPager.Slice(FilteredStock, out var totalStock); }
@@ -436,6 +439,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
           }
         </select>
         <input class="search-input" @bind="qtySearch" @bind:event="oninput" placeholder="Lọc SKU, tên hàng, kho, vị trí..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportBalancesExcel">📥 Xuất Excel (@FilteredBalances.Count)</button>
       </div>
     </div>
     @{ var pagedBalances = balancePager.Slice(FilteredBalances, out var totalBalances); }
@@ -471,10 +475,16 @@ else if (activeTab == "QUANTITY" && canQtyView)
 
   <section class="panel">
     <div class="panel-head">
-      <h2>Sổ giao dịch số lượng</h2>
-      <a class="btn secondary" href="/export/quantity.csv">Xuất sổ CSV theo quyền kho</a>
+      <div>
+        <h2>Sổ giao dịch số lượng</h2>
+        <p>Đang hiển thị @FilteredMovements.Count / @movements.Count giao dịch.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input class="search-input" @bind="moveSearch" @bind:event="oninput" @bind:after="() => movePager.Reset()" placeholder="Lọc phiếu, SKU, kho, loại, ghi chú..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportMovementsExcel">📥 Xuất Excel (@FilteredMovements.Count)</button>
+      </div>
     </div>
-    @{ var pagedMovements = movePager.Slice(movements, out var totalMovements); }
+    @{ var pagedMovements = movePager.Slice(FilteredMovements, out var totalMovements); }
     <div class="table-wrap">
       <table>
         <thead>
@@ -542,7 +552,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private List<QuantityEntry> movements = [];
   private long qtyProductId, qtyWarehouseId, locationId, fromWarehouse, fromLocation, toWarehouse, toLocation, newLocationWarehouse;
   private long quantity = 1, transferQty = 1;
-  private string note = "", qtyMessage = "", transferMessage = "", newLocationCode = "", newLocationName = "", locationMessage = "", qtySearch = "", qtyWarehouseFilter = "";
+  private string note = "", qtyMessage = "", transferMessage = "", newLocationCode = "", newLocationName = "", locationMessage = "", qtySearch = "", qtyWarehouseFilter = "", moveSearch = "";
 
   private IEnumerable<StockVm> FilteredStock => stock.Where(x =>
     (statusFilter == "ALL" || x.Status == statusFilter) &&
@@ -552,6 +562,53 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private List<QuantityBalance> FilteredBalances => balances.Where(x =>
     (string.IsNullOrEmpty(qtyWarehouseFilter) || x.Warehouse == qtyWarehouseFilter) &&
     (x.Sku + " " + x.Product + " " + x.Warehouse + " " + x.Location).Contains(qtySearch, StringComparison.OrdinalIgnoreCase)).ToList();
+
+  private List<QuantityEntry> FilteredMovements => movements.Where(x =>
+    string.IsNullOrWhiteSpace(moveSearch) ||
+    ($"{x.When} {x.Document} {x.Sku} {x.Warehouse} {x.Location} {x.Type} {x.Note}").Contains(moveSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+  private async Task ExportSummariesExcel()
+  {
+    var headers = new[] { "STT", "Mã SP", "Tên sản phẩm", "Loại quản lý", "Tồn trong kho (Khả dụng)", "Ký gửi / Kỹ thuật giữ", "Đã lắp đặt / Kích hoạt" };
+    var rows = summaries.Select((s, idx) => new object?[]
+    {
+      idx + 1, s.Sku, s.ProductName, s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng", s.InStockQty, s.ConsignedOrTechQty, s.InstalledQty
+    });
+    await ExcelExporter.DownloadAsync(JS, "tong-hop-ton-kho-san-pham", "Tổng hợp tồn kho", headers, rows);
+  }
+
+  private async Task ExportStockExcel()
+  {
+    var list = FilteredStock.ToList();
+    var headers = new[] { "STT", "Số IMEI / Serial", "Mã SKU", "Tên thiết bị", "Trạng thái", "Vị trí / Đơn vị giữ", "Cập nhật gần nhất" };
+    var rows = list.Select((x, idx) => new object?[]
+    {
+      idx + 1, x.Imei, x.Sku, x.Product, StatusText(x.Status), x.Holder, x.UpdatedAt
+    });
+    await ExcelExporter.DownloadAsync(JS, "danh-sach-thiet-bi-imei", "Thiết bị IMEI", headers, rows);
+  }
+
+  private async Task ExportBalancesExcel()
+  {
+    var list = FilteredBalances;
+    var headers = new[] { "STT", "Mã SKU", "Tên hàng", "Kho", "Vị trí / Trạng thái", "Số lượng tồn" };
+    var rows = list.Select((x, idx) => new object?[]
+    {
+      idx + 1, x.Sku, x.Product, x.Warehouse, x.Location, x.Quantity
+    });
+    await ExcelExporter.DownloadAsync(JS, "ton-kho-so-luong", "Tồn kho số lượng", headers, rows);
+  }
+
+  private async Task ExportMovementsExcel()
+  {
+    var list = FilteredMovements;
+    var headers = new[] { "STT", "Ngày giao dịch", "Số phiếu", "Mã SKU", "Kho", "Vị trí", "Số lượng biến động (±)", "Loại giao dịch", "Ghi chú" };
+    var rows = list.Select((x, idx) => new object?[]
+    {
+      idx + 1, x.When, x.Document, x.Sku, x.Warehouse, x.Location, x.Delta, x.Type, x.Note
+    });
+    await ExcelExporter.DownloadAsync(JS, "so-giao-dich-so-luong", "Sổ GD số lượng", headers, rows);
+  }
 
   protected override async Task OnInitializedAsync()
   {

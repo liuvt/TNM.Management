@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = Permissions.InventoryWarranty)]
 @inject V6Ops Ops
 @inject PermissionGate Gate
+@inject IJSRuntime JS
 <PageTitle>Bảo hành · TNM</PageTitle>
 
 <div class="page-head">
@@ -245,6 +246,7 @@
                 <button class="@(filter == "COMPLETED" ? "selected" : "")" @onclick='() => SetFilter("COMPLETED")'>Đã hoàn tất (@countCompleted)</button>
                 <button class="@(filter == "CANCELLED" ? "selected" : "")" @onclick='() => SetFilter("CANCELLED")'>Đã hủy (@countCancelled)</button>
             </div>
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportWarrantiesExcel">📥 Xuất Excel (@totalWarranties)</button>
         </div>
     </div>
 
@@ -542,6 +544,37 @@
     }
 
     private bool MatchFilter(WarrantyRow x) => filter == "ALL" || string.Equals(x.Status, filter, StringComparison.OrdinalIgnoreCase);
+
+    private async Task ExportWarrantiesExcel()
+    {
+        var list = warranties.Where(MatchSearch).Where(MatchFilter).ToList();
+        var headers = new[]
+        {
+            "STT", "Mã phiếu BH", "Biển số xe", "Số IMEI", "Thiết bị", "Đại lý / Khách hàng",
+            "Chủ xe / Người liên hệ", "SĐT liên hệ", "Lỗi / Sự cố", "Ghi chú", "NCC Bảo hành",
+            "Ngày tiếp nhận", "Ngày gửi NCC", "Ngày hoàn tất", "Trạng thái"
+        };
+        var rows = list.Select((x, idx) => new object?[]
+        {
+            idx + 1,
+            $"#BH-{x.Id:D4}",
+            x.PlateNo,
+            x.Imei,
+            x.Product,
+            string.IsNullOrWhiteSpace(x.CustomerName) ? "Kho nội bộ TNM" : x.CustomerName,
+            x.OwnerName,
+            x.OwnerPhone,
+            x.Problem,
+            x.Notes,
+            x.SupplierName,
+            x.Received,
+            x.SentSupplierAt,
+            x.CompletedAt,
+            StatusLabel(x.Status)
+        });
+        await ExcelExporter.DownloadAsync(JS, "danh-sach-bao-hanh", "Bảo hành thiết bị", headers, rows);
+        message = $"Đã xuất file Excel (.xlsx) gồm {list.Count} phiếu bảo hành.";
+    }
 
     private async Task Open()
     {

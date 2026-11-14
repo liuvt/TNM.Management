@@ -2,6 +2,7 @@
 @page "/finance"
 @inject DemoDb Db
 @inject PermissionGate Gate
+@inject IJSRuntime JS
 <PageTitle>Báo cáo Công nợ &amp; Sổ quỹ · TNM</PageTitle>
 
 <div class="page-head">
@@ -17,15 +18,12 @@
     <button type="button" class="btn secondary" @onclick="SyncAccounting">
       ↻ Đồng bộ dữ liệu Kế toán
     </button>
-    @if (canExport)
-    {
-      <a href="/export/invoices.csv?type=@(activeTab is "PAYMENTS" or "SNAPSHOT_STATS" or "DEBT_REPORT" ? "ALL" : activeTab)" class="btn secondary">
-        ↓ Xuất Báo cáo Công nợ CSV
-      </a>
-      <a href="/export/cashbook.csv" class="btn secondary">
-        ↓ Xuất Sổ quỹ (Thu/Chi/Tồn) CSV
-      </a>
-    }
+    <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportInvoicesExcel">
+      📥 Xuất Excel Chứng từ Công nợ (@FilteredInvoices.Count())
+    </button>
+    <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPaymentsExcel">
+      📥 Xuất Excel Sổ quỹ (@FilteredPayments.Count())
+    </button>
   </div>
 </div>
 
@@ -424,6 +422,7 @@
           <option value="TECH">4. Công nợ Kỹ thuật lắp đặt</option>
         </select>
         <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm tên NCC, Khách hàng, NV bán hàng..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPartnerDebtsExcel">📥 Xuất Excel (@FilteredPartnerDebts.Count())</button>
       </div>
     </div>
 
@@ -511,6 +510,7 @@ else if (activeTab == "PAYMENTS")
           <option value="OUT">Khoản Chi (-): Nhập hàng / Chi trả</option>
         </select>
         <input class="search-input" style="min-width:220px" @bind="search" @bind:event="oninput" placeholder="Tìm số phiếu, đối tác, chứng từ..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPaymentsExcel">📥 Xuất Excel (@FilteredPayments.Count())</button>
       </div>
     </div>
 
@@ -648,7 +648,10 @@ else if (activeTab == "SNAPSHOT_STATS")
         <h2>6A. Thống kê Công nợ &amp; Hoa hồng Nhân viên bán hàng</h2>
         <p>Tổng hợp số lượng thiết bị lắp đặt hoàn thành, số lượt gia hạn thiết bị, tổng hoa hồng phát sinh và công nợ hoa hồng còn phải trả cho từng nhân viên bán hàng.</p>
       </div>
-      <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@sellerStats.Count)</button>
+        <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
+      </div>
     </div>
 
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
@@ -745,6 +748,7 @@ else if (activeTab == "SNAPSHOT_STATS")
           }
         </select>
         <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm mã đơn, KH, sản phẩm, NV bán hàng..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSnapshotsExcel">📥 Xuất Excel (@FilteredSnapshots.Count())</button>
       </div>
     </div>
 
@@ -891,6 +895,7 @@ else
           <option value="PAID">Đã tất toán (PAID)</option>
         </select>
         <input class="search-input" style="min-width:250px" @bind="search" @bind:event="oninput" placeholder="Tìm số chứng từ, NCC, khách hàng, NV bán hàng..." />
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportInvoicesExcel">📥 Xuất Excel (@FilteredInvoices.Count())</button>
         @if (canPay && FilteredInvoices.Any(i => !i.IsLocked))
         {
           <button type="button" class="btn secondary btn-sm" @onclick="LockFilteredInvoices" title="Khóa sổ / chốt số toàn bộ chứng từ đang hiển thị để không cho phép sửa/xóa lịch sử gia hạn">
@@ -1416,4 +1421,141 @@ else
   };
 
   private static string Money(long v) => v.ToString("N0") + " ₫";
+
+  private async Task ExportPartnerDebtsExcel()
+  {
+    var list = FilteredPartnerDebts.ToList();
+    var headers = new[]
+    {
+      "STT", "Nhóm công nợ", "Tính chất", "Đối tác (NCC / Khách hàng / NV bán hàng)",
+      "Thông tin chi tiết", "Số chứng từ", "Tổng phát sinh (VND)", "Đã thanh toán (VND)", "Còn nợ (VND)", "Trạng thái"
+    };
+    var rows = list.Select((d, idx) => new object?[]
+    {
+      idx + 1,
+      d.CategoryLabel,
+      d.CategoryCode == "CUSTOMER" ? "Khoản Thu (Phải thu)" : "Khoản Chi (Phải trả)",
+      d.PartnerName,
+      d.SubInfo,
+      d.InvoiceCount,
+      d.TotalIncurredVnd,
+      d.TotalPaidVnd,
+      d.RemainingDebtVnd,
+      d.RemainingDebtVnd == 0 ? "Đã tất toán" : d.TotalPaidVnd > 0 ? "Thanh toán 1 phần" : "Còn nợ"
+    });
+    await ExcelExporter.DownloadAsync(JS, "tong-hop-cong-no-doi-tac", "Tổng hợp công nợ", headers, rows);
+  }
+
+  private async Task ExportPaymentsExcel()
+  {
+    var list = FilteredPayments.ToList();
+    var headers = new[]
+    {
+      "STT", "Số phiếu", "Loại phiếu", "Sổ quỹ (TM / NH)", "Hạng mục nghiệp vụ",
+      "Chứng từ công nợ", "Đối tác", "Khoản Thu (+) (VND)", "Khoản Chi (-) (VND)",
+      "Tồn quỹ sau GD (VND)", "Ngày giao dịch", "Ghi chú"
+    };
+    var rows = list.Select((p, idx) => new object?[]
+    {
+      idx + 1,
+      p.PaymentNo,
+      p.Direction == "IN" ? "Khoản Thu (PT)" : "Khoản Chi (PC)",
+      p.Method == "CASH" ? "Tiền mặt (CASH)" : "Ngân hàng (BANK)",
+      CashBookCategoryLabel(p),
+      p.InvoiceNo,
+      p.Partner,
+      p.Direction == "IN" ? p.Amount : 0L,
+      p.Direction == "OUT" ? p.Amount : 0L,
+      p.BalanceAfterTotalVnd,
+      p.PaidAt,
+      p.Notes
+    });
+    await ExcelExporter.DownloadAsync(JS, "so-quy-thu-chi", "Sổ quỹ Thu Chi", headers, rows);
+  }
+
+  private async Task ExportSellerStatsExcel()
+  {
+    var headers = new[]
+    {
+      "STT", "Mã NV bán hàng", "Nhân viên bán hàng", "Bộ phận / Kênh",
+      "Số đơn hoàn thành", "Số SP hoàn thành", "Doanh thu bán hàng (VND)",
+      "Lợi nhuận gộp (VND)", "Số lượt gia hạn", "Doanh thu gia hạn (VND)",
+      "Định mức HH đơn (VND)", "Định mức HH gia hạn (VND)", "Công nợ Hoa hồng (VND)", "Đã lập chứng từ HH (VND)"
+    };
+    var rows = sellerStats.Select((s, idx) => new object?[]
+    {
+      idx + 1,
+      s.SellerCode,
+      s.SellerName,
+      s.Department,
+      s.CompletedOrderCount,
+      s.CompletedDeviceQty,
+      s.OrderRevenueSnapshotVnd,
+      s.OrderGrossProfitVnd,
+      s.RenewalCount,
+      s.RenewalRevenueSnapshotVnd,
+      s.OrderCommissionRateVnd,
+      s.RenewalCommissionRateVnd,
+      s.TotalEstimatedCommissionVnd,
+      s.InvoicedCommissionVnd
+    });
+    await ExcelExporter.DownloadAsync(JS, "thong-ke-hoa-hong-nv-ban-hang", "Hoa hồng NV bán hàng", headers, rows);
+  }
+
+  private async Task ExportSnapshotsExcel()
+  {
+    var list = FilteredSnapshots.ToList();
+    var headers = new[]
+    {
+      "STT", "Mã đơn / Chứng từ", "Trạng thái", "Mã KH", "Khách hàng", "Khách lắp / Chủ xe",
+      "Nhân viên bán hàng", "Sản phẩm & Đơn giá", "Số lượng SP", "Doanh thu (VND)",
+      "Giá vốn (VND)", "Công lắp (VND)", "Lợi nhuận gộp (VND)", "Ngày kích hoạt / Hoàn thành"
+    };
+    var rows = list.Select((o, idx) => new object?[]
+    {
+      idx + 1,
+      o.OrderCode,
+      o.OrderStatus,
+      o.CustomerCode,
+      o.CustomerName,
+      o.ContactName,
+      o.SellerDisplay,
+      o.ProductSummary,
+      o.TotalQty,
+      o.RevenueSnapshotVnd,
+      o.CostSnapshotVnd,
+      o.InstallerFeeSnapshotVnd,
+      o.GrossProfitSnapshotVnd,
+      string.IsNullOrWhiteSpace(o.ActivatedAt) ? o.CompletedAt : o.ActivatedAt
+    });
+    await ExcelExporter.DownloadAsync(JS, "so-chi-tiet-don-hang-doanh-thu", "Chi tiết doanh thu", headers, rows);
+  }
+
+  private async Task ExportInvoicesExcel()
+  {
+    var list = FilteredInvoices.ToList();
+    var headers = new[]
+    {
+      "STT", "Số chứng từ", "Phân mục công nợ", "Đối tác (NCC / Khách hàng / NV bán hàng)",
+      "Mã tham chiếu gốc", "Chi tiết mặt hàng / Ghi chú", "Phát sinh (VND)",
+      "Đã thu / Đã chi (VND)", "Còn nợ (VND)", "Ngày lập", "Đến hạn", "Trạng thái", "Chốt số KT"
+    };
+    var rows = list.Select((x, idx) => new object?[]
+    {
+      idx + 1,
+      x.Code,
+      TypeLabel(x.Type),
+      x.Customer,
+      x.RefCode,
+      x.Notes,
+      x.Total,
+      x.Paid,
+      x.Balance,
+      x.CreatedAt,
+      x.DueAt,
+      StatusLabel(x.Status),
+      x.IsLocked ? "Đã chốt số KT" : "Chưa chốt số"
+    });
+    await ExcelExporter.DownloadAsync(JS, $"chung-tu-cong-no-{activeTab.ToLowerInvariant()}", "Chứng từ công nợ", headers, rows);
+  }
 }

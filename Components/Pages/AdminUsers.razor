@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = Permissions.UsersView)]
 @inject AuthRepository Accounts
 @inject PermissionGate Gate
+@inject IJSRuntime JS
 <PageTitle>Người dùng và phân quyền · TNM v6</PageTitle>
 <div class="page-head"><div><div class="eyebrow">HỆ THỐNG / USER → PERMISSION → CHỨC NĂNG</div><h1>Người dùng &amp; phân quyền chức năng</h1>
 <p>Owner là tài khoản chủ hệ thống, được gán toàn bộ Role và toàn quyền chức năng đã triển khai. Các User khác dùng Role mẫu hoặc quyền riêng.</p></div></div>
@@ -12,8 +13,12 @@
 </div>
 @if(!string.IsNullOrWhiteSpace(userMessage)){<p class="feedback" role="status">@userMessage</p>}
 <section class="panel"><div class="panel-head"><div><h2>Danh sách tài khoản</h2><p>Chọn “Phân quyền” để cấp quyền riêng cho từng người dùng. Những người không có quyền sẽ không thấy menu tương ứng.</p></div>
-@if(canManageUsers){<button class="btn" @onclick="ResetForm">+ Tạo User</button>}</div>
-@{ var pagedUsers = userPager.Slice(users, out var totalUsers); }
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<input class="search-input" @bind="userSearch" @bind:event="oninput" @bind:after="() => userPager.Reset()" placeholder="Tìm tài khoản, họ tên, role..." />
+<button type="button" class="btn secondary" data-confirm="none" @onclick="ExportUsersExcel">📥 Xuất Excel (@FilteredUsers.Count)</button>
+@if(canManageUsers){<button class="btn" @onclick="ResetForm">+ Tạo User</button>}
+</div></div>
+@{ var pagedUsers = userPager.Slice(FilteredUsers, out var totalUsers); }
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>TÀI KHOẢN</th><th>NHÂN VIÊN</th><th>ROLE MẪU</th><th>QUYỀN HIỆU LỰC</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
 @foreach(var (stt, u) in pagedUsers){<tr><td><strong>@stt</strong></td><td><strong>@u.Username</strong> @if(u.IsOwner){<span class="chip green-chip">OWNER · Toàn quyền</span>}<small class="permission-key">ID #@u.Id</small></td>
 <td>@u.DisplayName</td><td>@(u.RoleIds.Count==0 ? "Cấp quyền trực tiếp" : string.Join(", ",roles.Where(r=>u.RoleIds.Contains(r.Id)).Select(x=>x.Name)))</td>
@@ -88,7 +93,26 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
     private Dictionary<string,string> directOverrides=new(StringComparer.Ordinal);
     private long? editUserId;
     private long selectedRoleId,myId;
-    private string username="",displayName="",password="",userMessage="",roleMessage="",permissionSearch="",areaFilter="ALL";
+    private string username="",displayName="",password="",userMessage="",roleMessage="",permissionSearch="",areaFilter="ALL",userSearch="";
+    private List<ManagedUser> FilteredUsers => users.Where(u =>
+        string.IsNullOrWhiteSpace(userSearch) ||
+        ($"{u.Username} {u.DisplayName} {string.Join(" ", roles.Where(r => u.RoleIds.Contains(r.Id)).Select(r => r.Name))}")
+            .Contains(userSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+    private async Task ExportUsersExcel()
+    {
+        var list = FilteredUsers;
+        var headers = new[] { "STT", "Tài khoản (Username)", "Họ tên nhân viên", "Role mẫu", "Số quyền hiệu lực", "Trạng thái" };
+        var rows = list.Select((u, idx) => new object?[]
+        {
+            idx + 1,
+            u.Username,
+            u.DisplayName,
+            u.RoleIds.Count == 0 ? "Cấp quyền trực tiếp" : string.Join(", ", roles.Where(r => u.RoleIds.Contains(r.Id)).Select(x => x.Name)),
+            u.IsActive ? Accounts.AllowedPermissions(u.Id).Count : 0,
+            u.IsActive ? "Hoạt động" : "Đã khóa"
+        });
+        await ExcelExporter.DownloadAsync(JS, "danh-sach-tai-khoan-user", "Tài khoản User", headers, rows);
+    }
     private IEnumerable<PermissionDefinition> FilteredPermissions => Permissions.Definitions.Where(p=>
         (areaFilter=="ALL"||p.Area==areaFilter) &&
         (string.IsNullOrWhiteSpace(permissionSearch) || (p.Area+" "+p.Feature+" "+p.Label+" "+p.Key).Contains(permissionSearch,StringComparison.OrdinalIgnoreCase)));

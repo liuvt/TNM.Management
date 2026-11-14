@@ -11,6 +11,27 @@ window.tnmDownloadCsv = function (fileName, content) {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
 };
 
+// Download standard OpenXML Excel (.xlsx) from Base64 bytes.
+window.tnmDownloadExcel = function (fileName, base64Data) {
+    const binary = window.atob(base64Data);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, '_');
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+};
+
 window.tnmScrollCatalogEditor = function () {
     document.getElementById('catalog-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
@@ -148,6 +169,11 @@ window.tnmScrollCatalogEditor = function () {
             lower === 'điền mẫu thử nghiệm' ||
             lower === 'tự động điền vào đơn hàng' ||
             lower.startsWith('xuất ') ||
+            lower.startsWith('📥 xuất') ||
+            lower.startsWith('⬇ xuất') ||
+            lower.includes('xuất excel') ||
+            lower.includes('xuất data') ||
+            lower.includes('dán nhanh tin nhắn') ||
             rawText.endsWith('→')
         ) {
             return null;

@@ -3,6 +3,7 @@
 @inject V6Ops Ops
 @inject InputCatalog Catalog
 @inject PermissionGate Gate
+@inject IJSRuntime JS
 
 <PageTitle>Mua hàng NCC · TNM.Management</PageTitle>
 <div class="page-head">
@@ -153,9 +154,18 @@
 
 <section class="panel">
     <div class="panel-head">
-        <div><h2>Danh sách đơn mua (PO)</h2><p>Phiếu chỉ được ghi tăng tồn khi bấm xác nhận nhận hàng.</p></div>
+        <div><h2>Danh sách đơn mua (PO)</h2><p>Đang hiển thị @FilteredOrders.Count / @orders.Count đơn mua · Phiếu chỉ được ghi tăng tồn khi bấm xác nhận nhận hàng.</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select class="search-input" @bind="poStatusFilter" @bind:after="() => poPager.Reset()">
+                <option value="ALL">— Mọi trạng thái (@orders.Count) —</option>
+                <option value="DRAFT">Chờ nhận hàng (DRAFT)</option>
+                <option value="RECEIVED">Đã nhận hàng (RECEIVED)</option>
+            </select>
+            <input class="search-input" style="min-width:220px" @bind="poSearch" @bind:event="oninput" @bind:after="() => poPager.Reset()" placeholder="Tìm số PO, NCC, kho, SKU..." />
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPurchasesExcel">📥 Xuất Excel (@FilteredOrders.Count)</button>
+        </div>
     </div>
-    @{ var pagedOrders = poPager.Slice(orders, out var totalOrders); }
+    @{ var pagedOrders = poPager.Slice(FilteredOrders, out var totalOrders); }
     <div class="table-wrap">
         <table>
             <thead><tr><th>STT</th><th>Số PO</th><th>NCC</th><th>Kho</th><th>SKU</th><th>SL</th><th>Giá nhập</th><th>Trạng thái</th><th>Nhận hàng</th></tr></thead>
@@ -199,6 +209,22 @@
     private List<WarehousePick> warehouses = [];
     private List<LocationPick> locations = [];
     private List<PurchaseOrderRow> orders = [];
+    private string poSearch = "", poStatusFilter = "ALL";
+    private List<PurchaseOrderRow> FilteredOrders => orders.Where(x =>
+        (poStatusFilter == "ALL" || x.Status == poStatusFilter) &&
+        (string.IsNullOrWhiteSpace(poSearch) || ($"{x.Code} {x.Supplier} {x.Warehouse} {x.Sku} {x.Status}").Contains(poSearch.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
+
+    private async Task ExportPurchasesExcel()
+    {
+        var list = FilteredOrders;
+        var headers = new[] { "STT", "Số PO", "Nhà cung cấp", "Kho nhận", "Mã SKU", "Số lượng", "Đơn giá nhập (VND)", "Thành tiền (VND)", "Trạng thái" };
+        var rows = list.Select((x, idx) => new object?[]
+        {
+            idx + 1, x.Code, x.Supplier, x.Warehouse, x.Sku, x.Qty, x.Cost, x.Qty * x.Cost, x.Status
+        });
+        await ExcelExporter.DownloadAsync(JS, "don-mua-hang-po", "Đơn mua PO", headers, rows);
+        receivedMessage = $"Đã xuất file Excel (.xlsx) gồm {list.Count} đơn mua (PO).";
+    }
 
     private List<LocationPick> AvailableLocations => locations.Where(x => x.WarehouseId == warehouse).ToList();
     private bool CanSubmit => canCreate && supplier > 0 && suppliers.Any(x => x.Id == supplier)

@@ -499,7 +499,7 @@ else
                 <button type="button" class="btn secondary" @onclick="ClearSearch">Xóa lọc</button>
             </div>
             <div class="button-group">
-                @if(canExport){<button type="button" class="btn secondary" @onclick="ExportCsv">@(selected.Count>0 ? $"Xuất đã chọn ({selected.Count})" : "Xuất dữ liệu")</button>}
+                @if(canExport){<button type="button" class="btn secondary" data-confirm="none" @onclick="ExportCsv">📥 @(selected.Count>0 ? $"Xuất Excel đã chọn ({selected.Count})" : $"Xuất Excel ({FilteredRows.Count})")</button>}
                 <label class="catalog-page-size">Số dòng
                     <select @bind="catalogPager.PageSize" @bind:after="ResetPage">
                         <option value="20">20</option><option value="50">50</option><option value="100">100</option>
@@ -1005,18 +1005,106 @@ else
     {
         if(!canExport)return;
         var rows=(selected.Count>0?Rows.Where(r=>selected.Contains(r.Id)):FilteredRows.AsEnumerable()).ToList();
-        // Escape spreadsheet formula injection while retaining UTF-8 Vietnamese values.
-        static string CsvCell(string? input)
+        var rowIds = rows.Select(r => r.Id).ToHashSet();
+        string[] headers;
+        IEnumerable<object?[]> dataRows;
+
+        switch (CurrentSection)
         {
-            var v=input??"";
-            if(v.Length>0 && "=+-@\t\r".Contains(v[0]))v="'"+v;
-            return "\""+v.Replace("\"","\"\"")+"\"";
+            case "customers":
+            {
+                headers = ["STT", "Mã KH", "Tên Đơn vị / Khách hàng", "Người đại diện", "Số điện thoại", "Nhóm khách hàng", "Nhóm con của nhóm", "Nhân viên bán hàng", "Địa chỉ"];
+                var items = customers.Where(c => rowIds.Contains(c.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Code, x.Name, x.RepresentativeName, x.Phone, x.Group, x.SubGroupName, x.SourceName, x.Address
+                });
+                break;
+            }
+            case "sellers":
+            {
+                headers = ["STT", "Mã NV", "Họ tên Nhân viên bán hàng", "Số điện thoại", "Bộ phận", "Số KH phụ trách", "Đơn hoàn thành", "Số thiết bị hoàn thành", "Doanh thu bán mới (VND)", "Lượt gia hạn", "Doanh thu gia hạn (VND)", "Định mức HH đơn (VND)", "Định mức HH gia hạn (VND)", "Hoa hồng dự kiến (VND)", "Ghi chú"];
+                var items = sellers.Where(s => rowIds.Contains(s.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Code, x.Name, x.Phone, x.Department, x.CustomerCount, x.CompletedOrders, x.CompletedDevices, x.SalesRevenueVnd, x.RenewalCount, x.RenewalRevenueVnd, x.OrderCommissionVnd, x.RenewalCommissionVnd, x.EstimatedCommissionVnd, x.Notes
+                });
+                break;
+            }
+            case "installers":
+            {
+                headers = ["STT", "Mã KT", "Họ tên Người lắp đặt", "Số điện thoại", "Bộ phận / Phân loại", "Định mức công lắp theo sản phẩm"];
+                var items = installers.Where(i => rowIds.Contains(i.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Code, x.Name, x.Phone, x.Department, x.RateSummary
+                });
+                break;
+            }
+            case "suppliers":
+            {
+                headers = ["STT", "Mã NCC", "Tên Nhà cung cấp", "Nhóm NCC", "Số điện thoại", "Mã số thuế"];
+                var items = suppliers.Where(s => rowIds.Contains(s.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Code, x.Name, x.Group, x.Phone, x.TaxCode
+                });
+                break;
+            }
+            case "warehouses":
+            {
+                headers = ["STT", "Mã Kho", "Tên Kho", "Khu vực", "Tổng IMEI", "IMEI trong kho", "IMEI đã kích hoạt", "Địa chỉ"];
+                var items = warehouses.Where(w => rowIds.Contains(w.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Code, x.Name, x.Area, x.ImeiCount, x.InStockCount, x.InstalledCount, x.Address
+                });
+                break;
+            }
+            case "sale-prices":
+            {
+                headers = ["STT", "Sản phẩm", "Nhóm khách hàng / Nhóm con", "Giá bán chuẩn (VND)", "Giá lắp đặt (VND)", "Giá gia hạn (VND)", "Ngày hiệu lực"];
+                var items = salePrices.Where(p => rowIds.Contains(p.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Product, x.Group, x.Standard, x.Installed, x.Renewal, x.EffectiveFrom
+                });
+                break;
+            }
+            case "buy-prices":
+            {
+                headers = ["STT", "Sản phẩm", "Nhóm Nhà cung cấp", "Đơn giá nhập (VND)", "Ngày hiệu lực"];
+                var items = purchasePrices.Where(p => rowIds.Contains(p.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Product, x.Group, x.UnitCost, x.EffectiveFrom
+                });
+                break;
+            }
+            case "campaigns":
+            {
+                headers = ["STT", "Tên chương trình ưu đãi", "Nhóm khách hàng / Nhóm con", "Mức giảm (%)", "Từ ngày", "Đến ngày", "Trạng thái"];
+                var items = campaigns.Where(c => rowIds.Contains(c.Id)).ToList();
+                dataRows = items.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Name, x.Group, x.Discount, x.From, x.To, x.Active ? "Đang bật" : "Đã tắt"
+                });
+                break;
+            }
+            default:
+            {
+                headers = ["STT", "Mã / ID", "Tên / Đối tượng", "Nhóm / Khu vực", "Thông tin chi tiết"];
+                dataRows = rows.Select((x, idx) => new object?[]
+                {
+                    idx + 1, x.Code, x.Name, x.Group, x.Details
+                });
+                break;
+            }
         }
-        var sb=new System.Text.StringBuilder("Mã / ID,Tên / đối tượng,Nhóm / khu vực,Thông tin\r\n");
-        foreach(var x in rows)sb.AppendLine(string.Join(",",new[]{CsvCell(x.Code),CsvCell(x.Name),CsvCell(x.Group),CsvCell(x.Details)}));
+
         Trail.RecordAction(await Gate.RequireAsync(ReadPermission),"EXPORT","catalog/"+CurrentSection,$"{rows.Count} bản ghi");
-        await JS.InvokeVoidAsync("tnmDownloadCsv",$"{CurrentSection}-{DateTime.Now:yyyyMMdd-HHmmss}.csv",sb.ToString());
-        message=$"Đã tạo CSV cho {rows.Count} bản ghi {(selected.Count>0?"đã chọn":"phù hợp bộ lọc")}.";
+        await ExcelExporter.DownloadAsync(JS, CurrentSection, Title, headers, dataRows);
+        message=$"Đã xuất file Excel (.xlsx) gồm {rows.Count} bản ghi {(selected.Count>0?"đã chọn":"phù hợp bộ lọc")}.";
     }
     private static string Money(long value)=>value.ToString("N0",CultureInfo.GetCultureInfo("vi-VN"))+" đ";
 }

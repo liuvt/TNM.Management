@@ -2,13 +2,14 @@
 @page "/devices"
 @inject DemoDb Db
 @inject PermissionGate Gate
+@inject IJSRuntime JS
 <PageTitle>Thiết bị · TNM</PageTitle>
 <div class="page-head"><div><div class="eyebrow">SUBSCRIPTIONS / RENEWAL</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt, hạn gia hạn và toàn bộ các lần gia hạn.</p></div></div>
 <div class="crud-actionbar">
     @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Thời gian gia hạn & Ngày KH":"Cập nhật Thời gian gia hạn & Ngày kích hoạt")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showImportPanel?"":"secondary")" @onclick="()=>ToggleForm(nameof(showImportPanel))">@(showImportPanel?"Đóng · 📥 Import / Quản lý File Thiết bị":"📥 Import / Quản lý File Thiết bị (12 cột)")</button>}
-    <a class="btn secondary" href="/export/devices-import-format.csv" target="_blank">⬇ Xuất File Quản lý (CSV 12 cột)</a>
+    <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
     <a class="btn secondary" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải File Chuẩn (.xlsx)</a>
     <a class="btn secondary" href="/catalog/sellers">Nhân viên bán hàng →</a>
     <a class="btn secondary" href="/finance">Báo cáo Công nợ &amp; Chốt số Kế toán →</a>
@@ -224,7 +225,9 @@
 @if(canDue60){<button class="@(filter=="DUE60"?"selected":"")" @onclick='() => SetFilter("DUE60")'>D+60 (@countDue60)</button>}
 @if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => SetFilter("OVERDUE")'>Quá hạn (@countOverdue)</button>}
 <button class="@(filter=="LOCKED"?"selected":"")" @onclick='() => SetFilter("LOCKED")'>Khoá (@countLocked)</button>
-</div></div></div>
+</div>
+<button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel (@totalDevices)</button>
+</div></div>
 
 <div class="device-summary-bar">
     <button type="button" class="device-summary-item total @(filter == "ALL" ? "active" : "")" @onclick='() => SetFilter("ALL")'>
@@ -333,13 +336,17 @@
 <TablePager Pager="devicePager" TotalCount="totalDevices" />
 </section>
 @if(canHistory){<section class="panel"><div class="panel-head"><div><h2>Lịch sử các lần gia hạn &amp; Thống kê theo Nhân viên bán hàng</h2><p>Khi cập nhật hoặc xóa lịch sử gia hạn (trước khi Kế toán chốt số / khóa số), hạn thiết bị, doanh thu kế toán, sổ quỹ và hoa hồng nhân viên bán hàng sẽ tự động cập nhật đồng bộ.</p></div>
-<select class="search-input" style="min-width:220px" @bind="historySellerFilter">
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<input class="search-input" style="min-width:210px" @bind="historySearch" @bind:event="oninput" @bind:after="() => renewalPager.Reset()" placeholder="Tìm IMEI, thiết bị, KH, biển số..." />
+<select class="search-input" style="min-width:220px" @bind="historySellerFilter" @bind:after="() => renewalPager.Reset()">
     <option value="">— Tất cả NV bán hàng gia hạn —</option>
     @foreach(var sl in sellerChoices)
     {
         <option value="@sl.Name">@sl.Code — @sl.Name</option>
     }
 </select>
+<button type="button" class="btn secondary" data-confirm="none" @onclick="ExportRenewalsExcel">📥 Xuất Excel (@FilteredRenewals.Count())</button>
+</div>
 </div>
 
 @if(!string.IsNullOrWhiteSpace(historyMessage))
@@ -535,7 +542,7 @@
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
- private string source="TNM",method="DEBT",message="",editMessage="",historyMessage="",editPlate="",editVin="",search="",filter="ACTIVE",historySellerFilter="";
+ private string source="TNM",method="DEBT",message="",editMessage="",historyMessage="",editPlate="",editVin="",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
  private bool canRenew,canUpdateDevice,canFinanceLock,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60;
 
  // State chỉnh sửa / xóa lịch sử gia hạn
@@ -543,7 +550,77 @@
  private string editingRenewalImei = "", editingRenewalDeviceName = "", editRenewalSource = "TNM", editRenewalPayMethod = "DEBT";
  private DateTime editRenewalStartDate = DateTime.Today, editRenewalPrevExpiry = DateTime.Today, editRenewalEndDate = DateTime.Today.AddYears(1);
 
- private IEnumerable<RenewalVm> FilteredRenewals => renewals.Where(r => string.IsNullOrWhiteSpace(historySellerFilter) || r.SellerName.Contains(historySellerFilter, StringComparison.OrdinalIgnoreCase));
+ private List<DeviceVm> FilteredDevicesList => devices.Where(MatchSearch).Where(MatchFilter).ToList();
+
+ private IEnumerable<RenewalVm> FilteredRenewals => renewals.Where(r =>
+  (string.IsNullOrWhiteSpace(historySellerFilter) || r.SellerName.Contains(historySellerFilter, StringComparison.OrdinalIgnoreCase)) &&
+  (string.IsNullOrWhiteSpace(historySearch) || ($"{r.Imei} {r.DeviceName} {r.ProductSku} {r.CustomerName} {r.PlateNo} {r.SellerName} {r.Source} {r.StartDate} {r.EndDate}").Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+ private async Task ExportDevicesExcel()
+ {
+  var list = FilteredDevicesList;
+  var headers = new[]
+  {
+   "STT", "Biển số xe/Số khung", "Số EMEI Thiết bị", "Tên Thiết bị", "Mã SKU",
+   "Tên Đại lý", "Tên Khách hàng", "SĐT Khách hàng", "Nhân viên bán hàng",
+   "Trạng thái thiết bị", "Ngày kích hoạt", "Ngày hết hạn", "Số ngày còn hạn",
+   "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn"
+  };
+  var rows = list.Select((x, idx) =>
+  {
+   var d = DaysToExpiry(x);
+   var locked = IsLocked(x);
+   var stText = locked ? "Khoá" : d < 0 ? $"Hết hạn ({Math.Abs(d)} ngày)" : $"Hoạt động (còn {d} ngày)";
+   return new object?[]
+   {
+    idx + 1,
+    x.Plate,
+    x.Imei,
+    string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel,
+    x.Sku,
+    string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName,
+    string.IsNullOrWhiteSpace(x.OwnerName) ? x.ContactName : x.OwnerName,
+    x.OwnerPhone,
+    x.SellerName,
+    stText,
+    x.ActivatedAt,
+    x.ExpiresAt,
+    d == -9999 ? 0 : d,
+    x.LastRenewedAt,
+    x.RenewalCount
+   };
+  });
+  await ExcelExporter.DownloadAsync(JS, $"thiet-bi-kich-hoat-{filter.ToLowerInvariant()}", "Thiết bị kích hoạt", headers, rows);
+ }
+
+ private async Task ExportRenewalsExcel()
+ {
+  var list = FilteredRenewals.ToList();
+  var headers = new[]
+  {
+   "STT", "Số IMEI", "Tên thiết bị", "Mã SKU", "Khách hàng / Đại lý", "Biển số xe",
+   "Nhân viên bán hàng gia hạn", "Nguồn gia hạn", "Ngày gia hạn", "Hạn cũ", "Hạn mới",
+   "Số tiền gia hạn (VND)", "Hình thức thanh toán", "Trạng thái Kế toán"
+  };
+  var rows = list.Select((x, idx) => new object?[]
+  {
+   idx + 1,
+   x.Imei,
+   string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName,
+   x.ProductSku,
+   x.CustomerName,
+   x.PlateNo,
+   x.SellerName,
+   x.Source,
+   x.StartDate,
+   x.PreviousExpiry,
+   x.EndDate,
+   x.Price,
+   x.PaymentMethod == "DEBT" ? "Công nợ" : "Thanh toán ngay",
+   x.IsLocked ? "Đã chốt số KT" : "Chưa chốt số"
+  });
+  await ExcelExporter.DownloadAsync(JS, "lich-su-gia-han-thiet-bi", "Lịch sử gia hạn", headers, rows);
+ }
  protected override async Task OnInitializedAsync(){
   canRenew=await Gate.CanAsync(Permissions.DevicesRenew);
   canUpdateDevice=await Gate.CanAsync(Permissions.DevicesUpdate) || await Gate.CanAsync(Permissions.UsersManage);
