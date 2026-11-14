@@ -498,7 +498,28 @@ public sealed class DemoDb
           COALESCE(a.owner_phone,''),
           COALESCE(a.status,'ACTIVE'),
           COALESCE(NULLIF(a.last_renewed_at,''), (SELECT MAX(r2.renewed_at) FROM renewals r2 WHERE r2.activation_id=a.id AND r2.deleted_at IS NULL), ''),
-          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL))
+          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL)),
+          COALESCE(
+            NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+                    WHERE gp.group_id=c.sub_group_id
+                      AND gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                      AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
+                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+            NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+                    WHERE gp.group_id=c.group_id
+                      AND gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                      AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
+                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+            NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+                    WHERE gp.group_id=(SELECT cg.parent_id FROM customer_groups cg WHERE cg.id=c.group_id)
+                      AND gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                      AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
+                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+            NULLIF(p.renewal_fee_vnd, 0),
+            (SELECT gp.renewal_price_vnd FROM v7_group_prices gp
+             WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0
+             ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
+            0)
           FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
@@ -509,7 +530,7 @@ public sealed class DemoDb
           r => new DeviceVm(
               L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),
               S(r,9),S(r,10),S(r,11),r.IsDBNull(12) ? null : L(r,12),S(r,13),
-              S(r,14),S(r,15),S(r,16),S(r,17),S(r,18),S(r,19),L(r,20)));
+              S(r,14),S(r,15),S(r,16),S(r,17),S(r,18),S(r,19),L(r,20),L(r,21)));
     }
 
     public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null, string? customExpiresAt = null, long? sellerId = null, string? status = null, string? ownerName = null, string? ownerPhone = null)

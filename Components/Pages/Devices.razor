@@ -72,6 +72,9 @@
 <label>Tên thiết bị (Mã SKU)
     <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDeviceName} ({selectedRenewDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
+<label>Giá gia hạn áp dụng (12 tháng)
+    <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDevice.RenewalPriceVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
+</label>
 <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
     <select @bind="renewSellerId">
         <option value="0">— Chọn nhân viên bán hàng phụ trách gia hạn —</option>
@@ -281,7 +284,7 @@
     </div>
 </div>
 
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>BIỂN SỐ / SỐ KHUNG</th><th>SỐ IMEI</th><th>TÊN THIẾT BỊ</th><th>TÊN ĐẠI LÝ</th><th>KHÁCH HÀNG &amp; SĐT</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>GIA HẠN GẦN NHẤT / SỐ LẦN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>BIỂN SỐ / SỐ KHUNG</th><th>SỐ IMEI</th><th>TÊN THIẾT BỊ</th><th>TÊN ĐẠI LÝ</th><th>KHÁCH HÀNG &amp; SĐT</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>GIA HẠN GẦN NHẤT / SỐ LẦN</th><th>GIÁ GIA HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
 @foreach(var (stt, x) in pagedDevices){
     var d = DaysToExpiry(x);
     var locked = IsLocked(x);
@@ -301,6 +304,7 @@
             <div>@(string.IsNullOrWhiteSpace(x.LastRenewedAt) ? "—" : x.LastRenewedAt)</div>
             <small style="color:#64748b">Số lần GH: <strong>@x.RenewalCount</strong></small>
         </td>
+        <td><strong style="color:#0284c7">@x.RenewalPriceVnd.ToString("N0") ₫</strong></td>
         <td>
             @if (locked)
             {
@@ -562,7 +566,7 @@
    "STT", "Biển số xe/Số khung", "Số EMEI Thiết bị", "Tên Thiết bị", "Mã SKU",
    "Tên Đại lý", "Tên Khách hàng", "SĐT Khách hàng", "Nhân viên bán hàng",
    "Trạng thái thiết bị", "Ngày kích hoạt", "Ngày hết hạn", "Số ngày còn hạn",
-   "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn"
+   "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn", "Giá gia hạn (VND)"
   };
   var rows = list.Select((x, idx) =>
   {
@@ -585,7 +589,8 @@
     x.ExpiresAt,
     d == -9999 ? 0 : d,
     x.LastRenewedAt,
-    x.RenewalCount
+    x.RenewalCount,
+    x.RenewalPriceVnd
    };
   });
   await ExcelExporter.DownloadAsync(JS, $"thiet-bi-kich-hoat-{filter.ToLowerInvariant()}", "Thiết bị kích hoạt", headers, rows);
