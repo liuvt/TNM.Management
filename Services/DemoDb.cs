@@ -191,6 +191,55 @@ public sealed class DemoDb
                 (SELECT gp.renewal_price_vnd FROM v7_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0 ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
                 renewal_fee_vnd)
                 WHERE renewal_fee_vnd = 0 AND EXISTS (SELECT 1 FROM v7_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0)");
+
+            // Dọn các chứng từ công nợ PURCHASE phát sinh nhầm từ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA)
+            CleanupReturnedDevicePurchaseInvoices(c, null);
+        }
+    }
+
+    private void CleanupReturnedDevicePurchaseInvoices(SqliteConnection c, SqliteTransaction? t)
+    {
+        var prevActor = ActorId;
+        var devId = N(c, t, "SELECT COALESCE((SELECT id FROM app_users WHERE LOWER(username)='vanlt_it' LIMIT 1), 0)");
+        try
+        {
+            if (devId > 0) ActorId = devId;
+
+            Exec(c, t, @"UPDATE inventory_transaction_lines SET unit_cost_snapshot_vnd = 0
+                WHERE unit_cost_snapshot_vnd <> 0
+                  AND stock_unit_id IN (
+                    SELECT u.id FROM stock_units u
+                    JOIN suppliers s ON s.id=u.supplier_id
+                    LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                    WHERE UPPER(COALESCE(sg.code,''))='HOANTRA'
+                       OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
+                       OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%'
+                )");
+
+            const string targetInvSql = @"
+                SELECT i.id FROM invoices i
+                JOIN suppliers s ON s.id=i.supplier_id
+                LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                  AND (UPPER(COALESCE(sg.code,''))='HOANTRA'
+                       OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
+                       OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')
+                  AND NOT EXISTS (SELECT 1 FROM payment_allocations pa WHERE pa.invoice_id=i.id AND pa.deleted_at IS NULL)";
+
+            if (devId > 0)
+            {
+                Exec(c, t, $"DELETE FROM invoice_lines WHERE invoice_id IN ({targetInvSql})");
+                Exec(c, t, $"DELETE FROM invoices WHERE id IN ({targetInvSql})");
+            }
+            else
+            {
+                Exec(c, t, $"UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE deleted_at IS NULL AND invoice_id IN ({targetInvSql})");
+                Exec(c, t, $"UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE deleted_at IS NULL AND id IN ({targetInvSql})");
+            }
+        }
+        finally
+        {
+            ActorId = prevActor;
         }
     }
 
@@ -341,20 +390,46 @@ public sealed class DemoDb
         return Tx((c,t) => {
             if (N(c,t,"SELECT COUNT(*) FROM products WHERE id=$id AND is_serialized=1 AND is_active=1 AND deleted_at IS NULL",("$id",productId)) == 0)
                 throw new InvalidOperationException("Nhập kho theo IMEI chỉ hỗ trợ sản phẩm có serial đang kinh doanh.");
-            var cost = N(c,t,@"SELECT COALESCE(
-                (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
-                NULLIF((SELECT base_cost_vnd FROM products WHERE id=$id), 0),
-                0)",("$id",productId));
             var resolvedSup = supplierId.HasValue && supplierId.Value > 0
                 ? supplierId.Value
                 : N(c,t,@"SELECT COALESCE(
-                    (SELECT s.id FROM suppliers s JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC,s.id LIMIT 1),
-                    (SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1),
+                    (SELECT s.id FROM suppliers s
+                     LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                     JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id
+                     WHERE gp.product_id=$id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL
+                       AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
+                       AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                       AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
+                     ORDER BY gp.effective_from DESC,s.id LIMIT 1),
+                    (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                     WHERE s.deleted_at IS NULL
+                       AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
+                       AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                       AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
+                     ORDER BY s.id LIMIT 1),
                     0)",("$id",productId));
+            var isReturnSup = resolvedSup > 0 && N(c,t,@"
+                SELECT COUNT(*) FROM suppliers s
+                LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                WHERE s.id=$sup
+                  AND (UPPER(COALESCE(sg.code,''))='HOANTRA'
+                       OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
+                       OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
+                ("$sup", resolvedSup)) > 0;
+            var cost = isReturnSup ? 0 : N(c,t,@"SELECT COALESCE(
+                NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp
+                        JOIN suppliers s ON s.group_id=gp.supplier_group_id
+                        WHERE s.id=$sup AND gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                        ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+                NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp
+                        WHERE gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                        ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+                NULLIF((SELECT base_cost_vnd FROM products WHERE id=$id), 0),
+                0)",("$sup",resolvedSup),("$id",productId));
             var prodName = QueryTx(c,t,"SELECT sku||' · '||name FROM products WHERE id=$id", r => S(r,0), ("$id",productId)).FirstOrDefault() ?? $"SP #{productId}";
             var code = "NK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
-            Exec(c,t,"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,actor_user_id,notes) VALUES($n,'RECEIVE',$w,$actor,'Nhập kho IMEI')",
-              ("$n",code),("$w",warehouseId),("$actor",ActorId));
+            Exec(c,t,"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,actor_user_id,notes) VALUES($n,'RECEIVE',$w,$actor,$note)",
+              ("$n",code),("$w",warehouseId),("$actor",ActorId),("$note", isReturnSup ? "Nhập kho thiết bị hoàn trả - đã kích hoạt (Không tính công nợ)" : "Nhập kho IMEI"));
             var transId = N(c,t,"SELECT last_insert_rowid()");
             int importedCount = 0;
             var skippedInstalled = new List<string>();
@@ -399,7 +474,7 @@ public sealed class DemoDb
             {
                 throw new InvalidOperationException($"Tất cả {skippedInstalled.Count} mã IMEI đã tồn tại ở trạng thái Đã lắp đặt / Kích hoạt ({string.Join(", ", skippedInstalled.Take(5))}{(skippedInstalled.Count > 5 ? "..." : "")}).");
             }
-            if (resolvedSup > 0 && cost * importedCount > 0)
+            if (!isReturnSup && resolvedSup > 0 && cost * importedCount > 0)
             {
                 var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                 var totalCost = cost * importedCount;
@@ -1855,11 +1930,19 @@ public sealed class DemoDb
         {
             int purchaseCreated = 0, saleCreated = 0, renewalCreated = 0, serviceCreated = 0;
 
-            // 1A. Đối soát đơn mua hàng PO đã nhận (RECEIVED) nhưng chưa có chứng từ PURCHASE
+            // 0. Dọn các chứng từ công nợ PURCHASE phát sinh nhầm từ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA)
+            CleanupReturnedDevicePurchaseInvoices(c, t);
+
+            // 1A. Đối soát đơn mua hàng PO đã nhận (RECEIVED) nhưng chưa có chứng từ PURCHASE (loại trừ nguồn Thiết bị hoàn trả)
             var missingPos = QueryTx(c, t, @"
                 SELECT po.id, po.po_no, po.supplier_id
                 FROM purchase_orders po
+                JOIN suppliers s ON s.id=po.supplier_id
+                LEFT JOIN supplier_groups sg ON sg.id=s.group_id
                 WHERE po.status='RECEIVED' AND po.deleted_at IS NULL
+                  AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
+                  AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                  AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
                   AND NOT EXISTS (
                       SELECT 1 FROM invoices i
                       WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
@@ -1894,6 +1977,7 @@ public sealed class DemoDb
             }
 
             // 1B. Đối soát tồn kho / thiết bị IMEI (stock_units) & lô nhập kho số lượng (quantity_movements) chưa có chứng từ PURCHASE
+            // Lưu ý: Loại trừ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA) vì thiết bị thu hồi / hoàn trả về kho không phát sinh công nợ mua hàng NCC
             var pendingPurchaseBySup = new Dictionary<long, List<(long ProductId, string Label, long Qty, long UnitCost)>>();
 
             var stockBySupProd = QueryTx(c, t, @"
@@ -1906,8 +1990,12 @@ public sealed class DemoDb
                        ) AS unit_cost
                 FROM stock_units u
                 JOIN suppliers s ON s.id=u.supplier_id
+                LEFT JOIN supplier_groups sg ON sg.id=s.group_id
                 JOIN products p ON p.id=u.product_id
                 WHERE u.deleted_at IS NULL AND s.deleted_at IS NULL AND u.supplier_id IS NOT NULL
+                  AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
+                  AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                  AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
                 GROUP BY u.supplier_id, u.product_id",
                 r => (SupId: L(r, 0), ProdId: L(r, 1), Label: S(r, 2), StockQty: L(r, 3), UnitCost: L(r, 4)));
 
@@ -1951,8 +2039,8 @@ public sealed class DemoDb
             var qtyReceipts = QueryTx(c, t, @"
                 SELECT q.product_id, p.sku||' — '||p.name, SUM(q.delta_qty) AS total_in_qty,
                        COALESCE(
-                           (SELECT s.id FROM suppliers s JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=q.product_id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, s.id LIMIT 1),
-                           (SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1),
+                           (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=q.product_id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY gp.effective_from DESC, s.id LIMIT 1),
+                           (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id WHERE s.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY s.id LIMIT 1),
                            0
                        ) AS resolved_sup_id,
                        COALESCE(

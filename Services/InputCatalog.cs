@@ -936,6 +936,11 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public long QuotePurchase(long supplierId, long productId, DateTime? at = null)
     {
         using var c = Open(); var day = (at ?? DateTime.Today).ToString("yyyy-MM-dd");
+        var isReturnSup = Convert.ToInt64(Cell(c, """
+            SELECT COUNT(*) FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+            WHERE s.id=$s AND (UPPER(COALESCE(sg.code,''))='HOANTRA' OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%' OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')
+            """, ("$s", supplierId)) ?? 0L) > 0;
+        if (isReturnSup) return 0;
         var value = Cell(c, """
             SELECT gp.unit_cost_vnd FROM suppliers s
             JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id

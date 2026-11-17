@@ -123,7 +123,7 @@ else if (activeTab == "IMEI" && canImeiView)
           </label>
         </div>
         <div class="form-actions">
-          <button class="btn" @onclick="Receive">+ Nhập kho &amp; Ghi nhận công nợ NCC</button>
+          <button class="btn" @onclick="Receive">@(IsSelectedReturnSupplier ? "+ Nhập kho thiết bị hoàn trả (Không tính công nợ NCC)" : "+ Nhập kho & Ghi nhận công nợ NCC")</button>
           <span class="feedback">@receiveMessage</span>
         </div>
       </section>
@@ -694,16 +694,22 @@ else if (activeTab == "QUANTITY" && canQtyView)
     if (canImeiView) summaries = Db.ProductStockSummaries();
   }
 
+  private bool IsSelectedReturnSupplier =>
+    supplierId > 0 && suppliers.Any(s => s.Id == supplierId && s.Name.Contains("hoàn trả", StringComparison.OrdinalIgnoreCase));
+
   private async Task Receive()
   {
     try
     {
       Db.ActorId = await Gate.RequireAsync(Permissions.InventoryReceive);
+      var isReturn = IsSelectedReturnSupplier;
       var n = Db.Receive(productId, warehouseId, imeis, supplierId > 0 ? supplierId : null, receiveQty);
       ReloadImei();
       imeis = "";
       receiveQty = 1;
-      receiveMessage = $"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC.";
+      receiveMessage = isReturn
+        ? $"Đã nhập kho {n} thiết bị hoàn trả - đã kích hoạt (không phát sinh công nợ NCC)."
+        : $"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC.";
     }
     catch (Exception ex)
     {

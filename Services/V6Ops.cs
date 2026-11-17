@@ -158,13 +158,14 @@ public sealed class V6Ops(IWebHostEnvironment environment)
             RecordMovement(c, user, product, warehouse, location, incoming ? qty : -qty, incoming ? "RECEIVE" : "ISSUE", note);
             if (incoming)
             {
-                var unitCost = Scalar(c, @"SELECT COALESCE(
+                var isReturnNote = (note ?? "").Contains("hoàn trả", StringComparison.OrdinalIgnoreCase);
+                var unitCost = isReturnNote ? 0 : Scalar(c, @"SELECT COALESCE(
                     (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
                     NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
                     0)", ("$p", product));
-                var supId = Scalar(c, @"SELECT COALESCE(
-                    (SELECT s.id FROM suppliers s JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$p AND s.deleted_at IS NULL AND gp.deleted_at IS NULL ORDER BY gp.effective_from DESC, s.id LIMIT 1),
-                    (SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1),
+                var supId = isReturnNote ? 0 : Scalar(c, @"SELECT COALESCE(
+                    (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$p AND s.deleted_at IS NULL AND gp.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY gp.effective_from DESC, s.id LIMIT 1),
+                    (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id WHERE s.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY s.id LIMIT 1),
                     0)", ("$p", product));
                 if (supId > 0 && unitCost * qty > 0)
                 {
@@ -294,17 +295,23 @@ public sealed class V6Ops(IWebHostEnvironment environment)
             Execute(c, "INSERT INTO goods_receipts(receipt_no,po_id,received_by) VALUES('GR-'||lower(hex(randomblob(7))),$id,$u)", ("$id", purchaseId), ("$u", user));
             Execute(c, "UPDATE purchase_orders SET status='RECEIVED',received_at=CURRENT_TIMESTAMP WHERE id=$id", ("$id", purchaseId));
 
-            // Tự động tạo hóa đơn công nợ phải trả Nhà cung cấp (PURCHASE)
-            var totalCost = lines.Sum(x => x.Q * x.Cost);
-            var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
-                VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
-                ("$no", invNo), ("$sup", header.Sup), ("$amt", totalCost), ("$note", $"Nhập hàng theo {header.PoNo}"));
-            var invId = InsertId(c);
-            foreach (var line in lines)
+            // Tự động tạo hóa đơn công nợ phải trả Nhà cung cấp (PURCHASE) — ngoại trừ nguồn Thiết bị hoàn trả (HOANTRA)
+            var isReturnSup = Scalar(c, @"SELECT COUNT(*) FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                WHERE s.id=$sup AND (UPPER(COALESCE(sg.code,''))='HOANTRA' OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%' OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
+                ("$sup", header.Sup)) > 0;
+            var totalCost = isReturnSup ? 0 : lines.Sum(x => x.Q * x.Cost);
+            if (!isReturnSup && totalCost > 0)
             {
-                Execute(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
-                    ("$i", invId), ("$d", $"Nhập hàng NCC ({header.PoNo}): {line.Name}"), ("$p", line.P), ("$q", line.Q), ("$c", line.Cost));
+                var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                    ("$no", invNo), ("$sup", header.Sup), ("$amt", totalCost), ("$note", $"Nhập hàng theo {header.PoNo}"));
+                var invId = InsertId(c);
+                foreach (var line in lines)
+                {
+                    Execute(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
+                        ("$i", invId), ("$d", $"Nhập hàng NCC ({header.PoNo}): {line.Name}"), ("$p", line.P), ("$q", line.Q), ("$c", line.Cost));
+                }
             }
 
             Audit(c, user, "PO_RECEIVE", "PURCHASE_ORDER", purchaseId, "Nhận hàng hoàn tất & ghi nhận công nợ NCC"); return 0;
