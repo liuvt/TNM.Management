@@ -58,7 +58,7 @@ public static class CsvExports
             };
         }
         var rows = new List<IEnumerable<string>> { new[] {
-            "Số chứng từ", "Loại công nợ", "Tính chất", "Đối tác / Thụ hưởng", "Tham chiếu",
+            "Kỳ Tháng/Năm", "Số chứng từ", "Loại công nợ", "Tính chất", "Đối tác / Thụ hưởng", "Tham chiếu",
             "Chi tiết mặt hàng / Nội dung", "Phát sinh (VND)", "Đã thanh toán (VND)", "Còn nợ (VND)",
             "Trạng thái", "Ngày lập", "Đến hạn", "Ghi chú"
         } };
@@ -69,7 +69,7 @@ public static class CsvExports
                 : x.Notes;
             var nature = x.IsReceivable ? "Phải thu (IN)" : "Phải trả (OUT)";
             rows.Add(new[] {
-                x.Code, x.Type, nature, x.Customer, x.RefCode, lineSummary,
+                x.PeriodLabel, x.Code, x.Type, nature, x.Customer, x.RefCode, lineSummary,
                 x.Total.ToString(), x.Paid.ToString(), x.Balance.ToString(),
                 x.Status, x.CreatedAt, x.DueAt, x.Notes
             });

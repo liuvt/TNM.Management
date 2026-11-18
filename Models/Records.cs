@@ -18,7 +18,15 @@ public record InvoiceLineVm(long Id, long InvoiceId, string Description, string 
 {
     public long LineTotal => Quantity * UnitPrice;
 }
-public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0);
+public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0)
+{
+    public string PeriodKey => !string.IsNullOrWhiteSpace(PaidAt) && PaidAt.Length >= 7 && PaidAt[4] == '-'
+        ? PaidAt[..7]
+        : DateTime.Today.ToString("yyyy-MM");
+    public int PeriodYear => PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : DateTime.Today.Year;
+    public int PeriodMonth => PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : DateTime.Today.Month;
+    public string PeriodLabel => $"Tháng {PeriodMonth:D2}/{PeriodYear}";
+}
 public record CashBookSummaryVm(
     long TotalInVnd,
     long TotalOutVnd,
@@ -41,13 +49,27 @@ public record PartnerDebtSummaryVm(
     long InvoiceCount,
     long TotalIncurredVnd,
     long TotalPaidVnd,
-    long RemainingDebtVnd);
+    long RemainingDebtVnd,
+    string PeriodKey = "",
+    string PeriodLabel = "",
+    long CarryOverOldDebtVnd = 0)
+{
+    public long CumulativeRemainingVnd => CarryOverOldDebtVnd + RemainingDebtVnd;
+    public int PeriodYear => !string.IsNullOrWhiteSpace(PeriodKey) && PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : 0;
+    public int PeriodMonth => !string.IsNullOrWhiteSpace(PeriodKey) && PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : 0;
+}
 public record InvoiceVm(long Id, string Code, string Type, string Customer, long Total, long Paid,
     string Status, string CreatedAt, string DueAt, string Notes = "", string RefCode = "", List<InvoiceLineVm>? Lines = null,
     bool IsLocked = false, string LockedAt = "", long? RenewalId = null)
 {
     public long Balance => Total - Paid;
     public bool IsReceivable => Type is "SALE" or "RENEWAL";
+    public string PeriodKey => !string.IsNullOrWhiteSpace(CreatedAt) && CreatedAt.Length >= 7 && CreatedAt[4] == '-'
+        ? CreatedAt[..7]
+        : DateTime.Today.ToString("yyyy-MM");
+    public int PeriodYear => PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : DateTime.Today.Year;
+    public int PeriodMonth => PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : DateTime.Today.Month;
+    public string PeriodLabel => $"Tháng {PeriodMonth:D2}/{PeriodYear}";
 }
 public record LedgerVm(long Id, string At, string Type, string Sku, string Imei, string Target, string Actor);
 public record AuditVm(long Id, string At, string Actor, string Action, string Entity, string Details);

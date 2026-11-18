@@ -16,9 +16,16 @@
     <section class="panel" style="margin-bottom:0">
         <div class="panel-head">
             <div>
-                <h2>1. Báo cáo Công nợ (Nhà cung cấp · Khách hàng · Nhân viên bán hàng)</h2>
+                <h2>1. Báo cáo Công nợ tách theo Kỳ Tháng/Năm</h2>
                 <p>Tổng hợp công nợ phải trả Nhà cung cấp, phải thu Khách hàng và hoa hồng nhân viên bán hàng.</p>
             </div>
+            <select class="search-input" style="min-width:185px" @bind="reportPeriodKey" @bind:after="RecalcFinanceSummary">
+                <option value="">— Tất cả các kỳ —</option>
+                @foreach(var pk in reportPeriods)
+                {
+                    <option value="@pk.Key">@pk.Label @(pk.Key == DateTime.Today.ToString("yyyy-MM") ? "(Mới)" : "(Nợ cũ)")</option>
+                }
+            </select>
         </div>
         <div class="table-wrap">
             <table>
@@ -33,7 +40,13 @@
                     </tr>
                     <tr>
                         <td><strong>2</strong></td>
-                        <td><strong>2. Khách hàng (Thu khách / Công nợ)</strong></td>
+                        <td>
+                            <strong>2. Khách hàng (Thu khách / Công nợ)</strong>
+                            @if(string.IsNullOrWhiteSpace(reportPeriodKey))
+                            {
+                                <div><small style="color:#64748b">🆕 Tháng mới: @Money(custCurrentRem) · ⏳ Nợ cũ: @Money(custOldRem)</small></div>
+                            }
+                        </td>
                         <td>@Money(custTotal)</td>
                         <td><strong style="color:#15803d">@Money(custPaid)</strong></td>
                         <td><strong style="color:#0284c7">@Money(custTotal - custPaid)</strong></td>
@@ -137,7 +150,11 @@
   await ExcelExporter.DownloadAsync(JS, "nhat-ky-audit-log", "Audit Log", headers, rows);
  }
  private CashBookSummaryVm cashBook = new(0,0,0,0,0,0,0,0,0,0,0,0);
- private long supTotal, supPaid, custTotal, custPaid, sellTechTotal, sellTechPaid;
+ private List<InvoiceVm> allReportInvoices = [];
+ private List<SellerPeriodStatVm> allReportSellers = [];
+ private List<(string Key, string Label)> reportPeriods = [];
+ private string reportPeriodKey = "";
+ private long supTotal, supPaid, custTotal, custPaid, custCurrentRem, custOldRem, sellTechTotal, sellTechPaid;
  protected override async Task OnInitializedAsync(){
  canLedger=await Gate.CanAsync(Permissions.InventoryLedgerView);
  canAudit=await Gate.CanAsync(Permissions.ReportsAuditView);
@@ -146,16 +163,33 @@
  canFinanceView=await Gate.CanAsync(Permissions.FinanceView);
  if(canFinanceView){
    cashBook = Db.CashBookSummary();
-   var invs = Db.Invoices().Where(x => x.Status != "VOID").ToList();
-   var sellers = Db.SellerPeriodStats();
+   allReportInvoices = Db.Invoices().Where(x => x.Status != "VOID").ToList();
+   allReportSellers = Db.SellerPeriodStats();
+   reportPeriods = allReportInvoices
+     .GroupBy(x => (x.PeriodKey, x.PeriodLabel))
+     .OrderByDescending(g => g.Key.PeriodKey)
+     .Select(g => (g.Key.PeriodKey, g.Key.PeriodLabel))
+     .ToList();
+   RecalcFinanceSummary();
+ }
+ if(canLedger)ledger=Db.Ledger();if(canAudit)audit=Db.Audits();
+ }
+ private void RecalcFinanceSummary()
+ {
+   var curYm = DateTime.Today.ToString("yyyy-MM");
+   custCurrentRem = allReportInvoices.Where(x => x.IsReceivable && x.PeriodKey == curYm).Sum(x => x.Balance);
+   custOldRem = allReportInvoices.Where(x => x.IsReceivable && string.CompareOrdinal(x.PeriodKey, curYm) < 0).Sum(x => x.Balance);
+   var invs = string.IsNullOrWhiteSpace(reportPeriodKey)
+     ? allReportInvoices
+     : allReportInvoices.Where(x => x.PeriodKey == reportPeriodKey).ToList();
    supTotal = invs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").Sum(x => x.Total);
    supPaid = invs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").Sum(x => x.Paid);
    custTotal = invs.Where(x => x.IsReceivable).Sum(x => x.Total);
    custPaid = invs.Where(x => x.IsReceivable).Sum(x => x.Paid);
-   sellTechTotal = invs.Where(x => x.Type == "SERVICE").Sum(x => x.Total) + Math.Max(invs.Where(x => x.Type == "COMMISSION").Sum(x => x.Total), sellers.Sum(x => x.TotalEstimatedCommissionVnd));
+   var includeEstComm = string.IsNullOrWhiteSpace(reportPeriodKey) || reportPeriodKey == curYm;
+   sellTechTotal = invs.Where(x => x.Type == "SERVICE").Sum(x => x.Total) +
+     (includeEstComm ? Math.Max(invs.Where(x => x.Type == "COMMISSION").Sum(x => x.Total), allReportSellers.Sum(x => x.TotalEstimatedCommissionVnd)) : invs.Where(x => x.Type == "COMMISSION").Sum(x => x.Total));
    sellTechPaid = invs.Where(x => x.Type is "SERVICE" or "COMMISSION").Sum(x => x.Paid);
- }
- if(canLedger)ledger=Db.Ledger();if(canAudit)audit=Db.Audits();
  }
  private static string Money(long v) => v.ToString("N0") + " ₫";
 }
