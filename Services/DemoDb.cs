@@ -216,6 +216,21 @@ public sealed class DemoDb
                        OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%'
                 )");
 
+            Exec(c, t, @"UPDATE inventory_transactions
+                SET notes = 'Nhập kho thiết bị hoàn trả - đã kích hoạt (Không tính công nợ)'
+                WHERE movement_type = 'RECEIVE'
+                  AND COALESCE(notes, '') = 'Nhập kho IMEI'
+                  AND EXISTS (
+                    SELECT 1 FROM inventory_transaction_lines tl
+                    JOIN stock_units u ON u.id = tl.stock_unit_id
+                    JOIN suppliers s ON s.id = u.supplier_id
+                    LEFT JOIN supplier_groups sg ON sg.id = s.group_id
+                    WHERE tl.transaction_id = inventory_transactions.id
+                      AND (UPPER(COALESCE(sg.code,''))='HOANTRA'
+                           OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
+                           OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')
+                  )");
+
             const string targetInvSql = @"
                 SELECT i.id FROM invoices i
                 JOIN suppliers s ON s.id=i.supplier_id
@@ -230,6 +245,21 @@ public sealed class DemoDb
             {
                 Exec(c, t, $"DELETE FROM invoice_lines WHERE invoice_id IN ({targetInvSql})");
                 Exec(c, t, $"DELETE FROM invoices WHERE id IN ({targetInvSql})");
+                // Dọn cứng các nhóm khách hàng test từng xóa bởi tài khoản ẩn trước khi nâng cấp hard-delete
+                if (N(c, t, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v7_group_campaigns'") > 0)
+                {
+                    Exec(c, t, @"DELETE FROM customer_groups
+                        WHERE deleted_at IS NOT NULL AND deleted_by IS NULL AND parent_id IS NOT NULL
+                          AND NOT EXISTS (SELECT 1 FROM customers cu WHERE cu.group_id=customer_groups.id OR cu.sub_group_id=customer_groups.id)
+                          AND NOT EXISTS (SELECT 1 FROM v7_group_prices gp WHERE gp.group_id=customer_groups.id)
+                          AND NOT EXISTS (SELECT 1 FROM v7_group_campaigns gc WHERE gc.group_id=customer_groups.id)");
+                    Exec(c, t, @"DELETE FROM customer_groups
+                        WHERE deleted_at IS NOT NULL AND deleted_by IS NULL AND parent_id IS NULL
+                          AND NOT EXISTS (SELECT 1 FROM customer_groups ch WHERE ch.parent_id=customer_groups.id)
+                          AND NOT EXISTS (SELECT 1 FROM customers cu WHERE cu.group_id=customer_groups.id OR cu.sub_group_id=customer_groups.id)
+                          AND NOT EXISTS (SELECT 1 FROM v7_group_prices gp WHERE gp.group_id=customer_groups.id)
+                          AND NOT EXISTS (SELECT 1 FROM v7_group_campaigns gc WHERE gc.group_id=customer_groups.id)");
+                }
             }
             else
             {

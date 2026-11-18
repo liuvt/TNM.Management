@@ -924,14 +924,24 @@ public sealed class V7Orders(IWebHostEnvironment env)
                             saleOutTxId = Scalar(c, "SELECT last_insert_rowid()");
                         }
 
+                        var isReturnedUnit = Scalar(c, @"SELECT COUNT(*) FROM stock_units u
+                            JOIN suppliers s ON s.id=u.supplier_id
+                            LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                            WHERE u.id=$sid
+                              AND (UPPER(COALESCE(sg.code,''))='HOANTRA'
+                                   OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
+                                   OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
+                            ("$sid", stockUnitId)) > 0;
+                        var effectiveLineCost = isReturnedUnit ? 0 : ln.UnitCost;
+
                         Run(c, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
-                            ("$t", saleOutTxId.Value), ("$s", stockUnitId), ("$p", ln.ProductId), ("$cost", ln.UnitCost));
+                            ("$t", saleOutTxId.Value), ("$s", stockUnitId), ("$p", ln.ProductId), ("$cost", effectiveLineCost));
 
                         Run(c, "UPDATE stock_units SET status='INSTALLED',warehouse_id=NULL,customer_id=$c,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$id AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')",
                             ("$c", customer), ("$id", stockUnitId));
                         if (Scalar(c, "SELECT changes()") != 1) throw new InvalidOperationException($"Không thể trừ tồn kho sản phẩm '{ln.ProductName}'.");
                         Run(c, "INSERT INTO v7_stock_effects(order_id,stock_unit_id) VALUES($o,$s)", ("$o", id), ("$s", stockUnitId));
-                        Run(c, "UPDATE v7_order_lines SET stock_unit_id=$sid WHERE id=$lid", ("$sid", stockUnitId), ("$lid", ln.LineId));
+                        Run(c, "UPDATE v7_order_lines SET stock_unit_id=$sid, unit_cost_snapshot_vnd=$cost WHERE id=$lid", ("$sid", stockUnitId), ("$cost", effectiveLineCost), ("$lid", ln.LineId));
                     }
                     else if (hasImei)
                     {
@@ -1029,7 +1039,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 }
             }
 
-            Run(c, "UPDATE v7_orders SET status='COMPLETED',activated_at=$act,completed_at=CURRENT_TIMESTAMP WHERE id=$id", ("$act", actDateStr), ("$id", id));
+            var finalOrderCost = Scalar(c, "SELECT COALESCE(SUM(quantity * unit_cost_snapshot_vnd), 0) FROM v7_order_lines WHERE order_id=$id AND deleted_at IS NULL", ("$id", id));
+            Run(c, "UPDATE v7_orders SET unit_cost_snapshot_vnd=$cost, status='COMPLETED',activated_at=$act,completed_at=CURRENT_TIMESTAMP WHERE id=$id", ("$cost", finalOrderCost), ("$act", actDateStr), ("$id", id));
             Event(c, id, actor, "COMPLETED");
             return 0;
         });
