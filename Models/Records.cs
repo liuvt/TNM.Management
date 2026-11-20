@@ -78,7 +78,7 @@ public record InvoiceVm(long Id, string Code, string Type, string Customer, long
     {
         if (!from.HasValue && !to.HasValue) return true;
         if (VnDateTimeHelper.InRange(TimestampDt, from, to)) return true;
-        if (Code.StartsWith("HD-KH", StringComparison.OrdinalIgnoreCase) && Lines is { Count: > 1 })
+        if ((Code.StartsWith("HD-KH", StringComparison.OrdinalIgnoreCase) || Code.StartsWith("NK-NCC", StringComparison.OrdinalIgnoreCase)) && Lines is { Count: > 1 })
         {
             return Lines.Any(l =>
             {

@@ -488,6 +488,7 @@ CREATE TABLE IF NOT EXISTS invoices(
   issued_at TEXT NOT NULL DEFAULT (date('now')),
   due_at TEXT NOT NULL,
   amount_vnd INTEGER NOT NULL CHECK(amount_vnd>=0),
+  offset_vnd INTEGER NOT NULL DEFAULT 0 CHECK(offset_vnd>=0),
   status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN','PARTIAL','PAID','VOID')),
   notes TEXT NOT NULL DEFAULT '',
   is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0,1)),

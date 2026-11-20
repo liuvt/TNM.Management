@@ -146,6 +146,8 @@ public sealed class DemoDb
             Exec(c, null, "ALTER TABLE invoices ADD COLUMN locked_at TEXT");
         if (!invCols.Any(x => string.Equals(x, "locked_by", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE invoices ADD COLUMN locked_by INTEGER REFERENCES app_users(id)");
+        if (!invCols.Any(x => string.Equals(x, "offset_vnd", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE invoices ADD COLUMN offset_vnd INTEGER NOT NULL DEFAULT 0");
 
         var actCols = Query(c, "PRAGMA table_info(activations)", r => S(r, 1));
         if (!actCols.Any(x => string.Equals(x, "device_type_label", StringComparison.OrdinalIgnoreCase)))
@@ -198,6 +200,8 @@ public sealed class DemoDb
             SyncSupplierStockDebtBaseline(c, null);
             // Đồng bộ công nợ chi tiết khách hàng Tháng 09/2026 & Tháng 10/2026 và dọn các chứng từ gộp giả định
             CustomerDebtOct2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
+            // Đồng bộ chi tiết công nợ Nhà cung cấp NCC Nasa kỳ Tháng 10/2026 (còn nợ 62,680,000 ₫)
+            SupplierDebtNasaOct2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
         }
     }
 
@@ -497,7 +501,7 @@ public sealed class DemoDb
           K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at)>=date('now')"),
           K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at) BETWEEN date('now') AND date('now','+30 days')"),
           K("SELECT COUNT(*) FROM v7_orders WHERE status IN ('PENDING','APPROVED','DISPATCHED','REPORTED') AND deleted_at IS NULL"),
-          K("SELECT COALESCE(SUM(CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE(p.paid,0) END),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.deleted_at IS NULL AND i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
+          K("SELECT COALESCE(SUM(CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE(i.offset_vnd,0)-COALESCE(p.paid,0) END),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.deleted_at IS NULL AND i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
           K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type IN ('SALE','RENEWAL') AND status!='VOID'"),
           K("SELECT COALESCE(SUM(pa.allocated_vnd),0) FROM payment_allocations pa JOIN payments p ON p.id=pa.payment_id WHERE p.deleted_at IS NULL AND pa.deleted_at IS NULL AND p.direction='IN'"),
           K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type='RENEWAL' AND status!='VOID'")
@@ -1872,7 +1876,7 @@ public sealed class DemoDb
             WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes, ' — ') > 0 THEN SUBSTR(i.notes, 1, INSTR(i.notes, ' — ') - 1) ELSE i.notes END
             ELSE '-'
           END AS partner_name,
-          i.amount_vnd,CASE WHEN i.status='PAID' THEN i.amount_vnd ELSE COALESCE(pa.paid,0) END,i.status,
+          i.amount_vnd,CASE WHEN i.status='PAID' THEN i.amount_vnd ELSE COALESCE(pa.paid,0)+COALESCE(i.offset_vnd,0) END,i.status,
           CASE
             WHEN length(trim(COALESCE(i.issued_at,''))) > 10 THEN replace(substr(trim(i.issued_at),1,19),'T',' ')
             WHEN o.completed_at IS NOT NULL AND substr(datetime(o.completed_at,'+7 hours'),1,10)=trim(i.issued_at)
@@ -2235,17 +2239,17 @@ public sealed class DemoDb
         var paymentId = N(c,t,"SELECT last_insert_rowid()");
         Exec(c,t,"INSERT INTO payment_allocations(payment_id,invoice_id,allocated_vnd) VALUES($p,$i,$a)",
           ("$p",paymentId),("$i",invoiceId),("$a",amount));
-        var balance = N(c,t,@"SELECT i.amount_vnd - (SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL)
+        var balance = N(c,t,@"SELECT i.amount_vnd - COALESCE(i.offset_vnd,0) - (SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL)
               FROM invoices i WHERE i.id=$id",("$id",invoiceId));
         Exec(c,t,"UPDATE invoices SET status=$s WHERE id=$id",
-           ("$s", balance == 0 ? "PAID" : "PARTIAL"),("$id",invoiceId));
+           ("$s", balance <= 0 ? "PAID" : "PARTIAL"),("$id",invoiceId));
     }
 
     public void PayInvoice(long invoiceId, long amount, string method)
     {
         if (amount <= 0 || !(new[]{"CASH","BANK"}).Contains(method)) throw new InvalidOperationException("Số tiền và phương thức không hợp lệ.");
         Tx((c,t) => {
-            var inv = QueryTx(c,t,@"SELECT CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL),0) END,i.status
+            var inv = QueryTx(c,t,@"SELECT CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE(i.offset_vnd,0)-COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL),0) END,i.status
               FROM invoices i WHERE i.id=$id AND i.deleted_at IS NULL", r => (Balance:L(r,0),Status:S(r,1)),("$id",invoiceId)).SingleOrDefault();
             if(inv.Balance < amount || inv.Status == "VOID" || inv.Status == "")
                 throw new InvalidOperationException("Thanh toán vượt công nợ hoặc chứng từ không hợp lệ.");
@@ -2310,6 +2314,7 @@ public sealed class DemoDb
             CleanupReturnedDevicePurchaseInvoices(c, t);
             SyncSupplierStockDebtBaseline(c, t);
             CustomerDebtOct2026Seeder.EnsureSeeded(c, t, v => ActorId = v, () => ActorId);
+            SupplierDebtNasaOct2026Seeder.EnsureSeeded(c, t, v => ActorId = v, () => ActorId);
 
             // 1A. Đối soát đơn mua hàng PO đã nhận (RECEIVED) nhưng chưa có chứng từ PURCHASE (loại trừ nguồn Thiết bị hoàn trả)
             var missingPos = QueryTx(c, t, @"
@@ -2385,6 +2390,7 @@ public sealed class DemoDb
                     SELECT COALESCE(SUM(il.quantity), 0)
                     FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
                     WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                      AND i.invoice_no NOT LIKE 'NK-NCC%-T__'
                       AND il.product_id=$prod
                       AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
                     ("$prod", prodGroup.Key));
@@ -2398,6 +2404,7 @@ public sealed class DemoDb
                         SELECT COALESCE(SUM(il.quantity), 0)
                         FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
                         WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                          AND i.invoice_no NOT LIKE 'NK-NCC%-T__'
                           AND i.supplier_id=$sup AND il.product_id=$prod
                           AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
                         ("$sup", row.SupId), ("$prod", row.ProdId));
@@ -2443,6 +2450,7 @@ public sealed class DemoDb
                     SELECT COALESCE(SUM(il.quantity), 0)
                     FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id
                     WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                      AND i.invoice_no NOT LIKE 'NK-NCC%-T__'
                       AND il.product_id=$prod
                       AND i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.status<>'VOID'",
                     ("$prod", row.ProdId));

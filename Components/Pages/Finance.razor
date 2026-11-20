@@ -89,7 +89,7 @@
                 data-confirm="none"
                 style="@(!isSelected && !isCurrent ? "border-color:#fed7aa;color:#9a3412;background:#fff7ed" : "")"
                 @onclick="() => SelectPeriod(p.Year, p.Month)">
-          @(isCurrent ? "🆕" : "⏳") @p.Label · KH nợ: @Money(p.CustomerBalanceVnd)
+          @(isCurrent ? "🆕" : "⏳") @p.Label · KH nợ: @Money(p.CustomerBalanceVnd)@(p.SupplierBalanceVnd > 0 ? $" · NCC nợ: {Money(p.SupplierBalanceVnd)}" : "")
         </button>
       }
     </div>
@@ -1399,7 +1399,7 @@ else
 }
 
 @code {
-  private sealed record PeriodPillVm(string Key, int Year, int Month, string Label, int InvoiceCount, long CustomerBalanceVnd);
+  private sealed record PeriodPillVm(string Key, int Year, int Month, string Label, int InvoiceCount, long CustomerBalanceVnd, long SupplierBalanceVnd);
 
   private string activeTab = "DEBT_REPORT";
   private readonly PagerState invLinePager = new();
@@ -1474,7 +1474,8 @@ else
       g.Key.PeriodMonth,
       g.Key.PeriodLabel,
       g.Count(),
-      g.Where(x => x.IsReceivable).Sum(x => x.Balance)))
+      g.Where(x => x.IsReceivable).Sum(x => x.Balance),
+      g.Where(x => x.Type is "PURCHASE" or "SUPPLIER").Sum(x => x.Balance)))
     .ToList();
 
   private bool IsExactPeriodSelected(int year, int month)
