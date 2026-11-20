@@ -1,14 +1,23 @@
-@inject IJSRuntime JS
-
-<div class="erp-filter-bar">
+<div class="erp-filter-bar @(CompactHeader ? "compact-header" : "")">
     <div class="erp-filter-row">
-        <span class="erp-dt-label" title="Chuẩn định dạng thời gian: dd/MM/yyyy HH:mm:ss">
-            🕒 Khung thời gian:
-        </span>
+        @if (!string.IsNullOrWhiteSpace(LabelText))
+        {
+            <span class="erp-dt-label" title="Chọn khoảng thời gian Từ ngày → Đến ngày (dd/MM/yyyy HH:mm:ss) hoặc chọn theo Năm / Tháng">
+                @LabelText
+            </span>
+        }
 
-        <div class="erp-dt-group">
-            <div class="erp-dt-field @(fromInvalid ? "invalid" : "")">
-                <span class="erp-dt-prefix">Từ ngày</span>
+        <div class="erp-picker-wrap">
+            <div class="erp-unified-range @(isOpen ? "open" : "") @(fromInvalid || toInvalid ? "invalid" : "")">
+                <button type="button"
+                        class="erp-cal-trigger"
+                        data-confirm="none"
+                        title="Mở bộ chọn Lịch đôi (Ngày → Ngày) hoặc Chọn Năm / Quý / Tháng"
+                        @onclick="TogglePopover">
+                    📅 @(isOpen ? "Đóng lịch ▲" : "Chọn lịch ▾")
+                </button>
+
+                <span class="erp-dt-prefix" style="margin-left:3px">Từ</span>
                 <input type="text"
                        class="erp-dt-input"
                        value="@fromText"
@@ -18,25 +27,15 @@
                        placeholder="dd/MM/yyyy HH:mm:ss"
                        autocomplete="off"
                        spellcheck="false"
-                       title="Nhập Từ ngày định dạng dd/MM/yyyy HH:mm:ss (hoặc dd/MM/yyyy sẽ tự điền 00:00:00)" />
+                       title="Nhập Từ ngày (dd/MM/yyyy HH:mm:ss) hoặc bấm Chọn lịch" />
                 @if (!string.IsNullOrWhiteSpace(fromText))
                 {
                     <button type="button" class="erp-dt-clear" data-confirm="none" title="Xóa Từ ngày" @onclick="ClearFromAsync">✕</button>
                 }
-                <button type="button" class="erp-dt-picker-btn" data-confirm="none" title="Chọn Từ ngày & giờ từ lịch" @onclick="OpenFromPickerAsync">📅</button>
-                <input id="@($"{uid}-from")"
-                       type="datetime-local"
-                       step="1"
-                       class="erp-dt-native"
-                       value="@VnDateTimeHelper.ToHtmlDateTimeLocal(From)"
-                       @onchange="OnNativeFromChangedAsync"
-                       tabindex="-1" />
-            </div>
 
-            <span class="erp-dt-arrow">→</span>
+                <span class="erp-dt-sep">→</span>
 
-            <div class="erp-dt-field @(toInvalid ? "invalid" : "")">
-                <span class="erp-dt-prefix">Đến ngày</span>
+                <span class="erp-dt-prefix">Đến</span>
                 <input type="text"
                        class="erp-dt-input"
                        value="@toText"
@@ -46,44 +45,262 @@
                        placeholder="dd/MM/yyyy HH:mm:ss"
                        autocomplete="off"
                        spellcheck="false"
-                       title="Nhập Đến ngày định dạng dd/MM/yyyy HH:mm:ss (hoặc dd/MM/yyyy sẽ tự điền 23:59:59)" />
+                       title="Nhập Đến ngày (dd/MM/yyyy HH:mm:ss) hoặc bấm Chọn lịch" />
                 @if (!string.IsNullOrWhiteSpace(toText))
                 {
                     <button type="button" class="erp-dt-clear" data-confirm="none" title="Xóa Đến ngày" @onclick="ClearToAsync">✕</button>
                 }
-                <button type="button" class="erp-dt-picker-btn" data-confirm="none" title="Chọn Đến ngày & giờ từ lịch" @onclick="OpenToPickerAsync">📅</button>
-                <input id="@($"{uid}-to")"
-                       type="datetime-local"
-                       step="1"
-                       class="erp-dt-native"
-                       value="@VnDateTimeHelper.ToHtmlDateTimeLocal(To)"
-                       @onchange="OnNativeToChangedAsync"
-                       tabindex="-1" />
             </div>
+
+            @* Select Năm trực tiếp ngay trên thanh lọc *@
+            <select class="erp-year-select @(SelectedFullYear > 0 ? "active-year" : "")"
+                    value="@SelectedFullYear"
+                    @onchange="OnQuickYearSelectedAsync"
+                    title="Lọc nhanh toàn bộ dữ liệu theo Năm (01/01/YYYY 00:00:00 → 31/12/YYYY 23:59:59)">
+                <option value="0">📆 Chọn Năm (Tất cả)</option>
+                @foreach (var y in SelectableYears)
+                {
+                    <option value="@y">📆 Cả năm @y</option>
+                }
+            </select>
+
+            @if (isOpen)
+            {
+                <div class="erp-picker-backdrop" @onclick="ClosePopover"></div>
+                <div class="erp-picker-popover" @onclick:stopPropagation="true">
+                    @* Cột trái: Presets chuẩn GitHub / Shadcn / Ant Design *@
+                    <div class="erp-pop-sidebar">
+                        <div class="erp-pop-side-title">Khung chuẩn ERP</div>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "ALL" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("ALL")'>Tất cả thời gian</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "TODAY" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("TODAY")'>Hôm nay</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "YESTERDAY" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("YESTERDAY")'>Hôm qua</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "7D" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("7D")'>7 ngày qua</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "30D" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("30D")'>30 ngày qua</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "THIS_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("THIS_MONTH")'>Tháng này</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "LAST_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("LAST_MONTH")'>Tháng trước</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "THIS_QUARTER" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("THIS_QUARTER")'>Quý này</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "LAST_QUARTER" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("LAST_QUARTER")'>Quý trước</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "THIS_YEAR" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("THIS_YEAR")'>Năm nay (@TodayVn.Year)</button>
+                        <button type="button" class="erp-pop-preset-btn @(ActivePreset == "LAST_YEAR" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("LAST_YEAR")'>Năm trước (@(TodayVn.Year - 1))</button>
+                    </div>
+
+                    @* Khu vực chính: Chuyển chế độ Lịch đôi (Ngày -> Ngày) hoặc Chọn Năm / Quý / Tháng *@
+                    <div class="erp-pop-main">
+                        <div class="erp-pop-tabs">
+                            <div class="erp-pop-mode-switch">
+                                <button type="button"
+                                        class="erp-pop-mode-btn @(popMode == "DAYS" ? "active" : "")"
+                                        data-confirm="none"
+                                        @onclick='() => popMode = "DAYS"'>
+                                    📅 Khoảng Ngày → Ngày
+                                </button>
+                                <button type="button"
+                                        class="erp-pop-mode-btn @(popMode == "YEAR_MONTH" ? "active" : "")"
+                                        data-confirm="none"
+                                        @onclick='() => popMode = "YEAR_MONTH"'>
+                                    🗓️ Chọn Năm · Quý · Tháng
+                                </button>
+                            </div>
+                            <span class="erp-pop-hint">
+                                @if (popMode == "DAYS")
+                                {
+                                    @(pickingEnd ? "👉 Nhấn chọn ngày kết thúc..." : "Nhấn ngày đầu & ngày cuối")
+                                }
+                                else
+                                {
+                                    <span>Chọn nhanh cả Năm, Quý hoặc Tháng</span>
+                                }
+                            </span>
+                        </div>
+
+                        @if (popMode == "DAYS")
+                        {
+                            var rightMonth = leftMonth.AddMonths(1);
+                            <div class="erp-cal-dual">
+                                @* Lịch trái *@
+                                <div class="erp-cal-pane">
+                                    <div class="erp-cal-head">
+                                        <button type="button" class="erp-cal-nav" data-confirm="none" title="Tháng trước" @onclick="() => leftMonth = leftMonth.AddMonths(-1)">‹</button>
+                                        <div class="erp-cal-selects">
+                                            <select value="@leftMonth.Month" @onchange="OnLeftMonthSelect">
+                                                @for (int m = 1; m <= 12; m++)
+                                                {
+                                                    var mm = m;
+                                                    <option value="@mm">Tháng @mm.ToString("D2")</option>
+                                                }
+                                            </select>
+                                            <select value="@leftMonth.Year" @onchange="OnLeftYearSelect">
+                                                @for (int y = TodayVn.Year - 5; y <= TodayVn.Year + 2; y++)
+                                                {
+                                                    var yy = y;
+                                                    <option value="@yy">@yy</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <span style="width:27px"></span>
+                                    </div>
+                                    <div class="erp-cal-dow">
+                                        <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
+                                    </div>
+                                    <div class="erp-cal-grid">
+                                        @foreach (var cell in BuildCalendarCells(leftMonth))
+                                        {
+                                            var d = cell.Date;
+                                            <button type="button"
+                                                    class="erp-cal-day @DayCssClass(d, cell.InMonth)"
+                                                    data-confirm="none"
+                                                    @onmouseenter="() => OnDayHover(d)"
+                                                    @onclick="() => OnDayClick(d)">
+                                                @d.Day
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+
+                                @* Lịch phải *@
+                                <div class="erp-cal-pane">
+                                    <div class="erp-cal-head">
+                                        <span style="width:27px"></span>
+                                        <div class="erp-cal-selects">
+                                            <select value="@rightMonth.Month" @onchange="OnRightMonthSelect">
+                                                @for (int m = 1; m <= 12; m++)
+                                                {
+                                                    var mm = m;
+                                                    <option value="@mm">Tháng @mm.ToString("D2")</option>
+                                                }
+                                            </select>
+                                            <select value="@rightMonth.Year" @onchange="OnRightYearSelect">
+                                                @for (int y = TodayVn.Year - 5; y <= TodayVn.Year + 2; y++)
+                                                {
+                                                    var yy = y;
+                                                    <option value="@yy">@yy</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <button type="button" class="erp-cal-nav" data-confirm="none" title="Tháng sau" @onclick="() => leftMonth = leftMonth.AddMonths(1)">›</button>
+                                    </div>
+                                    <div class="erp-cal-dow">
+                                        <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
+                                    </div>
+                                    <div class="erp-cal-grid">
+                                        @foreach (var cell in BuildCalendarCells(rightMonth))
+                                        {
+                                            var d = cell.Date;
+                                            <button type="button"
+                                                    class="erp-cal-day @DayCssClass(d, cell.InMonth)"
+                                                    data-confirm="none"
+                                                    @onmouseenter="() => OnDayHover(d)"
+                                                    @onclick="() => OnDayClick(d)">
+                                                @d.Day
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="erp-ym-panel">
+                                <div>
+                                    <div class="erp-ym-section-title">
+                                        <span>1. Chọn cả Năm (01/01 → 31/12)</span>
+                                        <small style="text-transform:none;font-weight:600;color:#64748b">Bấm 1 chạm để lọc trọn năm</small>
+                                    </div>
+                                    <div class="erp-year-cards">
+                                        @foreach (var y in SelectableYears)
+                                        {
+                                            var yy = y;
+                                            var isFullYr = SelectedFullYear == yy;
+                                            <button type="button"
+                                                    class="erp-year-card @(isFullYr ? "active" : "")"
+                                                    data-confirm="none"
+                                                    @onclick="() => SelectFullYearAndCloseAsync(yy)">
+                                                <strong>Năm @yy</strong>
+                                                <small>01/01 → 31/12</small>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="erp-ym-section-title">
+                                        <span>2. Chọn Quý hoặc Tháng thuộc năm:</span>
+                                        <div style="display:inline-flex;align-items:center;gap:4px">
+                                            <button type="button" class="erp-cal-nav" data-confirm="none" @onclick="() => ymYear--">‹</button>
+                                            <strong style="font-size:13px;color:#1b653e;padding:0 6px">Năm @ymYear</strong>
+                                            <button type="button" class="erp-cal-nav" data-confirm="none" @onclick="() => ymYear++">›</button>
+                                        </div>
+                                    </div>
+                                    <div class="erp-quarter-grid" style="margin-bottom:8px">
+                                        @for (int q = 1; q <= 4; q++)
+                                        {
+                                            var qq = q;
+                                            var qStart = new DateTime(ymYear, (qq - 1) * 3 + 1, 1, 0, 0, 0);
+                                            var qEnd = qStart.AddMonths(3).AddSeconds(-1);
+                                            var isQActive = From == qStart && To == qEnd;
+                                            <button type="button"
+                                                    class="erp-ym-tile @(isQActive ? "active" : "")"
+                                                    data-confirm="none"
+                                                    @onclick="() => CommitAndCloseAsync(qStart, qEnd)">
+                                                Quý @qq/@ymYear
+                                            </button>
+                                        }
+                                    </div>
+                                    <div class="erp-month-grid">
+                                        @for (int m = 1; m <= 12; m++)
+                                        {
+                                            var mm = m;
+                                            var mStart = new DateTime(ymYear, mm, 1, 0, 0, 0);
+                                            var mEnd = mStart.AddMonths(1).AddSeconds(-1);
+                                            var isMActive = From == mStart && To == mEnd;
+                                            <button type="button"
+                                                    class="erp-ym-tile @(isMActive ? "active" : "")"
+                                                    data-confirm="none"
+                                                    @onclick="() => CommitAndCloseAsync(mStart, mEnd)">
+                                                Tháng @mm.ToString("D2")/@ymYear
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="erp-pop-footer">
+                            <div class="erp-pop-times">
+                                <span>Giờ:</span>
+                                <input type="text" class="erp-time-input" @bind="startTimeText" placeholder="00:00:00" title="Giờ bắt đầu (HH:mm:ss)" />
+                                <span>→</span>
+                                <input type="text" class="erp-time-input" @bind="endTimeText" placeholder="23:59:59" title="Giờ kết thúc (HH:mm:ss)" />
+                            </div>
+                            <div style="display:inline-flex;gap:6px;align-items:center">
+                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ResetAndCloseAsync">↺ Toàn thời gian</button>
+                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ClosePopover">Đóng</button>
+                                <button type="button" class="btn btn-sm" data-confirm="none" @onclick="ApplyPopoverSelectionAsync">✓ Áp dụng</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
 
         <button type="button" class="btn btn-sm" data-confirm="none" @onclick="ApplyTextInputsAsync">
-            🔍 Tìm kiếm
+            🔍 Lọc
         </button>
 
-        <div class="erp-preset-pills">
-            <button type="button" class="erp-preset-pill @(ActivePreset == "TODAY" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("TODAY")'>Hôm nay</button>
-            <button type="button" class="erp-preset-pill @(ActivePreset == "7D" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("7D")'>7 ngày</button>
-            <button type="button" class="erp-preset-pill @(ActivePreset == "THIS_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("THIS_MONTH")'>Tháng này</button>
-            <button type="button" class="erp-preset-pill @(ActivePreset == "LAST_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("LAST_MONTH")'>Tháng trước</button>
-            <select class="erp-preset-select" value="@ActivePreset" @onchange="OnPresetSelectAsync" title="Chọn nhanh khung thời gian chuẩn">
-                <option value="">⚡ Khung nhanh...</option>
-                <option value="ALL">Tất cả thời gian</option>
-                <option value="TODAY">Hôm nay (00:00:00 → 23:59:59)</option>
-                <option value="YESTERDAY">Hôm qua</option>
-                <option value="7D">7 ngày gần đây</option>
-                <option value="30D">30 ngày gần đây</option>
-                <option value="THIS_MONTH">Tháng này</option>
-                <option value="LAST_MONTH">Tháng trước</option>
-                <option value="THIS_QUARTER">Quý này</option>
-                <option value="THIS_YEAR">Năm nay (@VnDateTimeHelper.TodayVn.Year)</option>
-            </select>
-        </div>
+        @if (!CompactHeader)
+        {
+            <div class="erp-preset-pills">
+                <button type="button" class="erp-preset-pill @(ActivePreset == "TODAY" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("TODAY")'>Hôm nay</button>
+                <button type="button" class="erp-preset-pill @(ActivePreset == "7D" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("7D")'>7 ngày</button>
+                <button type="button" class="erp-preset-pill @(ActivePreset == "THIS_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("THIS_MONTH")'>Tháng này</button>
+                <button type="button" class="erp-preset-pill @(ActivePreset == "LAST_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("LAST_MONTH")'>Tháng trước</button>
+            </div>
+        }
+
+        @if (ExtraInlineContent is not null)
+        {
+            @ExtraInlineContent
+        }
 
         @if (From.HasValue || To.HasValue || !string.IsNullOrWhiteSpace(errorMsg))
         {
@@ -122,8 +339,6 @@
 </div>
 
 @code {
-    private readonly string uid = "dtr-" + Guid.NewGuid().ToString("N")[..8];
-
     [Parameter] public DateTime? From { get; set; }
     [Parameter] public EventCallback<DateTime?> FromChanged { get; set; }
 
@@ -132,9 +347,15 @@
 
     [Parameter] public EventCallback<(DateTime? From, DateTime? To)> OnRangeChanged { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? ExtraInlineContent { get; set; }
+    [Parameter] public IReadOnlyList<int>? AvailableYears { get; set; }
+    [Parameter] public bool CompactHeader { get; set; }
+    [Parameter] public string LabelText { get; set; } = "🕒 Thời gian:";
     [Parameter] public int? MatchedCount { get; set; }
     [Parameter] public int? TotalCount { get; set; }
     [Parameter] public string UnitLabel { get; set; } = "bản ghi";
+
+    private static DateTime TodayVn => VnDateTimeHelper.TodayVn;
 
     private DateTime? _syncedFrom;
     private DateTime? _syncedTo;
@@ -144,6 +365,52 @@
     private bool fromInvalid;
     private bool toInvalid;
     private string errorMsg = "";
+
+    // Popover state
+    private bool isOpen;
+    private string popMode = "DAYS"; // DAYS | YEAR_MONTH
+    private DateTime leftMonth = new DateTime(VnDateTimeHelper.TodayVn.Year, VnDateTimeHelper.TodayVn.Month, 1).AddMonths(-1);
+    private int ymYear = VnDateTimeHelper.TodayVn.Year;
+    private DateTime? draftStartDay;
+    private DateTime? draftEndDay;
+    private DateTime? hoverDay;
+    private bool pickingEnd;
+    private string startTimeText = "00:00:00";
+    private string endTimeText = "23:59:59";
+
+    private List<int> SelectableYears
+    {
+        get
+        {
+            var cur = TodayVn.Year;
+            var baseYears = new HashSet<int> { cur + 1, cur, cur - 1, cur - 2, cur - 3 };
+            if (AvailableYears is not null)
+            {
+                foreach (var y in AvailableYears)
+                    if (y > 2000) baseYears.Add(y);
+            }
+            if (From.HasValue) baseYears.Add(From.Value.Year);
+            if (To.HasValue) baseYears.Add(To.Value.Year);
+            return baseYears.OrderByDescending(x => x).ToList();
+        }
+    }
+
+    private int SelectedFullYear
+    {
+        get
+        {
+            if (!From.HasValue || !To.HasValue) return 0;
+            var f = From.Value;
+            var t = To.Value;
+            if (f.Year == t.Year &&
+                f == new DateTime(f.Year, 1, 1, 0, 0, 0) &&
+                t == new DateTime(t.Year, 12, 31, 23, 59, 59))
+            {
+                return f.Year;
+            }
+            return 0;
+        }
+    }
 
     protected override void OnParametersSet()
     {
@@ -160,13 +427,194 @@
         }
     }
 
+    private void TogglePopover()
+    {
+        if (isOpen)
+        {
+            isOpen = false;
+            return;
+        }
+        draftStartDay = From?.Date;
+        draftEndDay = To?.Date;
+        hoverDay = null;
+        pickingEnd = false;
+        startTimeText = From.HasValue ? From.Value.ToString("HH:mm:ss") : "00:00:00";
+        endTimeText = To.HasValue ? To.Value.ToString("HH:mm:ss") : "23:59:59";
+        var focusDate = To ?? From ?? TodayVn;
+        ymYear = focusDate.Year;
+        leftMonth = new DateTime(focusDate.Year, focusDate.Month, 1).AddMonths(-1);
+        isOpen = true;
+    }
+
+    private void ClosePopover()
+    {
+        isOpen = false;
+        pickingEnd = false;
+        hoverDay = null;
+    }
+
+    private void OnLeftMonthSelect(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var m) && m is >= 1 and <= 12)
+            leftMonth = new DateTime(leftMonth.Year, m, 1);
+    }
+
+    private void OnLeftYearSelect(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var y) && y is >= 2000 and <= 2100)
+            leftMonth = new DateTime(y, leftMonth.Month, 1);
+    }
+
+    private void OnRightMonthSelect(ChangeEventArgs e)
+    {
+        var right = leftMonth.AddMonths(1);
+        if (int.TryParse(e.Value?.ToString(), out var m) && m is >= 1 and <= 12)
+            leftMonth = new DateTime(right.Year, m, 1).AddMonths(-1);
+    }
+
+    private void OnRightYearSelect(ChangeEventArgs e)
+    {
+        var right = leftMonth.AddMonths(1);
+        if (int.TryParse(e.Value?.ToString(), out var y) && y is >= 2000 and <= 2100)
+            leftMonth = new DateTime(y, right.Month, 1).AddMonths(-1);
+    }
+
+    private static IEnumerable<(DateTime Date, bool InMonth)> BuildCalendarCells(DateTime monthFirst)
+    {
+        var first = new DateTime(monthFirst.Year, monthFirst.Month, 1);
+        // Thứ Hai là cột đầu tiên (Monday = 0 .. Sunday = 6)
+        var offset = ((int)first.DayOfWeek + 6) % 7;
+        var gridStart = first.AddDays(-offset);
+        for (int i = 0; i < 42; i++)
+        {
+            var d = gridStart.AddDays(i);
+            yield return (d, d.Month == first.Month && d.Year == first.Year);
+        }
+    }
+
+    private string DayCssClass(DateTime d, bool inMonth)
+    {
+        var classes = new List<string>(4);
+        if (!inMonth) classes.Add("muted");
+        if (d == TodayVn) classes.Add("is-today");
+
+        DateTime? s = draftStartDay;
+        DateTime? e = pickingEnd ? (hoverDay ?? draftStartDay) : draftEndDay;
+        if (s.HasValue && e.HasValue && s.Value > e.Value)
+            (s, e) = (e, s);
+
+        if (s.HasValue && d == s.Value) classes.Add("range-start");
+        if (e.HasValue && d == e.Value) classes.Add("range-end");
+        if (s.HasValue && e.HasValue && d > s.Value && d < e.Value) classes.Add("in-range");
+
+        return string.Join(" ", classes);
+    }
+
+    private void OnDayHover(DateTime d)
+    {
+        if (pickingEnd)
+            hoverDay = d.Date;
+    }
+
+    private void OnDayClick(DateTime d)
+    {
+        var clicked = d.Date;
+        if (!pickingEnd || !draftStartDay.HasValue)
+        {
+            draftStartDay = clicked;
+            draftEndDay = clicked;
+            hoverDay = clicked;
+            pickingEnd = true;
+        }
+        else
+        {
+            if (clicked < draftStartDay.Value)
+            {
+                draftEndDay = draftStartDay.Value;
+                draftStartDay = clicked;
+            }
+            else
+            {
+                draftEndDay = clicked;
+            }
+            pickingEnd = false;
+            hoverDay = null;
+        }
+    }
+
+    private static TimeSpan ParseTimeOrDefault(string? raw, TimeSpan fallback)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return fallback;
+        var clean = raw.Trim();
+        string[] fmts = [@"hh\:mm\:ss", @"h\:m\:s", @"hh\:mm", @"h\:m"];
+        if (TimeSpan.TryParseExact(clean, fmts, System.Globalization.CultureInfo.InvariantCulture, out var ts))
+            return ts;
+        return fallback;
+    }
+
+    private async Task ApplyPopoverSelectionAsync()
+    {
+        if (!draftStartDay.HasValue && !draftEndDay.HasValue)
+        {
+            await ResetAndCloseAsync();
+            return;
+        }
+        var sDay = draftStartDay ?? draftEndDay!.Value;
+        var eDay = (pickingEnd ? draftStartDay : draftEndDay) ?? sDay;
+        if (sDay > eDay) (sDay, eDay) = (eDay, sDay);
+
+        var sTime = ParseTimeOrDefault(startTimeText, TimeSpan.Zero);
+        var eTime = ParseTimeOrDefault(endTimeText, new TimeSpan(23, 59, 59));
+
+        await CommitAndCloseAsync(sDay.Date + sTime, eDay.Date + eTime);
+    }
+
+    private async Task SelectFullYearAndCloseAsync(int year)
+    {
+        await CommitAndCloseAsync(
+            new DateTime(year, 1, 1, 0, 0, 0),
+            new DateTime(year, 12, 31, 23, 59, 59));
+    }
+
+    private async Task OnQuickYearSelectedAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var yr) && yr > 0)
+        {
+            await CommitRangeAsync(
+                new DateTime(yr, 1, 1, 0, 0, 0),
+                new DateTime(yr, 12, 31, 23, 59, 59));
+        }
+        else
+        {
+            await CommitRangeAsync(null, null);
+        }
+    }
+
+    private async Task SelectPresetAndCloseAsync(string preset)
+    {
+        await ApplyPresetAsync(preset);
+        ClosePopover();
+    }
+
+    private async Task ResetAndCloseAsync()
+    {
+        await CommitRangeAsync(null, null);
+        ClosePopover();
+    }
+
+    private async Task CommitAndCloseAsync(DateTime? f, DateTime? t)
+    {
+        await CommitRangeAsync(f, t);
+        ClosePopover();
+    }
+
     private string ActivePreset
     {
         get
         {
             if (!From.HasValue && !To.HasValue) return "ALL";
             if (!From.HasValue || !To.HasValue) return "";
-            var today = VnDateTimeHelper.TodayVn;
+            var today = TodayVn;
             var endToday = today.AddHours(23).AddMinutes(59).AddSeconds(59);
 
             if (From.Value == today && To.Value == endToday) return "TODAY";
@@ -188,9 +636,17 @@
             var endThisQuarter = firstThisQuarter.AddMonths(3).AddSeconds(-1);
             if (From.Value == firstThisQuarter && To.Value == endThisQuarter) return "THIS_QUARTER";
 
+            var firstLastQuarter = firstThisQuarter.AddMonths(-3);
+            var endLastQuarter = firstThisQuarter.AddSeconds(-1);
+            if (From.Value == firstLastQuarter && To.Value == endLastQuarter) return "LAST_QUARTER";
+
             var firstThisYear = new DateTime(today.Year, 1, 1, 0, 0, 0);
             var endThisYear = new DateTime(today.Year, 12, 31, 23, 59, 59);
             if (From.Value == firstThisYear && To.Value == endThisYear) return "THIS_YEAR";
+
+            var lastYr = today.Year - 1;
+            if (From.Value == new DateTime(lastYr, 1, 1, 0, 0, 0) && To.Value == new DateTime(lastYr, 12, 31, 23, 59, 59))
+                return "LAST_YEAR";
 
             return "";
         }
@@ -213,65 +669,22 @@
     private async Task OnInputKeyDownAsync(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
-        {
             await ApplyTextInputsAsync();
-        }
-    }
-
-    private async Task OpenFromPickerAsync() => await JS.InvokeVoidAsync("tnmOpenDateTimePicker", $"{uid}-from");
-    private async Task OpenToPickerAsync() => await JS.InvokeVoidAsync("tnmOpenDateTimePicker", $"{uid}-to");
-
-    private async Task OnNativeFromChangedAsync(ChangeEventArgs e)
-    {
-        var raw = e.Value?.ToString();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            await ClearFromAsync();
-            return;
-        }
-        var dt = VnDateTimeHelper.ParseDbTimestamp(raw, false);
-        if (dt.HasValue)
-        {
-            await CommitRangeAsync(dt.Value, To);
-        }
-    }
-
-    private async Task OnNativeToChangedAsync(ChangeEventArgs e)
-    {
-        var raw = e.Value?.ToString();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            await ClearToAsync();
-            return;
-        }
-        var dt = VnDateTimeHelper.ParseDbTimestamp(raw, false);
-        if (dt.HasValue)
-        {
-            // Nếu trước đó chưa chọn Đến ngày và trình duyệt trả mặc định 00:00:00, tự nâng lên 23:59:59 cuối ngày
-            if (!To.HasValue && dt.Value.TimeOfDay == TimeSpan.Zero)
-            {
-                dt = dt.Value.Date.AddHours(23).AddMinutes(59).AddSeconds(59);
-            }
-            await CommitRangeAsync(From, dt.Value);
-        }
+        else if (e.Key == "Escape" && isOpen)
+            ClosePopover();
     }
 
     private async Task ClearFromAsync() => await CommitRangeAsync(null, To);
     private async Task ClearToAsync() => await CommitRangeAsync(From, null);
     private async Task ResetAllAsync() => await CommitRangeAsync(null, null);
 
-    private async Task OnPresetSelectAsync(ChangeEventArgs e)
-    {
-        var code = e.Value?.ToString() ?? "";
-        if (!string.IsNullOrWhiteSpace(code))
-            await ApplyPresetAsync(code);
-    }
-
     private async Task ApplyPresetAsync(string preset)
     {
-        var today = VnDateTimeHelper.TodayVn;
+        var today = TodayVn;
         var endToday = today.AddHours(23).AddMinutes(59).AddSeconds(59);
         var firstThisMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0);
+        var qStartMonth = ((today.Month - 1) / 3) * 3 + 1;
+        var firstThisQuarter = new DateTime(today.Year, qStartMonth, 1, 0, 0, 0);
 
         (DateTime? f, DateTime? t) = preset switch
         {
@@ -282,10 +695,10 @@
             "30D" => (today.AddDays(-29), endToday),
             "THIS_MONTH" => (firstThisMonth, firstThisMonth.AddMonths(1).AddSeconds(-1)),
             "LAST_MONTH" => (firstThisMonth.AddMonths(-1), firstThisMonth.AddSeconds(-1)),
-            "THIS_QUARTER" => (
-                new DateTime(today.Year, ((today.Month - 1) / 3) * 3 + 1, 1, 0, 0, 0),
-                new DateTime(today.Year, ((today.Month - 1) / 3) * 3 + 1, 1, 0, 0, 0).AddMonths(3).AddSeconds(-1)),
+            "THIS_QUARTER" => (firstThisQuarter, firstThisQuarter.AddMonths(3).AddSeconds(-1)),
+            "LAST_QUARTER" => (firstThisQuarter.AddMonths(-3), firstThisQuarter.AddSeconds(-1)),
             "THIS_YEAR" => (new DateTime(today.Year, 1, 1, 0, 0, 0), new DateTime(today.Year, 12, 31, 23, 59, 59)),
+            "LAST_YEAR" => (new DateTime(today.Year - 1, 1, 1, 0, 0, 0), new DateTime(today.Year - 1, 12, 31, 23, 59, 59)),
             _ => (From, To)
         };
 
@@ -304,13 +717,11 @@
         if (!string.IsNullOrWhiteSpace(fromText))
         {
             if (VnDateTimeHelper.TryParseUserFilterInput(fromText, false, out var fDt, out _))
-            {
                 parsedFrom = fDt;
-            }
             else
             {
                 fromInvalid = true;
-                errorMsg = "Từ ngày chưa đúng định dạng dd/MM/yyyy HH:mm:ss";
+                errorMsg = "Từ ngày chưa đúng chuẩn dd/MM/yyyy HH:mm:ss";
                 return;
             }
         }
@@ -318,13 +729,11 @@
         if (!string.IsNullOrWhiteSpace(toText))
         {
             if (VnDateTimeHelper.TryParseUserFilterInput(toText, true, out var tDt, out _))
-            {
                 parsedTo = tDt;
-            }
             else
             {
                 toInvalid = true;
-                errorMsg = "Đến ngày chưa đúng định dạng dd/MM/yyyy HH:mm:ss";
+                errorMsg = "Đến ngày chưa đúng chuẩn dd/MM/yyyy HH:mm:ss";
                 return;
             }
         }
@@ -338,11 +747,8 @@
         toInvalid = false;
         errorMsg = "";
 
-        // Tự động đảo chiều thông minh nếu người dùng nhập Từ ngày > Đến ngày
         if (nextFrom.HasValue && nextTo.HasValue && nextFrom.Value > nextTo.Value)
-        {
             (nextFrom, nextTo) = (nextTo, nextFrom);
-        }
 
         _syncedFrom = nextFrom;
         _syncedTo = nextTo;

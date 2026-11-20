@@ -27,57 +27,69 @@
   </div>
 </div>
 
-@* ==================== BỘ LỌC KỲ CÔNG NỢ THEO THÁNG / NĂM & KHUNG THỜI GIAN CHUẨN ==================== *@
-<section class="panel" style="margin-bottom:14px;padding:12px 16px;background:linear-gradient(135deg,#f8fafc 0%,#f0fdf4 100%);border:1px solid #bbf7d0">
-  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between">
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <strong style="font-size:13px;color:#166534">📅 Kỳ Công nợ (Tháng / Năm):</strong>
-      <select class="search-input" style="min-width:135px;font-weight:600" @bind="periodYear" @bind:after="OnPeriodDropdownChanged">
-        <option value="0">— Tất cả năm —</option>
-        @foreach (var y in AvailableYears)
-        {
-          <option value="@y">Năm @y</option>
-        }
-      </select>
-      <select class="search-input" style="min-width:190px;font-weight:600" @bind="periodMonth" @bind:after="OnPeriodDropdownChanged">
-        <option value="0">— Tất cả tháng (Tách từng tháng) —</option>
-        @for (var m = 1; m <= 12; m++)
-        {
-          var mm = m;
-          <option value="@mm">Tháng @mm.ToString("D2")@(periodYear > 0 ? $"/{periodYear}" : "")</option>
-        }
-      </select>
-      <select class="search-input" style="min-width:210px;font-weight:600" @bind="debtAgeFilter" @bind:after="OnDebtAgeFilterChanged">
-        <option value="">— Mọi tuổi nợ (Mới + Cũ) —</option>
-        <option value="CURRENT">🆕 Công nợ mới (@CurrentPeriodLabel)</option>
-        <option value="OLD">⏳ Công nợ cũ (Các tháng trước)</option>
-      </select>
-      @if (HasAnyTimeFilter)
-      {
-        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ResetPeriodFilter">✕ Xem tất cả thời gian</button>
-      }
-    </div>
-    <div style="font-size:12px;color:#334155;font-variant-numeric:tabular-nums">
-      Đang xem: <strong>@ActivePeriodSummaryText</strong>
+@* ==================== BỘ LỌC KỲ CÔNG NỢ CHUẨN ERP: NGÀY → NGÀY / CHỌN NĂM / THÁNG / TUỔI NỢ ==================== *@
+<section class="erp-master-period">
+  <div class="erp-master-top">
+    <DateTimeRangeBar CompactHeader="true"
+                      LabelText="📅 Kỳ Công nợ:"
+                      From="rangeFrom"
+                      To="rangeTo"
+                      AvailableYears="AvailableYears"
+                      OnRangeChanged="OnGlobalRangeChanged">
+      <ExtraInlineContent>
+        <select class="erp-preset-select"
+                value="@periodMonth"
+                @onchange="OnQuickMonthSelect"
+                title="Chọn nhanh Tháng công nợ">
+          <option value="0">🗓️ Mọi tháng</option>
+          @for (var m = 1; m <= 12; m++)
+          {
+            var mm = m;
+            <option value="@mm">Tháng @mm.ToString("D2")/@(periodYear > 0 ? periodYear : VnDateTimeHelper.TodayVn.Year)</option>
+          }
+        </select>
+
+        <div class="erp-age-pills" title="Lọc nhanh theo tuổi công nợ">
+          <button type="button" class="erp-age-btn @(string.IsNullOrWhiteSpace(debtAgeFilter) ? "active" : "")" data-confirm="none" @onclick='() => SetDebtAgeFilter("")'>Mọi tuổi nợ</button>
+          <button type="button" class="erp-age-btn @(debtAgeFilter == "CURRENT" ? "active" : "")" data-confirm="none" @onclick='() => SetDebtAgeFilter("CURRENT")'>🆕 Nợ mới (@ShortPeriodCurrent)</button>
+          <button type="button" class="erp-age-btn @(debtAgeFilter == "OLD" ? "active" : "")" data-confirm="none" @onclick='() => SetDebtAgeFilter("OLD")'>⏳ Nợ cũ</button>
+        </div>
+      </ExtraInlineContent>
+    </DateTimeRangeBar>
+
+    <div style="font-size:11.8px;color:#334155;font-variant-numeric:tabular-nums;margin-left:auto">
+      Đang xem: <strong style="color:#1b653e">@ActivePeriodSummaryText</strong>
     </div>
   </div>
 
   @if (AvailablePeriods.Count > 0)
   {
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #cbd5e1">
-      <button type="button" class="btn btn-sm @(!HasAnyTimeFilter ? "" : "secondary")" data-confirm="none" @onclick="ResetPeriodFilter">
+    <div class="erp-master-QuickRow">
+      <button type="button" class="erp-preset-pill @(!HasAnyTimeFilter ? "active" : "")" data-confirm="none" @onclick="ResetPeriodFilter">
         Tất cả các kỳ (@invoices.Count(x => x.Status != "VOID") CT)
       </button>
+      @foreach (var yr in AvailableYears)
+      {
+        var yy = yr;
+        var isFullYr = IsFullYearSelected(yy);
+        <button type="button"
+                class="erp-preset-pill @(isFullYr ? "active" : "")"
+                data-confirm="none"
+                @onclick="() => SelectFullYear(yy)">
+          📆 Năm @yy
+        </button>
+      }
+      <span style="color:#cbd5e1;padding:0 2px">|</span>
       @foreach (var p in AvailablePeriods)
       {
         var isSelected = IsExactPeriodSelected(p.Year, p.Month);
         var isCurrent = p.Key == CurrentPeriodKey;
         <button type="button"
-                class="btn btn-sm @(isSelected ? "" : "secondary")"
+                class="erp-preset-pill @(isSelected ? "active" : "")"
                 data-confirm="none"
-                style="@(!isSelected && !isCurrent ? "border-color:#fdba74;color:#9a3412;background:#fff7ed" : "")"
+                style="@(!isSelected && !isCurrent ? "border-color:#fed7aa;color:#9a3412;background:#fff7ed" : "")"
                 @onclick="() => SelectPeriod(p.Year, p.Month)">
-          @(isCurrent ? "🆕" : "⏳") @p.Label @(isCurrent ? "(Mới)" : "(Kỳ trước)") · KH nợ: @Money(p.CustomerBalanceVnd)
+          @(isCurrent ? "🆕" : "⏳") @p.Label · KH nợ: @Money(p.CustomerBalanceVnd)
         </button>
       }
     </div>
@@ -139,64 +151,71 @@
       <div class="stat" style="border-left:4px solid #15803d">
         <small>Khoản Thu @(HasAnyTimeFilter ? "(Trong kỳ)" : "(Thu khách / Công nợ)")</small>
         <strong style="color:#15803d">+@Money(activeCashSummary.TotalInVnd)</strong>
-        <span>TM: @Money(activeCashSummary.CashInVnd) · NH: @Money(activeCashSummary.BankInVnd)</span>
+        <span>TM: <b>@Money(activeCashSummary.CashInVnd)</b> · NH: <b>@Money(activeCashSummary.BankInVnd)</b></span>
       </div>
       <div class="stat" style="border-left:4px solid #dc2626">
         <small>Khoản Chi @(HasAnyTimeFilter ? "(Trong kỳ)" : "(Nhập hàng / Chi trả)")</small>
         <strong style="color:#dc2626">-@Money(activeCashSummary.TotalOutVnd)</strong>
-        <span>Nhập hàng: @Money(activeCashSummary.SupplierPaidVnd) · Khác: @Money(activeCashSummary.OtherPaidVnd)</span>
+        <span>Nhập hàng: <b>@Money(activeCashSummary.SupplierPaidVnd)</b> · Khác: <b>@Money(activeCashSummary.OtherPaidVnd)</b></span>
       </div>
       <div class="stat" style="border-left:4px solid #0f766e;background:#f0fdfa">
         <small>Tồn Sổ quỹ lũy kế (TM + NH)</small>
         <strong style="color:@(cashBook.TotalBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(cashBook.TotalBalanceVnd)</strong>
-        <span><strong>Tiền mặt:</strong> @Money(cashBook.CashBalanceVnd) · <strong>Ngân hàng:</strong> @Money(cashBook.BankBalanceVnd)</span>
+        <span>TM: <b>@Money(cashBook.CashBalanceVnd)</b> · NH: <b>@Money(cashBook.BankBalanceVnd)</b></span>
       </div>
     </div>
   </section>
 </div>
 
-@* ==================== THANH ĐIỀU HƯỚNG TAB & THAO TÁC ==================== *@
-<div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
-  <div style="display:flex;gap:6px;flex-wrap:wrap">
-    <button type="button" class="btn @(activeTab == "DEBT_REPORT" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("DEBT_REPORT")'>
-      📊 Tổng hợp Công nợ theo Tháng (@FilteredPartnerDebts.Count())
+@* ==================== THANH ĐIỀU HƯỚNG SEGMENTED TABS CHUẨN GITHUB / SHADCN ==================== *@
+<div class="erp-nav-bar">
+  <div class="erp-segmented-tabs" role="tablist">
+    <button type="button" class="erp-seg-tab @(activeTab == "DEBT_REPORT" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("DEBT_REPORT")'>
+      <span>📊 Tổng hợp Tháng</span>
+      <span class="erp-seg-badge">@FilteredPartnerDebts.Count()</span>
     </button>
     @if (canSupplier)
     {
-      <button type="button" class="btn @(activeTab == "PURCHASE" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("PURCHASE")'>
-        1. Công nợ Nhà cung cấp (@PeriodSupplierInvoices.Count())
+      <button type="button" class="erp-seg-tab @(activeTab == "PURCHASE" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("PURCHASE")'>
+        <span>1. Nhà cung cấp</span>
+        <span class="erp-seg-badge">@PeriodSupplierInvoices.Count()</span>
       </button>
     }
     @if (canCustomer)
     {
-      <button type="button" class="btn @(activeTab == "SALE" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("SALE")'>
-        2. Công nợ Khách hàng (@PeriodReceivables.Count())
+      <button type="button" class="erp-seg-tab @(activeTab == "SALE" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("SALE")'>
+        <span>2. Khách hàng</span>
+        <span class="erp-seg-badge">@PeriodReceivables.Count()</span>
       </button>
     }
     @if (canOther)
     {
-      <button type="button" class="btn @(activeTab == "OTHER" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("OTHER")'>
-        3. Công nợ NV bán hàng &amp; Kỹ thuật (@PeriodOtherInvoices.Count() CT · @FilteredSellerStats.Count() NV)
+      <button type="button" class="erp-seg-tab @(activeTab == "OTHER" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("OTHER")'>
+        <span>3. NV bán hàng &amp; KT</span>
+        <span class="erp-seg-badge">@PeriodOtherInvoices.Count()</span>
       </button>
     }
-    <button type="button" class="btn @(activeTab == "PAYMENTS" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("PAYMENTS")'>
-      4. Sổ quỹ: Thu / Chi / Tồn (@FilteredPayments.Count() phiếu)
+    <button type="button" class="erp-seg-tab @(activeTab == "PAYMENTS" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("PAYMENTS")'>
+      <span>4. Sổ quỹ Thu/Chi</span>
+      <span class="erp-seg-badge">@FilteredPayments.Count()</span>
     </button>
-    <button type="button" class="btn @(activeTab == "ALL" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("ALL")'>
-      5. Tất cả Chứng từ (@PeriodAllInvoices.Count())
+    <button type="button" class="erp-seg-tab @(activeTab == "ALL" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("ALL")'>
+      <span>5. Tất cả CT</span>
+      <span class="erp-seg-badge">@PeriodAllInvoices.Count()</span>
     </button>
-    <button type="button" class="btn @(activeTab == "SNAPSHOT_STATS" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("SNAPSHOT_STATS")'>
-      6. Chi tiết Đơn hàng &amp; Lợi nhuận (@FilteredSnapshots.Count())
+    <button type="button" class="erp-seg-tab @(activeTab == "SNAPSHOT_STATS" ? "active" : "")" data-confirm="none" @onclick='() => SetTab("SNAPSHOT_STATS")'>
+      <span>6. Đơn hàng &amp; Lãi gộp</span>
+      <span class="erp-seg-badge">@FilteredSnapshots.Count()</span>
     </button>
   </div>
 
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     @if (canPay)
     {
-      <button type="button" class="btn" data-confirm="none" @onclick="() => ToggleForm(nameof(showPay))">
-        @(showPay ? "Đóng · Phiếu Thu / Phiếu Chi" : "+ Lập Phiếu Thu / Chi (Sổ quỹ)")
+      <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => ToggleForm(nameof(showPay))">
+        @(showPay ? "Đóng · Phiếu Thu / Chi" : "+ Lập Phiếu Thu / Chi (Sổ quỹ)")
       </button>
-      <button type="button" class="btn secondary" data-confirm="none" @onclick="() => ToggleForm(nameof(showCreate))">
+      <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => ToggleForm(nameof(showCreate))">
         @(showCreate ? "Đóng · Lập chứng từ" : "+ Lập chứng từ Công nợ")
       </button>
     }
@@ -467,6 +486,7 @@
 
     <DateTimeRangeBar @bind-From="lineRangeFrom"
                       @bind-To="lineRangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="() => invLinePager.Reset()"
                       MatchedCount="@filteredInvLines.Count"
                       TotalCount="@rawInvLines.Count"
@@ -535,6 +555,7 @@
 
     <DateTimeRangeBar From="rangeFrom"
                       To="rangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="OnGlobalRangeChanged"
                       MatchedCount="@FilteredPartnerDebts.Count()"
                       TotalCount="@partnerDebts.Count"
@@ -693,6 +714,7 @@ else if (activeTab == "PAYMENTS")
 
     <DateTimeRangeBar From="rangeFrom"
                       To="rangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="OnGlobalRangeChanged"
                       MatchedCount="@FilteredPayments.Count()"
                       TotalCount="@payments.Count"
@@ -758,6 +780,7 @@ else if (activeTab == "PAYMENTS")
 
     <DateTimeRangeBar From="rangeFrom"
                       To="rangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="OnGlobalRangeChanged"
                       MatchedCount="@FilteredPayments.Count()"
                       TotalCount="@payments.Count"
@@ -910,6 +933,7 @@ else if (activeTab == "SNAPSHOT_STATS")
 
     <DateTimeRangeBar From="rangeFrom"
                       To="rangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="OnGlobalRangeChanged"
                       MatchedCount="@FilteredSellerStats.Count()"
                       TotalCount="@sellerStats.Count"
@@ -996,6 +1020,7 @@ else if (activeTab == "SNAPSHOT_STATS")
 
     <DateTimeRangeBar From="rangeFrom"
                       To="rangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="OnGlobalRangeChanged"
                       MatchedCount="@snapList.Count"
                       TotalCount="@completedSnapshots.Count"
@@ -1189,6 +1214,7 @@ else
 
     <DateTimeRangeBar From="rangeFrom"
                       To="rangeTo"
+                      AvailableYears="AvailableYears"
                       OnRangeChanged="OnGlobalRangeChanged"
                       MatchedCount="@FilteredInvoices.Count()"
                       TotalCount="@TabScopedInvoicesCount"
@@ -1437,6 +1463,47 @@ else
     return rangeFrom == expectedStart && rangeTo == expectedEnd && string.IsNullOrWhiteSpace(debtAgeFilter);
   }
 
+  private bool IsFullYearSelected(int year)
+  {
+    if (year <= 0) return false;
+    return rangeFrom == new DateTime(year, 1, 1, 0, 0, 0)
+        && rangeTo == new DateTime(year, 12, 31, 23, 59, 59)
+        && string.IsNullOrWhiteSpace(debtAgeFilter);
+  }
+
+  private void SelectFullYear(int year)
+  {
+    periodYear = year;
+    periodMonth = 0;
+    debtAgeFilter = "";
+    rangeFrom = new DateTime(year, 1, 1, 0, 0, 0);
+    rangeTo = new DateTime(year, 12, 31, 23, 59, 59);
+    RefreshRangeAggregatesAndPagers();
+  }
+
+  private void OnQuickMonthSelect(ChangeEventArgs e)
+  {
+    if (int.TryParse(e.Value?.ToString(), out var m) && m is >= 1 and <= 12)
+    {
+      var yr = periodYear > 0 ? periodYear : VnDateTimeHelper.TodayVn.Year;
+      SelectPeriod(yr, m);
+    }
+    else
+    {
+      periodMonth = 0;
+      if (periodYear > 0)
+        SelectFullYear(periodYear);
+      else
+        ResetPeriodFilter();
+    }
+  }
+
+  private void SetDebtAgeFilter(string age)
+  {
+    debtAgeFilter = age;
+    OnDebtAgeFilterChanged();
+  }
+
   private string ActivePeriodSummaryText
   {
     get
@@ -1447,6 +1514,8 @@ else
       {
         if (periodYear > 0 && periodMonth > 0 && IsExactPeriodSelected(periodYear, periodMonth))
           return $"Tháng {periodMonth:D2}/{periodYear} ({VnDateTimeHelper.FormatDisplay(rangeFrom!.Value)} → {VnDateTimeHelper.FormatDisplay(rangeTo!.Value)})";
+        if (periodYear > 0 && periodMonth == 0 && IsFullYearSelected(periodYear))
+          return $"Cả năm {periodYear} ({VnDateTimeHelper.FormatDisplay(rangeFrom!.Value)} → {VnDateTimeHelper.FormatDisplay(rangeTo!.Value)})";
         var fStr = rangeFrom.HasValue ? VnDateTimeHelper.FormatDisplay(rangeFrom.Value) : "Đầu kỳ";
         var tStr = rangeTo.HasValue ? VnDateTimeHelper.FormatDisplay(rangeTo.Value) : "Hiện tại";
         return $"{fStr} → {tStr}";
