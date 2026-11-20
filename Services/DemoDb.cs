@@ -194,6 +194,8 @@ public sealed class DemoDb
 
             // Dọn các chứng từ công nợ PURCHASE phát sinh nhầm từ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA)
             CleanupReturnedDevicePurchaseInvoices(c, null);
+            // Đồng bộ chuẩn Công nợ Nhà cung cấp theo đúng Tồn kho thực tế (tách biệt hoàn toàn khỏi danh sách TB khách hàng)
+            SyncSupplierStockDebtBaseline(c, null);
             // Đồng bộ công nợ chi tiết khách hàng Tháng 09/2026 & Tháng 10/2026 và dọn các chứng từ gộp giả định
             CustomerDebtOct2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
         }
@@ -267,6 +269,196 @@ public sealed class DemoDb
             {
                 Exec(c, t, $"UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE deleted_at IS NULL AND invoice_id IN ({targetInvSql})");
                 Exec(c, t, $"UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE deleted_at IS NULL AND id IN ({targetInvSql})");
+            }
+        }
+        finally
+        {
+            ActorId = prevActor;
+        }
+    }
+
+    private static List<T> QueryAny<T>(SqliteConnection c, SqliteTransaction? t, string sql, Func<SqliteDataReader, T> map, params (string, object?)[] args)
+    {
+        using var cmd = Cmd(c, t, sql, args);
+        using var reader = cmd.ExecuteReader();
+        var result = new List<T>();
+        while (reader.Read()) result.Add(map(reader));
+        return result;
+    }
+
+    /// <summary>
+    /// Chuẩn hóa Công nợ Nhà cung cấp theo đúng Tồn kho thực tế hiện tại (loại bỏ hoàn toàn các chứng từ PURCHASE
+    /// từng cộng nhầm thiết bị INSTALLED từ file thiết bị khách hàng & loại trừ Thiết bị hoàn trả HOANTRA).
+    /// </summary>
+    private void SyncSupplierStockDebtBaseline(SqliteConnection c, SqliteTransaction? t)
+    {
+        // Chỉ thực thi chuyển đổi chuẩn một lần khi còn tồn tại chứng từ gộp cũ bị cộng lẫn thiết bị khách hàng
+        var hasLegacyInflatedPurchase = N(c, t, @"
+            SELECT COUNT(*) FROM invoices
+            WHERE invoice_type IN ('PURCHASE','SUPPLIER')
+              AND deleted_at IS NULL
+              AND notes LIKE 'Công nợ nhập hàng / tồn kho NCC (%'") > 0;
+        if (!hasLegacyInflatedPurchase)
+            return;
+
+        var prevActor = ActorId;
+        var devId = N(c, t, "SELECT COALESCE((SELECT id FROM app_users WHERE LOWER(username)='vanlt_it' LIMIT 1), 0)");
+        try
+        {
+            if (devId > 0) ActorId = devId;
+
+            // 1. Gỡ liên kết supplier_id trên các thiết bị INSTALLED được import từ file thiết bị khách hàng (không qua phiếu kho)
+            Exec(c, t, @"
+                UPDATE stock_units
+                SET supplier_id = NULL
+                WHERE status = 'INSTALLED'
+                  AND supplier_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM inventory_transaction_lines itl
+                      WHERE itl.stock_unit_id = stock_units.id
+                  )");
+
+            // 2. Xóa toàn bộ các chứng từ PURCHASE chưa phát sinh thanh toán trước mốc chuẩn hóa tồn kho
+            const string oldUnpaidPurchaseSql = @"
+                SELECT i.id FROM invoices i
+                WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM payment_allocations pa
+                      WHERE pa.invoice_id = i.id AND pa.deleted_at IS NULL
+                  )";
+
+            if (devId > 0)
+            {
+                Exec(c, t, $"DELETE FROM invoice_lines WHERE invoice_id IN ({oldUnpaidPurchaseSql})");
+                Exec(c, t, $"DELETE FROM invoices WHERE id IN ({oldUnpaidPurchaseSql})");
+            }
+            else
+            {
+                Exec(c, t, $"UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE deleted_at IS NULL AND invoice_id IN ({oldUnpaidPurchaseSql})");
+                Exec(c, t, $"UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE deleted_at IS NULL AND id IN ({oldUnpaidPurchaseSql})");
+            }
+
+            // 3. Tổng hợp chính xác Tồn kho thực tế hiện tại (khớp 100% bảng Tồn kho, loại trừ Thiết bị hoàn trả HOANTRA)
+            var bySupplier = new Dictionary<long, List<(long ProdId, string Sku, string Name, bool IsImei, long Qty, long UnitCost)>>();
+
+            long LookupUnitCost(long supId, long prodId) => N(c, t, @"
+                SELECT COALESCE(
+                    NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp
+                            JOIN suppliers s ON s.group_id = gp.supplier_group_id
+                            WHERE s.id = $sup AND gp.product_id = $prod AND gp.deleted_at IS NULL
+                            ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                    NULLIF((SELECT gp2.unit_cost_vnd FROM v7_supplier_group_prices gp2
+                            WHERE gp2.product_id = $prod AND gp2.deleted_at IS NULL
+                            ORDER BY gp2.effective_from DESC, gp2.id DESC LIMIT 1), 0),
+                    (SELECT base_cost_vnd FROM products WHERE id = $prod),
+                    0)", ("$sup", supId), ("$prod", prodId));
+
+            // 3A. Thiết bị có IMEI đang Tồn kho (status = 'IN_STOCK')
+            var imeiStock = QueryAny(c, t, @"
+                SELECT COALESCE(
+                           u.supplier_id,
+                           (SELECT s2.id FROM suppliers s2 LEFT JOIN supplier_groups sg2 ON sg2.id = s2.group_id
+                            JOIN v7_supplier_group_prices gp2 ON gp2.supplier_group_id = s2.group_id
+                            WHERE gp2.product_id = p.id AND s2.deleted_at IS NULL AND gp2.deleted_at IS NULL
+                              AND UPPER(COALESCE(sg2.code,'')) <> 'HOANTRA'
+                              AND LOWER(COALESCE(s2.name,'')) NOT LIKE '%hoàn trả%'
+                              AND LOWER(COALESCE(sg2.name,'')) NOT LIKE '%hoàn trả%'
+                            ORDER BY gp2.effective_from DESC, s2.id LIMIT 1),
+                           0
+                       ) AS resolved_sup_id,
+                       p.id, p.sku, p.name, COUNT(*) AS stock_qty
+                FROM stock_units u
+                JOIN products p ON p.id = u.product_id
+                LEFT JOIN suppliers s ON s.id = u.supplier_id
+                LEFT JOIN supplier_groups sg ON sg.id = s.group_id
+                WHERE u.deleted_at IS NULL AND p.deleted_at IS NULL
+                  AND u.status = 'IN_STOCK'
+                  AND UPPER(COALESCE(sg.code,'')) <> 'HOANTRA'
+                  AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                  AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
+                GROUP BY resolved_sup_id, p.id
+                HAVING COUNT(*) > 0
+                ORDER BY p.sku",
+                r => (SupId: L(r, 0), ProdId: L(r, 1), Sku: S(r, 2), Name: S(r, 3), Qty: L(r, 4)));
+
+            foreach (var row in imeiStock)
+            {
+                if (row.SupId <= 0) continue;
+                var cost = LookupUnitCost(row.SupId, row.ProdId);
+                if (cost <= 0) continue;
+                if (!bySupplier.TryGetValue(row.SupId, out var list))
+                {
+                    list = [];
+                    bySupplier[row.SupId] = list;
+                }
+                list.Add((row.ProdId, row.Sku, row.Name, true, row.Qty, cost));
+            }
+
+            // 3B. Hàng hóa không IMEI đang Tồn kho (tổng delta_qty > 0 tại các kho & vị trí hoạt động)
+            var qtyStock = QueryAny(c, t, @"
+                SELECT COALESCE(
+                           (SELECT s2.id FROM suppliers s2 LEFT JOIN supplier_groups sg2 ON sg2.id = s2.group_id
+                            JOIN v7_supplier_group_prices gp2 ON gp2.supplier_group_id = s2.group_id
+                            WHERE gp2.product_id = p.id AND s2.deleted_at IS NULL AND gp2.deleted_at IS NULL
+                              AND UPPER(COALESCE(sg2.code,'')) <> 'HOANTRA'
+                              AND LOWER(COALESCE(s2.name,'')) NOT LIKE '%hoàn trả%'
+                              AND LOWER(COALESCE(sg2.name,'')) NOT LIKE '%hoàn trả%'
+                            ORDER BY gp2.effective_from DESC, s2.id LIMIT 1),
+                           0
+                       ) AS resolved_sup_id,
+                       p.id, p.sku, p.name, COALESCE(SUM(q.delta_qty), 0) AS stock_qty
+                FROM quantity_movements q
+                JOIN products p ON p.id = q.product_id
+                JOIN warehouses w ON w.id = q.warehouse_id
+                JOIN warehouse_locations l ON l.id = q.location_id
+                WHERE q.deleted_at IS NULL AND p.deleted_at IS NULL AND w.deleted_at IS NULL AND p.is_serialized = 0
+                GROUP BY p.id
+                HAVING COALESCE(SUM(q.delta_qty), 0) > 0
+                ORDER BY p.sku",
+                r => (SupId: L(r, 0), ProdId: L(r, 1), Sku: S(r, 2), Name: S(r, 3), Qty: L(r, 4)));
+
+            foreach (var row in qtyStock)
+            {
+                if (row.SupId <= 0) continue;
+                var cost = LookupUnitCost(row.SupId, row.ProdId);
+                if (cost <= 0) continue;
+                if (!bySupplier.TryGetValue(row.SupId, out var list))
+                {
+                    list = [];
+                    bySupplier[row.SupId] = list;
+                }
+                list.Add((row.ProdId, row.Sku, row.Name, false, row.Qty, cost));
+            }
+
+            // 4. Tạo chứng từ Công nợ Nhà cung cấp chuẩn theo đúng Tồn kho cho từng Nhà cung cấp
+            foreach (var (supId, items) in bySupplier.OrderBy(x => x.Key))
+            {
+                var ordered = items.OrderBy(x => x.Sku, StringComparer.OrdinalIgnoreCase).ToList();
+                var totalAmt = ordered.Sum(x => x.Qty * x.UnitCost);
+                var totalQty = ordered.Sum(x => x.Qty);
+                if (totalAmt <= 0 || totalQty <= 0) continue;
+
+                var supInfo = QueryAny(c, t, "SELECT code, name FROM suppliers WHERE id=$id", r => (Code: S(r, 0), Name: S(r, 1)), ("$id", supId)).FirstOrDefault();
+                var supCode = string.IsNullOrWhiteSpace(supInfo.Code) ? $"NCC{supId:D5}" : supInfo.Code;
+                var invNo = $"NK-{supCode}-TONKHO";
+                var note = $"Công nợ Nhà cung cấp theo Tồn kho thực tế ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
+
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,status,notes)
+                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,'OPEN',$note)",
+                    ("$no", invNo), ("$sup", supId), ("$amt", totalAmt), ("$note", note));
+                var invId = N(c, t, "SELECT last_insert_rowid()");
+
+                foreach (var it in ordered)
+                {
+                    var kindLabel = it.IsImei ? "Tồn kho IMEI" : "Tồn kho hàng hóa";
+                    Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
+                        VALUES($i,$d,$p,$q,$c)",
+                        ("$i", invId),
+                        ("$d", $"{kindLabel}: {it.Sku} — {it.Name}"),
+                        ("$p", it.ProdId),
+                        ("$q", it.Qty),
+                        ("$c", it.UnitCost));
+                }
             }
         }
         finally
@@ -1072,7 +1264,7 @@ public sealed class DemoDb
                 {
                     var prodId = ResolveProductId(devLabel, existingUnit.ProdId);
                     Exec(c, t, @"UPDATE stock_units
-                        SET product_id=$p, status='INSTALLED', warehouse_id=NULL, employee_id=NULL, customer_id=$c, deleted_at=NULL, updated_at=datetime('now')
+                        SET product_id=$p, status='INSTALLED', warehouse_id=NULL, supplier_id=NULL, employee_id=NULL, customer_id=$c, deleted_at=NULL, updated_at=datetime('now')
                         WHERE id=$id",
                         ("$p", prodId), ("$c", custId), ("$id", existingUnit.Id));
 
@@ -2063,8 +2255,9 @@ public sealed class DemoDb
         {
             int purchaseCreated = 0, saleCreated = 0, renewalCreated = 0, serviceCreated = 0;
 
-            // 0. Dọn các chứng từ công nợ PURCHASE phát sinh nhầm từ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA)
+            // 0. Dọn các chứng từ công nợ PURCHASE phát sinh nhầm từ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA) & chuẩn hóa Tồn kho NCC
             CleanupReturnedDevicePurchaseInvoices(c, t);
+            SyncSupplierStockDebtBaseline(c, t);
             CustomerDebtOct2026Seeder.EnsureSeeded(c, t, v => ActorId = v, () => ActorId);
 
             // 1A. Đối soát đơn mua hàng PO đã nhận (RECEIVED) nhưng chưa có chứng từ PURCHASE (loại trừ nguồn Thiết bị hoàn trả)
@@ -2110,8 +2303,8 @@ public sealed class DemoDb
                 purchaseCreated++;
             }
 
-            // 1B. Đối soát tồn kho / thiết bị IMEI (stock_units) & lô nhập kho số lượng (quantity_movements) chưa có chứng từ PURCHASE
-            // Lưu ý: Loại trừ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA) vì thiết bị thu hồi / hoàn trả về kho không phát sinh công nợ mua hàng NCC
+            // 1B. Đối soát Tồn kho thực tế hiện tại (stock_units IN_STOCK & quantity_movements tồn kho > 0) chưa có chứng từ PURCHASE
+            // Tuyệt đối KHÔNG lấy thiết bị INSTALLED từ danh sách khách hàng và KHÔNG lấy Thiết bị hoàn trả (HOANTRA)
             var pendingPurchaseBySup = new Dictionary<long, List<(long ProductId, string Label, long Qty, long UnitCost)>>();
 
             var stockBySupProd = QueryTx(c, t, @"
@@ -2126,7 +2319,8 @@ public sealed class DemoDb
                 JOIN suppliers s ON s.id=u.supplier_id
                 LEFT JOIN supplier_groups sg ON sg.id=s.group_id
                 JOIN products p ON p.id=u.product_id
-                WHERE u.deleted_at IS NULL AND s.deleted_at IS NULL AND u.supplier_id IS NOT NULL
+                WHERE u.deleted_at IS NULL AND p.deleted_at IS NULL AND s.deleted_at IS NULL AND u.supplier_id IS NOT NULL
+                  AND u.status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')
                   AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
                   AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
                   AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
@@ -2164,14 +2358,14 @@ public sealed class DemoDb
                             list = [];
                             pendingPurchaseBySup[row.SupId] = list;
                         }
-                        list.Add((row.ProdId, $"Nhập thiết bị IMEI ({row.Label})", missingQty, row.UnitCost));
+                        list.Add((row.ProdId, $"Tồn kho IMEI: {row.Label}", missingQty, row.UnitCost));
                         remainingForProd -= missingQty;
                     }
                 }
             }
 
             var qtyReceipts = QueryTx(c, t, @"
-                SELECT q.product_id, p.sku||' — '||p.name, SUM(q.delta_qty) AS total_in_qty,
+                SELECT q.product_id, p.sku||' — '||p.name, COALESCE(SUM(q.delta_qty), 0) AS total_stock_qty,
                        COALESCE(
                            (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=q.product_id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY gp.effective_from DESC, s.id LIMIT 1),
                            (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id WHERE s.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY s.id LIMIT 1),
@@ -2184,11 +2378,11 @@ public sealed class DemoDb
                        ) AS unit_cost
                 FROM quantity_movements q
                 JOIN products p ON p.id=q.product_id
-                WHERE q.deleted_at IS NULL AND p.is_serialized=0
-                  AND COALESCE(q.ref_type,'') <> 'V7_ORDER_CANCEL'
-                  AND (q.movement_type IN ('OPENING','ADJUST') OR (q.movement_type IN ('RECEIVE','PURCHASE_RECEIVE') AND q.delta_qty > 0))
+                JOIN warehouses w ON w.id=q.warehouse_id
+                JOIN warehouse_locations l ON l.id=q.location_id
+                WHERE q.deleted_at IS NULL AND p.deleted_at IS NULL AND w.deleted_at IS NULL AND p.is_serialized=0
                 GROUP BY q.product_id
-                HAVING SUM(q.delta_qty) > 0",
+                HAVING COALESCE(SUM(q.delta_qty), 0) > 0",
                 r => (ProdId: L(r, 0), Label: S(r, 1), InQty: L(r, 2), SupId: L(r, 3), UnitCost: L(r, 4)));
 
             foreach (var row in qtyReceipts)
@@ -2209,7 +2403,7 @@ public sealed class DemoDb
                         list = [];
                         pendingPurchaseBySup[row.SupId] = list;
                     }
-                    list.Add((row.ProdId, $"Nhập kho hàng hóa ({row.Label})", missingQty, row.UnitCost));
+                    list.Add((row.ProdId, $"Tồn kho hàng hóa: {row.Label}", missingQty, row.UnitCost));
                 }
             }
 
@@ -2219,9 +2413,9 @@ public sealed class DemoDb
                 if (totalAmt <= 0) continue;
                 var supCode = QueryTx(c, t, "SELECT code||' — '||name FROM suppliers WHERE id=$id", r => S(r, 0), ("$id", supId)).FirstOrDefault() ?? $"NCC#{supId}";
                 var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-                var note = $"Công nợ nhập hàng / tồn kho NCC ({supCode} · {lines.Sum(x => x.Qty):N0} SP)";
-                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
-                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                var note = $"Công nợ Nhà cung cấp theo Tồn kho bổ sung ({supCode} · {lines.Sum(x => x.Qty):N0} SP)";
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$note)",
                     ("$no", invNo), ("$sup", supId), ("$amt", totalAmt), ("$note", note));
                 var invId = N(c, t, "SELECT last_insert_rowid()");
                 foreach (var ln in lines)
