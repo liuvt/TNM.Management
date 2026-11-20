@@ -27,19 +27,19 @@
   </div>
 </div>
 
-@* ==================== BỘ LỌC KỲ CÔNG NỢ THEO THÁNG / NĂM (PHÂN BIỆT NỢ CŨ & NỢ MỚI) ==================== *@
+@* ==================== BỘ LỌC KỲ CÔNG NỢ THEO THÁNG / NĂM & KHUNG THỜI GIAN CHUẨN ==================== *@
 <section class="panel" style="margin-bottom:14px;padding:12px 16px;background:linear-gradient(135deg,#f8fafc 0%,#f0fdf4 100%);border:1px solid #bbf7d0">
   <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <strong style="font-size:13px;color:#166534">📅 Kỳ Công nợ (Tháng / Năm):</strong>
-      <select class="search-input" style="min-width:135px;font-weight:600" @bind="periodYear" @bind:after="OnPeriodFilterChanged">
+      <select class="search-input" style="min-width:135px;font-weight:600" @bind="periodYear" @bind:after="OnPeriodDropdownChanged">
         <option value="0">— Tất cả năm —</option>
         @foreach (var y in AvailableYears)
         {
           <option value="@y">Năm @y</option>
         }
       </select>
-      <select class="search-input" style="min-width:190px;font-weight:600" @bind="periodMonth" @bind:after="OnPeriodFilterChanged">
+      <select class="search-input" style="min-width:190px;font-weight:600" @bind="periodMonth" @bind:after="OnPeriodDropdownChanged">
         <option value="0">— Tất cả tháng (Tách từng tháng) —</option>
         @for (var m = 1; m <= 12; m++)
         {
@@ -47,17 +47,17 @@
           <option value="@mm">Tháng @mm.ToString("D2")@(periodYear > 0 ? $"/{periodYear}" : "")</option>
         }
       </select>
-      <select class="search-input" style="min-width:210px;font-weight:600" @bind="debtAgeFilter" @bind:after="OnPeriodFilterChanged">
+      <select class="search-input" style="min-width:210px;font-weight:600" @bind="debtAgeFilter" @bind:after="OnDebtAgeFilterChanged">
         <option value="">— Mọi tuổi nợ (Mới + Cũ) —</option>
         <option value="CURRENT">🆕 Công nợ mới (@CurrentPeriodLabel)</option>
         <option value="OLD">⏳ Công nợ cũ (Các tháng trước)</option>
       </select>
-      @if (periodYear != 0 || periodMonth != 0 || !string.IsNullOrWhiteSpace(debtAgeFilter))
+      @if (HasAnyTimeFilter)
       {
-        <button type="button" class="btn secondary btn-sm" @onclick="ResetPeriodFilter">✕ Xem tất cả các kỳ</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ResetPeriodFilter">✕ Xem tất cả thời gian</button>
       }
     </div>
-    <div style="font-size:12px;color:#334155">
+    <div style="font-size:12px;color:#334155;font-variant-numeric:tabular-nums">
       Đang xem: <strong>@ActivePeriodSummaryText</strong>
     </div>
   </div>
@@ -65,15 +65,16 @@
   @if (AvailablePeriods.Count > 0)
   {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #cbd5e1">
-      <button type="button" class="btn btn-sm @(periodYear == 0 && periodMonth == 0 && string.IsNullOrWhiteSpace(debtAgeFilter) ? "" : "secondary")" @onclick="ResetPeriodFilter">
+      <button type="button" class="btn btn-sm @(!HasAnyTimeFilter ? "" : "secondary")" data-confirm="none" @onclick="ResetPeriodFilter">
         Tất cả các kỳ (@invoices.Count(x => x.Status != "VOID") CT)
       </button>
       @foreach (var p in AvailablePeriods)
       {
-        var isSelected = periodYear == p.Year && periodMonth == p.Month && string.IsNullOrWhiteSpace(debtAgeFilter);
+        var isSelected = IsExactPeriodSelected(p.Year, p.Month);
         var isCurrent = p.Key == CurrentPeriodKey;
         <button type="button"
                 class="btn btn-sm @(isSelected ? "" : "secondary")"
+                data-confirm="none"
                 style="@(!isSelected && !isCurrent ? "border-color:#fdba74;color:#9a3412;background:#fff7ed" : "")"
                 @onclick="() => SelectPeriod(p.Year, p.Month)">
           @(isCurrent ? "🆕" : "⏳") @p.Label @(isCurrent ? "(Mới)" : "(Kỳ trước)") · KH nợ: @Money(p.CustomerBalanceVnd)
@@ -89,7 +90,7 @@
     <div class="panel-head" style="margin-bottom:10px">
       <div>
         <h2>A. Tổng hợp Công nợ — Tách rõ Công nợ mới &amp; Công nợ cũ (@ActivePeriodSummaryText)</h2>
-        <p>Theo dõi phát sinh, đã thanh toán và số dư còn nợ theo từng kỳ Tháng/Năm cho 3 nhóm đối tượng chính.</p>
+        <p>Theo dõi phát sinh, đã thanh toán và số dư còn nợ theo khung thời gian / kỳ Tháng-Năm cho 3 nhóm đối tượng chính.</p>
       </div>
     </div>
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:10px">
@@ -116,7 +117,7 @@
         <strong style="color:#7c3aed">@Money(PeriodSellerAndTechRemainingVnd)</strong>
         <span>Đã chi: @Money(PeriodOtherInvoices.Sum(x => x.Paid)) / Phát sinh: @Money(PeriodSellerAndTechIncurredVnd)</span>
         <span style="font-size:11px;margin-top:2px;color:#475569">
-          🆕 Mới (@ShortPeriodCurrent): <b style="color:#7c3aed">@Money(OtherInvoices.Where(x => x.PeriodKey == CurrentPeriodKey).Sum(x => x.Balance) + (MatchesCurrentPeriod ? Math.Max(0, sellerStats.Sum(x => x.TotalEstimatedCommissionVnd) - OtherInvoices.Where(x => x.Type == "COMMISSION").Sum(x => x.Total)) : 0))</b>
+          🆕 Mới (@ShortPeriodCurrent): <b style="color:#7c3aed">@Money(OtherInvoices.Where(x => x.PeriodKey == CurrentPeriodKey).Sum(x => x.Balance) + (MatchesCurrentPeriod ? Math.Max(0, allTimeSellerStats.Sum(x => x.TotalEstimatedCommissionVnd) - OtherInvoices.Where(x => x.Type == "COMMISSION").Sum(x => x.Total)) : 0))</b>
           · ⏳ Nợ cũ: <b style="color:#c2410c">@Money(OtherInvoices.Where(x => string.CompareOrdinal(x.PeriodKey, CurrentPeriodKey) < 0).Sum(x => x.Balance))</b>
         </span>
       </div>
@@ -126,24 +127,27 @@
   <section class="panel" style="margin-bottom:0">
     <div class="panel-head" style="margin-bottom:10px">
       <div>
-        <h2>B. Sổ quỹ: Khoản Thu / Khoản Chi / Tồn quỹ</h2>
+        <h2>B. Sổ quỹ: Khoản Thu / Khoản Chi / Tồn quỹ @(HasAnyTimeFilter ? "(Theo khung lọc)" : "(Toàn hệ thống)")</h2>
         <p>Tách biệt rõ nguồn <strong>Tiền mặt (CASH)</strong> và <strong>Ngân hàng (BANK)</strong>.</p>
       </div>
-      <button type="button" class="btn secondary btn-sm" @onclick='() => SetTab("PAYMENTS")'>Xem Sổ quỹ chi tiết →</button>
+      <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => SetTab("PAYMENTS")'>Xem Sổ quỹ chi tiết →</button>
     </div>
+    @{
+      var activeCashSummary = HasAnyTimeFilter ? FilteredCashBook : cashBook;
+    }
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
       <div class="stat" style="border-left:4px solid #15803d">
-        <small>Khoản Thu (Thu khách / Công nợ)</small>
-        <strong style="color:#15803d">+@Money(cashBook.TotalInVnd)</strong>
-        <span>TM: @Money(cashBook.CashInVnd) · NH: @Money(cashBook.BankInVnd)</span>
+        <small>Khoản Thu @(HasAnyTimeFilter ? "(Trong kỳ)" : "(Thu khách / Công nợ)")</small>
+        <strong style="color:#15803d">+@Money(activeCashSummary.TotalInVnd)</strong>
+        <span>TM: @Money(activeCashSummary.CashInVnd) · NH: @Money(activeCashSummary.BankInVnd)</span>
       </div>
       <div class="stat" style="border-left:4px solid #dc2626">
-        <small>Khoản Chi (Nhập hàng / Chi trả)</small>
-        <strong style="color:#dc2626">-@Money(cashBook.TotalOutVnd)</strong>
-        <span>Nhập hàng: @Money(cashBook.SupplierPaidVnd) · Khác: @Money(cashBook.OtherPaidVnd)</span>
+        <small>Khoản Chi @(HasAnyTimeFilter ? "(Trong kỳ)" : "(Nhập hàng / Chi trả)")</small>
+        <strong style="color:#dc2626">-@Money(activeCashSummary.TotalOutVnd)</strong>
+        <span>Nhập hàng: @Money(activeCashSummary.SupplierPaidVnd) · Khác: @Money(activeCashSummary.OtherPaidVnd)</span>
       </div>
       <div class="stat" style="border-left:4px solid #0f766e;background:#f0fdfa">
-        <small>Tồn Sổ quỹ (Thu − Chi)</small>
+        <small>Tồn Sổ quỹ lũy kế (TM + NH)</small>
         <strong style="color:@(cashBook.TotalBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(cashBook.TotalBalanceVnd)</strong>
         <span><strong>Tiền mặt:</strong> @Money(cashBook.CashBalanceVnd) · <strong>Ngân hàng:</strong> @Money(cashBook.BankBalanceVnd)</span>
       </div>
@@ -154,34 +158,34 @@
 @* ==================== THANH ĐIỀU HƯỚNG TAB & THAO TÁC ==================== *@
 <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
   <div style="display:flex;gap:6px;flex-wrap:wrap">
-    <button type="button" class="btn @(activeTab == "DEBT_REPORT" ? "" : "secondary")" @onclick='() => SetTab("DEBT_REPORT")'>
+    <button type="button" class="btn @(activeTab == "DEBT_REPORT" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("DEBT_REPORT")'>
       📊 Tổng hợp Công nợ theo Tháng (@FilteredPartnerDebts.Count())
     </button>
     @if (canSupplier)
     {
-      <button type="button" class="btn @(activeTab == "PURCHASE" ? "" : "secondary")" @onclick='() => SetTab("PURCHASE")'>
+      <button type="button" class="btn @(activeTab == "PURCHASE" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("PURCHASE")'>
         1. Công nợ Nhà cung cấp (@PeriodSupplierInvoices.Count())
       </button>
     }
     @if (canCustomer)
     {
-      <button type="button" class="btn @(activeTab == "SALE" ? "" : "secondary")" @onclick='() => SetTab("SALE")'>
+      <button type="button" class="btn @(activeTab == "SALE" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("SALE")'>
         2. Công nợ Khách hàng (@PeriodReceivables.Count())
       </button>
     }
     @if (canOther)
     {
-      <button type="button" class="btn @(activeTab == "OTHER" ? "" : "secondary")" @onclick='() => SetTab("OTHER")'>
-        3. Công nợ NV bán hàng &amp; Kỹ thuật (@PeriodOtherInvoices.Count() CT · @sellerStats.Count NV)
+      <button type="button" class="btn @(activeTab == "OTHER" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("OTHER")'>
+        3. Công nợ NV bán hàng &amp; Kỹ thuật (@PeriodOtherInvoices.Count() CT · @FilteredSellerStats.Count() NV)
       </button>
     }
-    <button type="button" class="btn @(activeTab == "PAYMENTS" ? "" : "secondary")" @onclick='() => SetTab("PAYMENTS")'>
+    <button type="button" class="btn @(activeTab == "PAYMENTS" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("PAYMENTS")'>
       4. Sổ quỹ: Thu / Chi / Tồn (@FilteredPayments.Count() phiếu)
     </button>
-    <button type="button" class="btn @(activeTab == "ALL" ? "" : "secondary")" @onclick='() => SetTab("ALL")'>
+    <button type="button" class="btn @(activeTab == "ALL" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("ALL")'>
       5. Tất cả Chứng từ (@PeriodAllInvoices.Count())
     </button>
-    <button type="button" class="btn @(activeTab == "SNAPSHOT_STATS" ? "" : "secondary")" @onclick='() => SetTab("SNAPSHOT_STATS")'>
+    <button type="button" class="btn @(activeTab == "SNAPSHOT_STATS" ? "" : "secondary")" data-confirm="none" @onclick='() => SetTab("SNAPSHOT_STATS")'>
       6. Chi tiết Đơn hàng &amp; Lợi nhuận (@FilteredSnapshots.Count())
     </button>
   </div>
@@ -189,10 +193,10 @@
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     @if (canPay)
     {
-      <button type="button" class="btn" @onclick="() => ToggleForm(nameof(showPay))">
+      <button type="button" class="btn" data-confirm="none" @onclick="() => ToggleForm(nameof(showPay))">
         @(showPay ? "Đóng · Phiếu Thu / Phiếu Chi" : "+ Lập Phiếu Thu / Chi (Sổ quỹ)")
       </button>
-      <button type="button" class="btn secondary" @onclick="() => ToggleForm(nameof(showCreate))">
+      <button type="button" class="btn secondary" data-confirm="none" @onclick="() => ToggleForm(nameof(showCreate))">
         @(showCreate ? "Đóng · Lập chứng từ" : "+ Lập chứng từ Công nợ")
       </button>
     }
@@ -283,7 +287,7 @@
       </button>
       @if (SelectedPayInvoice is not null)
       {
-        <button type="button" class="btn secondary" @onclick="() => amount = SelectedPayInvoice.Balance">
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="() => amount = SelectedPayInvoice.Balance">
           Tất toán 100% (@Money(SelectedPayInvoice.Balance))
         </button>
         <span style="font-size:12px;color:#475569">
@@ -385,8 +389,8 @@
         <input type="number" min="1000" step="10000" @bind="newUnitPrice" />
       </label>
 
-      <label>Ngày phát sinh (Kỳ Tháng/Năm) *
-        <input type="date" @bind="newIssuedDate" />
+      <label>Thời điểm phát sinh (dd/MM/yyyy HH:mm:ss) *
+        <input @bind="newIssuedText" placeholder="dd/MM/yyyy HH:mm:ss" />
       </label>
 
       <label>Hạn thanh toán *
@@ -408,6 +412,22 @@
 @* ==================== CHI TIẾT CHỨNG TỪ KHI BẤM XEM ==================== *@
 @if (selectedInvoice is not null)
 {
+  var rawInvLines = selectedInvoice.Lines is { Count: > 0 }
+    ? selectedInvoice.Lines
+    : new List<InvoiceLineVm> { new(0, selectedInvoice.Id, string.IsNullOrWhiteSpace(selectedInvoice.Notes) ? TypeLabel(selectedInvoice.Type) : selectedInvoice.Notes, "—", 1, selectedInvoice.Total) };
+  var filteredInvLines = rawInvLines
+    .Where(l =>
+    {
+      var ldt = VnDateTimeHelper.TryExtractLineTimestamp(l.Description, selectedInvoice.TimestampDt);
+      if (!VnDateTimeHelper.InRange(ldt, lineRangeFrom, lineRangeTo)) return false;
+      if (!string.IsNullOrWhiteSpace(invLineSearch) &&
+          !(l.ProductSku + " " + l.Description).Contains(invLineSearch, StringComparison.OrdinalIgnoreCase))
+        return false;
+      return true;
+    })
+    .ToList();
+  var pagedInvLines = invLinePager.Slice(filteredInvLines, out var totalInvLines);
+
   <section class="panel" style="border:2px solid #0284c7;background:#f8fafc;margin-bottom:16px">
     <div class="panel-head">
       <div>
@@ -419,37 +439,52 @@
           {
             <span> · Tham chiếu: <strong>@selectedInvoice.RefCode</strong></span>
           }
-          · Kỳ công nợ: <strong>@selectedInvoice.PeriodLabel</strong> · Ngày lập: <strong>@selectedInvoice.CreatedAt</strong> · Đến hạn: <strong>@selectedInvoice.DueAt</strong>
+          · Kỳ công nợ: <strong>@selectedInvoice.PeriodLabel</strong> · Thời điểm lập: <strong>@selectedInvoice.DisplayTimestamp</strong> · Đến hạn: <strong>@selectedInvoice.DisplayDueDate</strong>
         </p>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => ExportInvoiceLinesExcel(selectedInvoice, filteredInvLines)">
+          📥 Xuất Excel Chi tiết (@filteredInvLines.Count)
+        </button>
         @if (canPay && selectedInvoice.Balance > 0 && selectedInvoice.Status != "VOID")
         {
-          <button type="button" class="btn" @onclick="() => QuickPay(selectedInvoice)">
+          <button type="button" class="btn" data-confirm="none" @onclick="() => QuickPay(selectedInvoice)">
             @(selectedInvoice.IsReceivable ? "Thu khách / Thu công nợ này" : "Chi thanh toán chứng từ này")
           </button>
         }
-        <button type="button" class="btn secondary" @onclick="() => selectedInvoice = null">Đóng chi tiết</button>
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="() => selectedInvoice = null">Đóng chi tiết</button>
       </div>
     </div>
 
     <div class="stats-grid three" style="margin-bottom:12px">
-      <div class="stat"><small>Tổng phát sinh</small><strong>@Money(selectedInvoice.Total)</strong></div>
+      <div class="stat">
+        <small>Tổng phát sinh @((lineRangeFrom.HasValue || lineRangeTo.HasValue || !string.IsNullOrWhiteSpace(invLineSearch)) ? "(Đang lọc)" : "")</small>
+        <strong>@Money((lineRangeFrom.HasValue || lineRangeTo.HasValue || !string.IsNullOrWhiteSpace(invLineSearch)) ? filteredInvLines.Sum(x => x.LineTotal) : selectedInvoice.Total)</strong>
+      </div>
       <div class="stat"><small>Đã thanh toán</small><strong style="color:#15803d">@Money(selectedInvoice.Paid)</strong></div>
-      <div class="stat"><small>Số dư còn nợ</small><strong class="orange">@Money(selectedInvoice.Balance)</strong></div>
+      <div class="stat"><small>Số dư còn nợ chứng từ</small><strong class="orange">@Money(selectedInvoice.Balance)</strong></div>
     </div>
 
-    @{
-      var invLinesList = selectedInvoice.Lines is { Count: > 0 }
-        ? selectedInvoice.Lines
-        : new List<InvoiceLineVm> { new(0, selectedInvoice.Id, string.IsNullOrWhiteSpace(selectedInvoice.Notes) ? TypeLabel(selectedInvoice.Type) : selectedInvoice.Notes, "—", 1, selectedInvoice.Total) };
-      var pagedInvLines = invLinePager.Slice(invLinesList, out var totalInvLines);
-    }
+    <DateTimeRangeBar @bind-From="lineRangeFrom"
+                      @bind-To="lineRangeTo"
+                      OnRangeChanged="() => invLinePager.Reset()"
+                      MatchedCount="@filteredInvLines.Count"
+                      TotalCount="@rawInvLines.Count"
+                      UnitLabel="dòng hạng mục">
+      <input class="search-input"
+             style="min-width:260px;flex:1"
+             @bind="invLineSearch"
+             @bind:event="oninput"
+             @bind:after="() => invLinePager.Reset()"
+             placeholder="Tìm mã SKU, số HD00..., biển số xe, chủ xe trong chứng từ..." />
+    </DateTimeRangeBar>
+
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>STT</th>
+            <th>THỜI GIAN PHÁT SINH</th>
             <th>MÃ SP (SKU)</th>
             <th>DIỄN GIẢI / HẠNG MỤC CHI TIẾT</th>
             <th>SỐ LƯỢNG</th>
@@ -460,13 +495,21 @@
         <tbody>
           @foreach (var (stt, line) in pagedInvLines)
           {
+            var lineDt = VnDateTimeHelper.TryExtractLineTimestamp(line.Description, selectedInvoice.TimestampDt);
             <tr>
               <td><strong>@stt</strong></td>
+              <td>@(lineDt.HasValue ? VnDateTimeHelper.FormatDisplay(lineDt.Value) : selectedInvoice.DisplayTimestamp)</td>
               <td>@(string.IsNullOrWhiteSpace(line.ProductSku) ? "—" : line.ProductSku)</td>
               <td class="wrap-cell">@line.Description</td>
               <td><strong>@line.Quantity</strong></td>
               <td>@Money(line.UnitPrice)</td>
               <td><strong>@Money(line.LineTotal)</strong></td>
+            </tr>
+          }
+          @if (filteredInvLines.Count == 0)
+          {
+            <tr>
+              <td colspan="7">Không có dòng hạng mục nào thuộc khung thời gian / từ khóa đang chọn.</td>
             </tr>
           }
         </tbody>
@@ -483,20 +526,46 @@
     <div class="panel-head">
       <div>
         <h2>Báo cáo Tổng hợp Công nợ tách theo Tháng / Năm (Phân biệt Nợ cũ &amp; Công nợ mới)</h2>
-        <p>Mỗi tháng là một kỳ công nợ độc lập. Cột <strong>"Nợ cũ chuyển sang"</strong> tự động cộng dồn số dư chưa thanh toán từ các tháng trước của cùng đối tác.</p>
+        <p>Mỗi tháng là một kỳ công nợ độc lập. Cột <strong>"Nợ cũ chuyển sang"</strong> tự động cộng dồn số dư chưa thanh toán trước kỳ / trước mốc Từ ngày của cùng đối tác.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <select class="search-input" style="min-width:210px" @bind="debtCategoryFilter" @bind:after="() => partnerDebtPager.Reset()">
-          <option value="">— Tất cả nhóm công nợ —</option>
-          <option value="SUPPLIER">1. Công nợ Nhà cung cấp (Nhập hàng)</option>
-          <option value="CUSTOMER">2. Công nợ Khách hàng (Thu khách)</option>
-          <option value="SELLER">3. Công nợ Nhân viên bán hàng (Hoa hồng)</option>
-          <option value="TECH">4. Công nợ Kỹ thuật lắp đặt</option>
-        </select>
-        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" @bind:after="() => partnerDebtPager.Reset()" placeholder="Tìm tên NCC, Khách hàng, NV bán hàng..." />
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPartnerDebtsExcel">📥 Xuất Excel (@FilteredPartnerDebts.Count())</button>
       </div>
     </div>
+
+    <DateTimeRangeBar From="rangeFrom"
+                      To="rangeTo"
+                      OnRangeChanged="OnGlobalRangeChanged"
+                      MatchedCount="@FilteredPartnerDebts.Count()"
+                      TotalCount="@partnerDebts.Count"
+                      UnitLabel="dòng đối tác">
+      <select class="search-input" style="min-width:220px" @bind="debtCategoryFilter" @bind:after="() => partnerDebtPager.Reset()">
+        <option value="">— Tất cả nhóm công nợ —</option>
+        @if (canSupplier)
+        {
+          <option value="SUPPLIER">1. Công nợ Nhà cung cấp (Nhập hàng)</option>
+        }
+        @if (canCustomer || canRenewal)
+        {
+          <option value="CUSTOMER">2. Công nợ Khách hàng (Thu khách)</option>
+        }
+        @if (canOther)
+        {
+          <option value="SELLER">3. Công nợ Nhân viên bán hàng (Hoa hồng)</option>
+          <option value="TECH">4. Công nợ Kỹ thuật lắp đặt</option>
+        }
+      </select>
+      <input class="search-input"
+             style="min-width:260px;flex:1"
+             @bind="search"
+             @bind:event="oninput"
+             @bind:after="() => partnerDebtPager.Reset()"
+             placeholder="Tìm tên NCC, Khách hàng, NV bán hàng, kỳ tháng..." />
+      @if (!string.IsNullOrWhiteSpace(debtCategoryFilter) || !string.IsNullOrWhiteSpace(search))
+      {
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { debtCategoryFilter = ""; search = ""; partnerDebtPager.Reset(); }'>✕ Xóa từ khóa</button>
+      }
+    </DateTimeRangeBar>
 
     @{
       var pagedPartnerDebts = partnerDebtPager.Slice(FilteredPartnerDebts, out var totalPartnerDebts);
@@ -511,9 +580,9 @@
             <th>NHÓM CÔNG NỢ</th>
             <th>ĐỐI TÁC (NCC / KHÁCH HÀNG / NV BÁN HÀNG)</th>
             <th>NỢ CŨ CHUYỂN SANG</th>
-            <th>PHÁT SINH THÁNG NÀY</th>
+            <th>PHÁT SINH TRONG KỲ</th>
             <th>ĐÃ THU / ĐÃ CHI</th>
-            <th>CÒN NỢ THÁNG NÀY</th>
+            <th>CÒN NỢ TRONG KỲ</th>
             <th>LŨY KẾ CÒN NỢ (CŨ + MỚI)</th>
             <th>TRẠNG THÁI</th>
             <th>THAO TÁC</th>
@@ -562,7 +631,7 @@
                 @if (d.CarryOverOldDebtVnd > 0)
                 {
                   <strong style="color:#c2410c">@Money(d.CarryOverOldDebtVnd)</strong>
-                  <div><small style="color:#9a3412">Tháng trước chuyển sang</small></div>
+                  <div><small style="color:#9a3412">Đầu kỳ chuyển sang</small></div>
                 }
                 else
                 {
@@ -591,7 +660,7 @@
                 </span>
               </td>
               <td>
-                <button type="button" class="btn secondary btn-sm" @onclick="() => JumpToPartnerInvoices(d)">
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => JumpToPartnerInvoices(d)">
                   Xem chứng từ →
                 </button>
               </td>
@@ -600,7 +669,7 @@
           @if (!FilteredPartnerDebts.Any())
           {
             <tr>
-              <td colspan="11">Không có phát sinh công nợ trong kỳ Tháng/Năm đang chọn.</td>
+              <td colspan="11">Không có phát sinh công nợ trong khung thời gian đang chọn.</td>
             </tr>
           }
         </tbody>
@@ -611,31 +680,23 @@
 }
 else if (activeTab == "PAYMENTS")
 {
+  var periodCash = FilteredCashBook;
   <section class="panel" style="margin-bottom:16px">
     <div class="panel-head">
       <div>
-        <h2>Báo cáo Sổ quỹ: Khoản Thu / Khoản Chi / Tồn quỹ (Tiền mặt &amp; Ngân hàng)</h2>
+        <h2>4A. Bảng Tổng hợp Sổ quỹ: Tiền mặt (CASH) &amp; Ngân hàng (BANK)</h2>
         <p>
-          <strong>Khoản thu:</strong> Thu khách / thu công nợ &nbsp;|&nbsp;
-          <strong>Khoản chi:</strong> Chi nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng &amp; công kỹ thuật &nbsp;|&nbsp;
-          <strong>Sổ quỹ:</strong> Tiền mặt (CASH) &amp; Ngân hàng (BANK).
+          Tổng hợp phát sinh Thu / Chi theo đúng khung thời gian <code>dd/MM/yyyy HH:mm:ss</code> đang chọn và đối chiếu Tồn quỹ lũy kế hiện tại.
         </p>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <select class="search-input" style="min-width:175px" @bind="cashBookFundFilter">
-          <option value="">— Mọi Sổ quỹ (TM + NH) —</option>
-          <option value="CASH">Quỹ Tiền mặt (CASH)</option>
-          <option value="BANK">Quỹ Ngân hàng (BANK)</option>
-        </select>
-        <select class="search-input" style="min-width:190px" @bind="cashBookDirFilter">
-          <option value="">— Mọi Khoản Thu &amp; Chi —</option>
-          <option value="IN">Khoản Thu (+): Thu khách / Công nợ</option>
-          <option value="OUT">Khoản Chi (-): Nhập hàng / Chi trả</option>
-        </select>
-        <input class="search-input" style="min-width:220px" @bind="search" @bind:event="oninput" placeholder="Tìm số phiếu, đối tác, chứng từ..." />
-        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPaymentsExcel">📥 Xuất Excel (@FilteredPayments.Count())</button>
-      </div>
     </div>
+
+    <DateTimeRangeBar From="rangeFrom"
+                      To="rangeTo"
+                      OnRangeChanged="OnGlobalRangeChanged"
+                      MatchedCount="@FilteredPayments.Count()"
+                      TotalCount="@payments.Count"
+                      UnitLabel="phiếu Sổ quỹ" />
 
     <div class="table-wrap" style="margin-bottom:8px">
       <table>
@@ -643,9 +704,10 @@ else if (activeTab == "PAYMENTS")
           <tr>
             <th>STT</th>
             <th>LOẠI SỔ QUỸ</th>
-            <th>TỔNG KHOẢN THU (+ THU KHÁCH / CÔNG NỢ)</th>
-            <th>TỔNG KHOẢN CHI (- NHẬP HÀNG / CHI TRẢ)</th>
-            <th>TỒN QUỸ HIỆN TẠI (THU − CHI)</th>
+            <th>TỔNG THU TRONG KỲ (+)</th>
+            <th>TỔNG CHI TRONG KỲ (−)</th>
+            <th>CHÊNH LỆCH TRONG KỲ</th>
+            <th>TỒN QUỸ LŨY KẾ HIỆN TẠI</th>
             <th>GHI CHÚ PHÂN BỔ</th>
           </tr>
         </thead>
@@ -653,33 +715,74 @@ else if (activeTab == "PAYMENTS")
           <tr>
             <td><strong>1</strong></td>
             <td><span class="chip green-chip">1. Quỹ Tiền mặt (CASH)</span></td>
-            <td><strong style="color:#15803d">+@Money(cashBook.CashInVnd)</strong></td>
-            <td><strong style="color:#dc2626">-@Money(cashBook.CashOutVnd)</strong></td>
+            <td><strong style="color:#15803d">+@Money(periodCash.CashInVnd)</strong></td>
+            <td><strong style="color:#dc2626">-@Money(periodCash.CashOutVnd)</strong></td>
+            <td><strong style="color:@(periodCash.CashBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(periodCash.CashBalanceVnd)</strong></td>
             <td><strong style="color:@(cashBook.CashBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(cashBook.CashBalanceVnd)</strong></td>
             <td class="wrap-cell">Phiếu thu/chi bằng tiền mặt tại quỹ</td>
           </tr>
           <tr>
             <td><strong>2</strong></td>
             <td><span class="chip blue-chip">2. Quỹ Ngân hàng (BANK)</span></td>
-            <td><strong style="color:#15803d">+@Money(cashBook.BankInVnd)</strong></td>
-            <td><strong style="color:#dc2626">-@Money(cashBook.BankOutVnd)</strong></td>
+            <td><strong style="color:#15803d">+@Money(periodCash.BankInVnd)</strong></td>
+            <td><strong style="color:#dc2626">-@Money(periodCash.BankOutVnd)</strong></td>
+            <td><strong style="color:@(periodCash.BankBalanceVnd >= 0 ? "#0284c7" : "#dc2626")">@Money(periodCash.BankBalanceVnd)</strong></td>
             <td><strong style="color:@(cashBook.BankBalanceVnd >= 0 ? "#0284c7" : "#dc2626")">@Money(cashBook.BankBalanceVnd)</strong></td>
             <td class="wrap-cell">Phiếu thu/chi qua tài khoản ngân hàng / chuyển khoản</td>
           </tr>
           <tr style="background:#f8fafc;font-weight:700">
             <td><strong>—</strong></td>
             <td><strong>TỔNG CỘNG SỔ QUỸ (TM + NH)</strong></td>
-            <td><strong style="color:#15803d">+@Money(cashBook.TotalInVnd)</strong></td>
-            <td><strong style="color:#dc2626">-@Money(cashBook.TotalOutVnd)</strong></td>
+            <td><strong style="color:#15803d">+@Money(periodCash.TotalInVnd)</strong></td>
+            <td><strong style="color:#dc2626">-@Money(periodCash.TotalOutVnd)</strong></td>
+            <td><strong style="color:@(periodCash.TotalBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(periodCash.TotalBalanceVnd)</strong></td>
             <td><strong style="font-size:1.05rem;color:@(cashBook.TotalBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(cashBook.TotalBalanceVnd)</strong></td>
-            <td class="wrap-cell">Thu khách/công nợ: @Money(cashBook.CustomerReceivedVnd) · Chi nhập hàng: @Money(cashBook.SupplierPaidVnd) · Chi khác: @Money(cashBook.OtherPaidVnd)</td>
+            <td class="wrap-cell">Thu khách/công nợ: @Money(periodCash.CustomerReceivedVnd) · Chi nhập hàng: @Money(periodCash.SupplierPaidVnd) · Chi khác: @Money(periodCash.OtherPaidVnd)</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <div style="margin-bottom:16px">
-      <TablePager Pager="cashFundPager" TotalCount="2" />
+    <TablePager Pager="cashFundPager" TotalCount="2" />
+  </section>
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <div>
+        <h2>4B. Sổ Chi tiết Phiếu Thu / Phiếu Chi (Thu / Chi / Tồn sau giao dịch)</h2>
+        <p>Tra cứu chi tiết từng giao dịch Sổ quỹ theo đúng thời gian <code>dd/MM/yyyy HH:mm:ss</code>, loại quỹ và đối tác.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPaymentsExcel">📥 Xuất Excel (@FilteredPayments.Count())</button>
+      </div>
     </div>
+
+    <DateTimeRangeBar From="rangeFrom"
+                      To="rangeTo"
+                      OnRangeChanged="OnGlobalRangeChanged"
+                      MatchedCount="@FilteredPayments.Count()"
+                      TotalCount="@payments.Count"
+                      UnitLabel="phiếu giao dịch">
+      <select class="search-input" style="min-width:175px" @bind="cashBookFundFilter" @bind:after="() => paymentPager.Reset()">
+        <option value="">— Mọi Sổ quỹ (TM + NH) —</option>
+        <option value="CASH">Quỹ Tiền mặt (CASH)</option>
+        <option value="BANK">Quỹ Ngân hàng (BANK)</option>
+      </select>
+      <select class="search-input" style="min-width:190px" @bind="cashBookDirFilter" @bind:after="() => paymentPager.Reset()">
+        <option value="">— Mọi Khoản Thu &amp; Chi —</option>
+        <option value="IN">Khoản Thu (+): Thu khách / Công nợ</option>
+        <option value="OUT">Khoản Chi (-): Nhập hàng / Chi trả</option>
+      </select>
+      <input class="search-input"
+             style="min-width:240px;flex:1"
+             @bind="search"
+             @bind:event="oninput"
+             @bind:after="() => paymentPager.Reset()"
+             placeholder="Tìm số phiếu, đối tác, chứng từ..." />
+      @if (!string.IsNullOrWhiteSpace(cashBookFundFilter) || !string.IsNullOrWhiteSpace(cashBookDirFilter) || !string.IsNullOrWhiteSpace(search))
+      {
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { cashBookFundFilter = ""; cashBookDirFilter = ""; search = ""; paymentPager.Reset(); }'>✕ Xóa từ khóa</button>
+      }
+    </DateTimeRangeBar>
 
     @{ var pagedPayments = paymentPager.Slice(FilteredPayments, out var totalPayments); }
     <div class="table-wrap">
@@ -696,7 +799,7 @@ else if (activeTab == "PAYMENTS")
             <th>THU (+)</th>
             <th>CHI (−)</th>
             <th>TỒN QUỸ SAU GD</th>
-            <th>NGÀY GD</th>
+            <th>THỜI GIAN GD</th>
           </tr>
         </thead>
         <tbody>
@@ -748,13 +851,13 @@ else if (activeTab == "PAYMENTS")
                 <strong style="color:@(p.BalanceAfterTotalVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(p.BalanceAfterTotalVnd)</strong>
                 <div><small style="color:#64748b">Quỹ @(p.Method == "CASH" ? "TM" : "NH"): @Money(p.BalanceAfterMethodVnd)</small></div>
               </td>
-              <td>@p.PaidAt</td>
+              <td><strong>@p.DisplayTimestamp</strong></td>
             </tr>
           }
           @if (!FilteredPayments.Any())
           {
             <tr>
-              <td colspan="11">Chưa có giao dịch Sổ quỹ phù hợp bộ lọc. Bấm <strong>"+ Lập Phiếu Thu / Chi (Sổ quỹ)"</strong> để ghi nhận Thu khách/công nợ hoặc Chi nhập hàng.</td>
+              <td colspan="11">Chưa có giao dịch Sổ quỹ phù hợp khung thời gian đang lọc. Bấm <strong>"+ Lập Phiếu Thu / Chi (Sổ quỹ)"</strong> để ghi nhận Thu khách/công nợ hoặc Chi nhập hàng.</td>
             </tr>
           }
         </tbody>
@@ -765,46 +868,65 @@ else if (activeTab == "PAYMENTS")
 }
 else if (activeTab == "SNAPSHOT_STATS")
 {
+  var snapList = FilteredSnapshots.ToList();
   <section class="panel" style="margin-bottom:16px">
     <div class="panel-head">
       <div>
         <h2>6A. Thống kê Công nợ &amp; Hoa hồng Nhân viên bán hàng</h2>
-        <p>Tổng hợp số lượng thiết bị lắp đặt hoàn thành, số lượt gia hạn thiết bị, tổng hoa hồng phát sinh và công nợ hoa hồng còn phải trả cho từng nhân viên bán hàng.</p>
+        <p>Tổng hợp số lượng thiết bị lắp đặt hoàn thành, số lượt gia hạn thiết bị, tổng hoa hồng phát sinh và công nợ hoa hồng theo đúng khung thời gian đang chọn.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@sellerStats.Count)</button>
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@FilteredSellerStats.Count())</button>
       </div>
     </div>
 
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
       <div class="stat">
-        <small>Doanh thu đơn hàng</small>
-        <strong style="color:#0284c7">@Money(completedSnapshots.Sum(x => x.RevenueSnapshotVnd))</strong>
-        <span>@completedSnapshots.Count đơn / lô thiết bị</span>
+        <small>Doanh thu đơn hàng @(HasAnyTimeFilter ? "(Đang lọc)" : "")</small>
+        <strong style="color:#0284c7">@Money(snapList.Sum(x => x.RevenueSnapshotVnd))</strong>
+        <span>@snapList.Count đơn / lô thiết bị</span>
       </div>
       <div class="stat">
         <small>Tổng giá vốn nhập hàng</small>
-        <strong>@Money(completedSnapshots.Sum(x => x.CostSnapshotVnd))</strong>
+        <strong>@Money(snapList.Sum(x => x.CostSnapshotVnd))</strong>
         <span>Giá nhập thực tế khi xuất kho</span>
       </div>
       <div class="stat">
         <small>Tổng công lắp đặt</small>
-        <strong class="orange">@Money(completedSnapshots.Sum(x => x.InstallerFeeSnapshotVnd))</strong>
+        <strong class="orange">@Money(snapList.Sum(x => x.InstallerFeeSnapshotVnd))</strong>
         <span>Định mức chi phí kỹ thuật lắp đặt</span>
       </div>
       <div class="stat">
         <small>Lợi nhuận gộp</small>
-        <strong style="color:#15803d">@Money(completedSnapshots.Sum(x => x.GrossProfitSnapshotVnd))</strong>
+        <strong style="color:#15803d">@Money(snapList.Sum(x => x.GrossProfitSnapshotVnd))</strong>
         <span>Doanh thu − Giá vốn − Công lắp</span>
       </div>
       <div class="stat">
         <small>Công nợ Hoa hồng NV bán hàng</small>
-        <strong style="color:#7c3aed">@Money(sellerStats.Sum(x => x.TotalEstimatedCommissionVnd))</strong>
-        <span>Đơn lắp + Gia hạn (@sellerStats.Sum(x => x.RenewalCount) lượt)</span>
+        <strong style="color:#7c3aed">@Money(FilteredSellerStats.Sum(x => x.TotalEstimatedCommissionVnd))</strong>
+        <span>Đơn lắp + Gia hạn (@FilteredSellerStats.Sum(x => x.RenewalCount) lượt)</span>
       </div>
     </div>
 
-    @{ var pagedSellerStats = sellerStatPager.Slice(sellerStats, out var totalSellerStats); }
+    <DateTimeRangeBar From="rangeFrom"
+                      To="rangeTo"
+                      OnRangeChanged="OnGlobalRangeChanged"
+                      MatchedCount="@FilteredSellerStats.Count()"
+                      TotalCount="@sellerStats.Count"
+                      UnitLabel="nhân viên">
+      <input class="search-input"
+             style="min-width:250px;flex:1"
+             @bind="sellerSearch"
+             @bind:event="oninput"
+             @bind:after="() => sellerStatPager.Reset()"
+             placeholder="Tìm mã NV bán hàng, họ tên, bộ phận..." />
+      @if (!string.IsNullOrWhiteSpace(sellerSearch))
+      {
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { sellerSearch = ""; sellerStatPager.Reset(); }'>✕ Xóa từ khóa</button>
+      }
+    </DateTimeRangeBar>
+
+    @{ var pagedSellerStats = sellerStatPager.Slice(FilteredSellerStats, out var totalSellerStats); }
     <div class="table-wrap">
       <table>
         <thead>
@@ -842,11 +964,17 @@ else if (activeTab == "SNAPSHOT_STATS")
               <td>
                 @if (canPay && canOther)
                 {
-                  <button type="button" class="btn secondary btn-sm" @onclick="() => PrepareSellerCommissionInvoice(s)">
+                  <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => PrepareSellerCommissionInvoice(s)">
                     + Lập chứng từ Công nợ
                   </button>
                 }
               </td>
+            </tr>
+          }
+          @if (!FilteredSellerStats.Any())
+          {
+            <tr>
+              <td colspan="11">Không có dữ liệu nhân viên bán hàng phù hợp bộ lọc.</td>
             </tr>
           }
         </tbody>
@@ -862,19 +990,36 @@ else if (activeTab == "SNAPSHOT_STATS")
         <p>Tổng hợp chi tiết doanh thu, giá vốn, chi phí lắp đặt và lợi nhuận gộp của từng đơn hàng hoàn thành và lô thiết bị khách hàng.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <select class="search-input" style="min-width:200px" @bind="snapshotSellerFilter">
-          <option value="">— Tất cả NV bán hàng —</option>
-          @foreach (var sl in sellerChoices)
-          {
-            <option value="@sl.Name">@sl.Code — @sl.Name</option>
-          }
-        </select>
-        <input class="search-input" style="min-width:240px" @bind="search" @bind:event="oninput" placeholder="Tìm mã đơn, KH, sản phẩm, NV bán hàng..." />
-        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSnapshotsExcel">📥 Xuất Excel (@FilteredSnapshots.Count())</button>
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportSnapshotsExcel">📥 Xuất Excel (@snapList.Count)</button>
       </div>
     </div>
 
-    @{ var pagedSnapshots = snapshotPager.Slice(FilteredSnapshots, out var totalSnapshots); }
+    <DateTimeRangeBar From="rangeFrom"
+                      To="rangeTo"
+                      OnRangeChanged="OnGlobalRangeChanged"
+                      MatchedCount="@snapList.Count"
+                      TotalCount="@completedSnapshots.Count"
+                      UnitLabel="đơn / lô TB">
+      <select class="search-input" style="min-width:210px" @bind="snapshotSellerFilter" @bind:after="() => snapshotPager.Reset()">
+        <option value="">— Tất cả NV bán hàng —</option>
+        @foreach (var sl in sellerChoices)
+        {
+          <option value="@sl.Name">@sl.Code — @sl.Name</option>
+        }
+      </select>
+      <input class="search-input"
+             style="min-width:250px;flex:1"
+             @bind="search"
+             @bind:event="oninput"
+             @bind:after="() => snapshotPager.Reset()"
+             placeholder="Tìm mã đơn, KH, sản phẩm, NV bán hàng..." />
+      @if (!string.IsNullOrWhiteSpace(snapshotSellerFilter) || !string.IsNullOrWhiteSpace(search))
+      {
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { snapshotSellerFilter = ""; search = ""; snapshotPager.Reset(); }'>✕ Xóa từ khóa</button>
+      }
+    </DateTimeRangeBar>
+
+    @{ var pagedSnapshots = snapshotPager.Slice(snapList, out var totalSnapshots); }
     <div class="table-wrap">
       <table>
         <thead>
@@ -889,7 +1034,7 @@ else if (activeTab == "SNAPSHOT_STATS")
             <th>GIÁ VỐN</th>
             <th>CÔNG LẮP</th>
             <th>LỢI NHUẬN GỘP</th>
-            <th>NGÀY KÍCH HOẠT</th>
+            <th>THỜI GIAN HOÀN THÀNH / KÍCH HOẠT</th>
           </tr>
         </thead>
         <tbody>
@@ -906,7 +1051,7 @@ else if (activeTab == "SNAPSHOT_STATS")
                   }
                   else if (o.OrderStatus == "ACTIVATION_BATCH")
                   {
-                    <span class="chip blue-chip">Đang hoạt động</span>
+                    <span class="chip blue-chip">Bảng kê / Lô TB</span>
                   }
                   else
                   {
@@ -928,7 +1073,13 @@ else if (activeTab == "SNAPSHOT_STATS")
               <td>@Money(o.CostSnapshotVnd)</td>
               <td>@Money(o.InstallerFeeSnapshotVnd)</td>
               <td><strong style="color:@(o.GrossProfitSnapshotVnd >= 0 ? "#15803d" : "#dc2626")">@Money(o.GrossProfitSnapshotVnd)</strong></td>
-              <td>@(string.IsNullOrWhiteSpace(o.ActivatedAt) ? o.CompletedAt : o.ActivatedAt)</td>
+              <td><strong>@o.DisplayTimestamp</strong></td>
+            </tr>
+          }
+          @if (snapList.Count == 0)
+          {
+            <tr>
+              <td colspan="11">Không có đơn hàng / lô thiết bị nào phù hợp khung thời gian đang chọn.</td>
             </tr>
           }
         </tbody>
@@ -944,12 +1095,31 @@ else
     <section class="panel" style="margin-bottom:16px">
       <div class="panel-head">
         <div>
-          <h2>Bảng theo dõi Công nợ Nhân viên bán hàng (Hoa hồng)</h2>
-          <p>Đối chiếu hoa hồng phát sinh từ đơn lắp đặt &amp; gia hạn của từng nhân viên bán hàng với chứng từ công nợ đã lập và đã chi trả.</p>
+          <h2>3A. Bảng theo dõi Công nợ Nhân viên bán hàng (Hoa hồng)</h2>
+          <p>Đối chiếu hoa hồng phát sinh từ đơn lắp đặt &amp; gia hạn của từng nhân viên bán hàng theo khung thời gian <code>dd/MM/yyyy HH:mm:ss</code> với chứng từ công nợ đã lập.</p>
         </div>
-        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@sellerStats.Count)</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportSellerStatsExcel">📥 Xuất Excel (@FilteredSellerStats.Count())</button>
       </div>
-      @{ var pagedOtherSellers = otherSellerPager.Slice(sellerStats, out var totalOtherSellers); }
+
+      <DateTimeRangeBar From="rangeFrom"
+                        To="rangeTo"
+                        OnRangeChanged="OnGlobalRangeChanged"
+                        MatchedCount="@FilteredSellerStats.Count()"
+                        TotalCount="@sellerStats.Count"
+                        UnitLabel="nhân viên">
+        <input class="search-input"
+               style="min-width:250px;flex:1"
+               @bind="sellerSearch"
+               @bind:event="oninput"
+               @bind:after="() => otherSellerPager.Reset()"
+               placeholder="Tìm mã NV bán hàng, họ tên, bộ phận..." />
+        @if (!string.IsNullOrWhiteSpace(sellerSearch))
+        {
+          <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { sellerSearch = ""; otherSellerPager.Reset(); }'>✕ Xóa từ khóa</button>
+        }
+      </DateTimeRangeBar>
+
+      @{ var pagedOtherSellers = otherSellerPager.Slice(FilteredSellerStats, out var totalOtherSellers); }
       <div class="table-wrap">
         <table>
           <thead>
@@ -980,11 +1150,17 @@ else
                 <td>
                   @if (canPay)
                   {
-                    <button type="button" class="btn secondary btn-sm" @onclick="() => PrepareSellerCommissionInvoice(s)">
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => PrepareSellerCommissionInvoice(s)">
                       + Lập công nợ Hoa hồng
                     </button>
                   }
                 </td>
+              </tr>
+            }
+            @if (!FilteredSellerStats.Any())
+            {
+              <tr>
+                <td colspan="9">Không có nhân viên bán hàng phù hợp bộ lọc.</td>
               </tr>
             }
           </tbody>
@@ -1001,22 +1177,6 @@ else
         <p>Nhấn "Chi tiết" trên từng dòng để xem bảng kê mặt hàng; nhấn "Thu khách" hoặc "Chi trả" để ghi vào Sổ quỹ (Tiền mặt / Ngân hàng).</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        @if (activeTab == "SALE")
-        {
-          <select class="search-input" style="min-width:190px" @bind="customerSubTypeFilter">
-            <option value="">— Đơn lắp đặt + Gia hạn —</option>
-            <option value="SALE">Công nợ Đơn lắp đặt (SALE)</option>
-            <option value="RENEWAL">Công nợ Gia hạn (RENEWAL)</option>
-          </select>
-        }
-        <select class="search-input" style="min-width:170px" @bind="statusFilter">
-          <option value="">— Mọi trạng thái —</option>
-          <option value="UNPAID">Còn nợ (OPEN + PARTIAL)</option>
-          <option value="OPEN">Chưa thanh toán (OPEN)</option>
-          <option value="PARTIAL">Thanh toán 1 phần (PARTIAL)</option>
-          <option value="PAID">Đã tất toán (PAID)</option>
-        </select>
-        <input class="search-input" style="min-width:250px" @bind="search" @bind:event="oninput" @bind:after="() => invoicePager.Reset()" placeholder="Tìm số CT, HD00..., BSX, NCC, khách hàng..." />
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportInvoicesExcel">📥 Xuất Excel (@FilteredInvoices.Count())</button>
         @if (canPay && FilteredInvoices.Any(i => !i.IsLocked))
         {
@@ -1027,6 +1187,39 @@ else
       </div>
     </div>
 
+    <DateTimeRangeBar From="rangeFrom"
+                      To="rangeTo"
+                      OnRangeChanged="OnGlobalRangeChanged"
+                      MatchedCount="@FilteredInvoices.Count()"
+                      TotalCount="@TabScopedInvoicesCount"
+                      UnitLabel="chứng từ">
+      @if (activeTab == "SALE")
+      {
+        <select class="search-input" style="min-width:195px" @bind="customerSubTypeFilter" @bind:after="() => invoicePager.Reset()">
+          <option value="">— Đơn lắp đặt + Gia hạn —</option>
+          <option value="SALE">Công nợ Đơn lắp đặt (SALE)</option>
+          <option value="RENEWAL">Công nợ Gia hạn (RENEWAL)</option>
+        </select>
+      }
+      <select class="search-input" style="min-width:180px" @bind="statusFilter" @bind:after="() => invoicePager.Reset()">
+        <option value="">— Mọi trạng thái —</option>
+        <option value="UNPAID">Còn nợ (OPEN + PARTIAL)</option>
+        <option value="OPEN">Chưa thanh toán (OPEN)</option>
+        <option value="PARTIAL">Thanh toán 1 phần (PARTIAL)</option>
+        <option value="PAID">Đã tất toán (PAID)</option>
+      </select>
+      <input class="search-input"
+             style="min-width:260px;flex:1"
+             @bind="search"
+             @bind:event="oninput"
+             @bind:after="() => invoicePager.Reset()"
+             placeholder="Tìm số CT, HD00..., BSX, NCC, khách hàng, NV bán hàng..." />
+      @if (!string.IsNullOrWhiteSpace(customerSubTypeFilter) || !string.IsNullOrWhiteSpace(statusFilter) || !string.IsNullOrWhiteSpace(search))
+      {
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { customerSubTypeFilter = ""; statusFilter = ""; search = ""; invoicePager.Reset(); }'>✕ Xóa từ khóa</button>
+      }
+    </DateTimeRangeBar>
+
     @{
       var pagedInvoices = invoicePager.Slice(FilteredInvoices, out var totalInvoices);
       string lastInvPeriod = "";
@@ -1036,7 +1229,7 @@ else
         <thead>
           <tr>
             <th>STT</th>
-            <th>KỲ THÁNG / NGÀY LẬP</th>
+            <th>KỲ THÁNG / THỜI GIAN LẬP</th>
             <th>SỐ CHỨNG TỪ</th>
             <th>PHÂN MỤC CÔNG NỢ</th>
             <th>ĐỐI TÁC (NCC / KHÁCH HÀNG / NV BÁN HÀNG)</th>
@@ -1072,7 +1265,9 @@ else
                 <span class="chip @(isCurrentMonth ? "green-chip" : x.Balance > 0 ? "orange-chip" : "")">
                   @(isCurrentMonth ? "🆕 " : "⏳ ")@x.PeriodLabel
                 </span>
-                <div style="font-size:11.5px;color:#64748b;margin-top:2px">Ngày lập: <strong>@x.CreatedAt</strong></div>
+                <div style="font-size:11.5px;color:#334155;margin-top:3px;font-variant-numeric:tabular-nums">
+                  <strong>@x.DisplayTimestamp</strong>
+                </div>
               </td>
               <td><strong>@x.Code</strong></td>
               <td>
@@ -1105,7 +1300,7 @@ else
               <td>@Money(x.Total)</td>
               <td>@Money(x.Paid)</td>
               <td><strong style="color:@(x.Balance > 0 ? "#d97706" : "#15803d")">@Money(x.Balance)</strong></td>
-              <td>@x.DueAt</td>
+              <td>@x.DisplayDueDate</td>
               <td>
                 <span class="chip @(x.Status == "PAID" ? "green-chip" : x.Status == "PARTIAL" ? "purple-chip" : "orange-chip")">
                   @StatusLabel(x.Status)
@@ -1123,12 +1318,12 @@ else
               </td>
               <td>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
-                  <button type="button" class="btn secondary" style="padding:4px 8px;font-size:12px" @onclick="() => selectedInvoice = x">
+                  <button type="button" class="btn secondary" data-confirm="none" style="padding:4px 8px;font-size:12px" @onclick="() => OpenInvoiceDetail(x)">
                     Chi tiết
                   </button>
                   @if (canPay && x.Balance > 0 && x.Status != "VOID")
                   {
-                    <button type="button" class="btn" style="padding:4px 8px;font-size:12px" @onclick="() => QuickPay(x)">
+                    <button type="button" class="btn" data-confirm="none" style="padding:4px 8px;font-size:12px" @onclick="() => QuickPay(x)">
                       @(x.IsReceivable ? "Thu khách" : x.Type is "PURCHASE" or "SUPPLIER" ? "Chi nhập hàng" : "Chi trả")
                     </button>
                   }
@@ -1145,7 +1340,7 @@ else
           @if (!FilteredInvoices.Any())
           {
             <tr>
-              <td colspan="12">Không có chứng từ công nợ phù hợp trong kỳ Tháng/Năm đang chọn.</td>
+              <td colspan="12">Không có chứng từ công nợ phù hợp trong khung thời gian đang chọn.</td>
             </tr>
           }
         </tbody>
@@ -1168,8 +1363,19 @@ else
   private readonly PagerState otherSellerPager = new();
   private readonly PagerState invoicePager = new();
   private bool showPay, showCreate;
+
+  // Khung thời gian chuẩn dd/MM/yyyy HH:mm:ss dùng chung cho toàn bộ các bảng Công nợ & Thanh toán
+  private DateTime? rangeFrom;
+  private DateTime? rangeTo;
   private int periodYear = 0, periodMonth = 0;
-  private string debtAgeFilter = "", search = "", statusFilter = "", customerSubTypeFilter = "", debtCategoryFilter = "", cashBookFundFilter = "", cashBookDirFilter = "", snapshotSellerFilter = "", message = "";
+  private string debtAgeFilter = "";
+
+  // Khung thời gian riêng cho bảng chi tiết dòng hạng mục của chứng từ đang mở
+  private DateTime? lineRangeFrom;
+  private DateTime? lineRangeTo;
+  private string invLineSearch = "";
+
+  private string search = "", sellerSearch = "", statusFilter = "", customerSubTypeFilter = "", debtCategoryFilter = "", cashBookFundFilter = "", cashBookDirFilter = "", snapshotSellerFilter = "", message = "";
   private InvoiceVm? selectedInvoice;
 
   private List<InvoiceVm> invoices = [];
@@ -1182,6 +1388,7 @@ else
   private List<SellerChoiceVm> sellerChoices = [];
   private List<CompletedOrderSnapshotVm> completedSnapshots = [];
   private List<SellerPeriodStatVm> sellerStats = [];
+  private List<SellerPeriodStatVm> allTimeSellerStats = [];
 
   // Form Phiếu Thu / Phiếu Chi Sổ quỹ
   private string payDirection = "IN", payCategory = "CUSTOMER_DEBT", method = "BANK", directPartnerName = "", directPayNote = "";
@@ -1190,19 +1397,21 @@ else
   // Form lập chứng từ công nợ mới
   private string newType = "COMMISSION", newPartnerLabel = "", newDescription = "";
   private long newSupplierId, newCustomerId, newSellerId, newProductId, newQty = 1, newUnitPrice = 200_000;
-  private DateTime newIssuedDate = DateTime.Today;
-  private DateTime newDueDate = DateTime.Today.AddDays(15);
+  private string newIssuedText = VnDateTimeHelper.FormatDisplay(VnDateTimeHelper.NowVn);
+  private DateTime newDueDate = VnDateTimeHelper.TodayVn.AddDays(15);
 
   private bool canPay, canExport, canCustomer, canRenewal, canSupplier, canOther;
 
-  private static string CurrentPeriodKey => DateTime.Today.ToString("yyyy-MM");
-  private static string CurrentPeriodLabel => $"Tháng {DateTime.Today.Month:D2}/{DateTime.Today.Year}";
-  private static string ShortPeriodCurrent => $"T{DateTime.Today.Month:D2}/{DateTime.Today.Year}";
+  private static string CurrentPeriodKey => VnDateTimeHelper.TodayVn.ToString("yyyy-MM");
+  private static string CurrentPeriodLabel => $"Tháng {VnDateTimeHelper.TodayVn.Month:D2}/{VnDateTimeHelper.TodayVn.Year}";
+  private static string ShortPeriodCurrent => $"T{VnDateTimeHelper.TodayVn.Month:D2}/{VnDateTimeHelper.TodayVn.Year}";
+
+  private bool HasAnyTimeFilter => rangeFrom.HasValue || rangeTo.HasValue || periodYear > 0 || periodMonth > 0 || !string.IsNullOrWhiteSpace(debtAgeFilter);
 
   private List<int> AvailableYears => invoices
     .Where(x => x.Status != "VOID")
     .Select(x => x.PeriodYear)
-    .Append(DateTime.Today.Year)
+    .Append(VnDateTimeHelper.TodayVn.Year)
     .Distinct()
     .OrderByDescending(y => y)
     .ToList();
@@ -1220,12 +1429,33 @@ else
       g.Where(x => x.IsReceivable).Sum(x => x.Balance)))
     .ToList();
 
-  private string ActivePeriodSummaryText =>
-    debtAgeFilter == "CURRENT" ? $"Chỉ công nợ mới ({CurrentPeriodLabel})" :
-    debtAgeFilter == "OLD" ? $"Chỉ công nợ cũ (Trước {CurrentPeriodLabel})" :
-    periodYear > 0 && periodMonth > 0 ? $"Tháng {periodMonth:D2}/{periodYear}" :
-    periodYear > 0 ? $"Năm {periodYear} (Tách từng tháng)" :
-    "Tất cả các kỳ (Tách theo từng tháng/năm)";
+  private bool IsExactPeriodSelected(int year, int month)
+  {
+    if (year <= 0 || month is < 1 or > 12) return false;
+    var expectedStart = new DateTime(year, month, 1, 0, 0, 0);
+    var expectedEnd = expectedStart.AddMonths(1).AddSeconds(-1);
+    return rangeFrom == expectedStart && rangeTo == expectedEnd && string.IsNullOrWhiteSpace(debtAgeFilter);
+  }
+
+  private string ActivePeriodSummaryText
+  {
+    get
+    {
+      if (debtAgeFilter == "CURRENT") return $"Chỉ công nợ mới ({CurrentPeriodLabel})";
+      if (debtAgeFilter == "OLD") return $"Chỉ công nợ cũ (Trước {CurrentPeriodLabel})";
+      if (rangeFrom.HasValue || rangeTo.HasValue)
+      {
+        if (periodYear > 0 && periodMonth > 0 && IsExactPeriodSelected(periodYear, periodMonth))
+          return $"Tháng {periodMonth:D2}/{periodYear} ({VnDateTimeHelper.FormatDisplay(rangeFrom!.Value)} → {VnDateTimeHelper.FormatDisplay(rangeTo!.Value)})";
+        var fStr = rangeFrom.HasValue ? VnDateTimeHelper.FormatDisplay(rangeFrom.Value) : "Đầu kỳ";
+        var tStr = rangeTo.HasValue ? VnDateTimeHelper.FormatDisplay(rangeTo.Value) : "Hiện tại";
+        return $"{fStr} → {tStr}";
+      }
+      if (periodYear > 0 && periodMonth > 0) return $"Tháng {periodMonth:D2}/{periodYear}";
+      if (periodYear > 0) return $"Năm {periodYear} (Tách từng tháng)";
+      return "Tất cả thời gian (Tách theo từng tháng/năm)";
+    }
+  }
 
   private bool MatchesPeriodKey(string key, int year, int month)
   {
@@ -1236,14 +1466,103 @@ else
     return true;
   }
 
-  private bool MatchesCurrentPeriod => MatchesPeriodKey(CurrentPeriodKey, DateTime.Today.Year, DateTime.Today.Month);
+  private bool MatchesInvoiceTime(InvoiceVm x)
+  {
+    if (!MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth)) return false;
+    return x.MatchesRange(rangeFrom, rangeTo);
+  }
+
+  private bool MatchesPaymentTime(PaymentRowVm p)
+  {
+    if (!MatchesPeriodKey(p.PeriodKey, p.PeriodYear, p.PeriodMonth)) return false;
+    return VnDateTimeHelper.InRange(p.TimestampDt, rangeFrom, rangeTo);
+  }
+
+  private bool MatchesSnapshotTime(CompletedOrderSnapshotVm o)
+  {
+    if (!MatchesPeriodKey(o.PeriodKey, o.PeriodYear, o.PeriodMonth)) return false;
+    return VnDateTimeHelper.InRange(o.TimestampDt, rangeFrom, rangeTo);
+  }
+
+  private bool MatchesCurrentPeriod
+  {
+    get
+    {
+      if (!MatchesPeriodKey(CurrentPeriodKey, VnDateTimeHelper.TodayVn.Year, VnDateTimeHelper.TodayVn.Month))
+        return false;
+      var curStart = new DateTime(VnDateTimeHelper.TodayVn.Year, VnDateTimeHelper.TodayVn.Month, 1, 0, 0, 0);
+      var curEnd = curStart.AddMonths(1).AddSeconds(-1);
+      if (rangeFrom.HasValue && rangeFrom.Value > curEnd) return false;
+      if (rangeTo.HasValue && rangeTo.Value < curStart) return false;
+      return true;
+    }
+  }
 
   private void SelectPeriod(int year, int month)
   {
     periodYear = year;
     periodMonth = month;
     debtAgeFilter = "";
-    OnPeriodFilterChanged();
+    var start = new DateTime(year, month, 1, 0, 0, 0);
+    rangeFrom = start;
+    rangeTo = start.AddMonths(1).AddSeconds(-1);
+    RefreshRangeAggregatesAndPagers();
+  }
+
+  private void OnPeriodDropdownChanged()
+  {
+    debtAgeFilter = "";
+    if (periodYear > 0 && periodMonth > 0)
+    {
+      var start = new DateTime(periodYear, periodMonth, 1, 0, 0, 0);
+      rangeFrom = start;
+      rangeTo = start.AddMonths(1).AddSeconds(-1);
+    }
+    else if (periodYear > 0 && periodMonth == 0)
+    {
+      rangeFrom = new DateTime(periodYear, 1, 1, 0, 0, 0);
+      rangeTo = new DateTime(periodYear, 12, 31, 23, 59, 59);
+    }
+    else if (periodYear == 0 && periodMonth == 0)
+    {
+      rangeFrom = null;
+      rangeTo = null;
+    }
+    else
+    {
+      // Chọn 1 tháng cho mọi năm -> bỏ giới hạn năm cụ thể trên rangeFrom/rangeTo, lọc bằng periodMonth
+      rangeFrom = null;
+      rangeTo = null;
+    }
+    RefreshRangeAggregatesAndPagers();
+  }
+
+  private void OnDebtAgeFilterChanged()
+  {
+    var today = VnDateTimeHelper.TodayVn;
+    var firstCurMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0);
+    if (debtAgeFilter == "CURRENT")
+    {
+      periodYear = today.Year;
+      periodMonth = today.Month;
+      rangeFrom = firstCurMonth;
+      rangeTo = firstCurMonth.AddMonths(1).AddSeconds(-1);
+    }
+    else if (debtAgeFilter == "OLD")
+    {
+      periodYear = 0;
+      periodMonth = 0;
+      rangeFrom = null;
+      rangeTo = firstCurMonth.AddSeconds(-1);
+    }
+    else
+    {
+      periodYear = 0;
+      periodMonth = 0;
+      rangeFrom = null;
+      rangeTo = null;
+    }
+    RefreshRangeAggregatesAndPagers();
   }
 
   private void ResetPeriodFilter()
@@ -1251,15 +1570,68 @@ else
     periodYear = 0;
     periodMonth = 0;
     debtAgeFilter = "";
-    OnPeriodFilterChanged();
+    rangeFrom = null;
+    rangeTo = null;
+    RefreshRangeAggregatesAndPagers();
   }
 
-  private void OnPeriodFilterChanged()
+  private void OnGlobalRangeChanged((DateTime? From, DateTime? To) range)
   {
+    rangeFrom = range.From;
+    rangeTo = range.To;
+    debtAgeFilter = "";
+
+    if (rangeFrom.HasValue && rangeTo.HasValue)
+    {
+      var f = rangeFrom.Value;
+      var t = rangeTo.Value;
+      var expectedMonthStart = new DateTime(f.Year, f.Month, 1, 0, 0, 0);
+      var expectedMonthEnd = expectedMonthStart.AddMonths(1).AddSeconds(-1);
+      if (f == expectedMonthStart && t == expectedMonthEnd)
+      {
+        periodYear = f.Year;
+        periodMonth = f.Month;
+      }
+      else if (f == new DateTime(f.Year, 1, 1, 0, 0, 0) && t == new DateTime(f.Year, 12, 31, 23, 59, 59))
+      {
+        periodYear = f.Year;
+        periodMonth = 0;
+      }
+      else
+      {
+        periodYear = 0;
+        periodMonth = 0;
+      }
+    }
+    else
+    {
+      periodYear = 0;
+      periodMonth = 0;
+    }
+
+    RefreshRangeAggregatesAndPagers();
+  }
+
+  private void RefreshRangeAggregatesAndPagers()
+  {
+    sellerStats = Db.SellerPeriodStats(rangeFrom, rangeTo);
+    partnerDebts = Db.PartnerDebtSummaries(rangeFrom, rangeTo).Where(d => CanSeePartnerCategory(d.CategoryCode)).ToList();
+
     partnerDebtPager.Reset();
     invoicePager.Reset();
     paymentPager.Reset();
     snapshotPager.Reset();
+    sellerStatPager.Reset();
+    otherSellerPager.Reset();
+  }
+
+  private void OpenInvoiceDetail(InvoiceVm inv)
+  {
+    selectedInvoice = inv;
+    lineRangeFrom = rangeFrom;
+    lineRangeTo = rangeTo;
+    invLineSearch = "";
+    invLinePager.Reset();
   }
 
   private IEnumerable<InvoiceVm> Receivables => invoices.Where(x => x.IsReceivable && x.Status != "VOID");
@@ -1267,16 +1639,23 @@ else
   private IEnumerable<InvoiceVm> SupplierInvoices => invoices.Where(x => x.Type is "PURCHASE" or "SUPPLIER" && x.Status != "VOID");
   private IEnumerable<InvoiceVm> OtherInvoices => invoices.Where(x => x.Type is "SERVICE" or "COMMISSION" && x.Status != "VOID");
 
-  private IEnumerable<InvoiceVm> PeriodAllInvoices => invoices.Where(x => MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth));
-  private IEnumerable<InvoiceVm> PeriodReceivables => Receivables.Where(x => MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth));
-  private IEnumerable<InvoiceVm> PeriodSupplierInvoices => SupplierInvoices.Where(x => MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth));
-  private IEnumerable<InvoiceVm> PeriodOtherInvoices => OtherInvoices.Where(x => MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth));
+  private IEnumerable<InvoiceVm> PeriodAllInvoices => invoices.Where(MatchesInvoiceTime);
+  private IEnumerable<InvoiceVm> PeriodReceivables => Receivables.Where(MatchesInvoiceTime);
+  private IEnumerable<InvoiceVm> PeriodSupplierInvoices => SupplierInvoices.Where(MatchesInvoiceTime);
+  private IEnumerable<InvoiceVm> PeriodOtherInvoices => OtherInvoices.Where(MatchesInvoiceTime);
+
+  private int TabScopedInvoicesCount => invoices.Count(x => activeTab switch
+  {
+    "PURCHASE" => x.Type is "PURCHASE" or "SUPPLIER",
+    "SALE" => x.Type is "SALE" or "RENEWAL",
+    "RENEWAL" => x.Type == "RENEWAL",
+    "OTHER" => x.Type is "SERVICE" or "COMMISSION" || x.Type is not ("SALE" or "RENEWAL" or "PURCHASE" or "SUPPLIER"),
+    _ => true
+  });
 
   private long PeriodSellerAndTechIncurredVnd =>
     PeriodOtherInvoices.Where(x => x.Type == "SERVICE").Sum(x => x.Total) +
-    (MatchesCurrentPeriod
-      ? Math.Max(PeriodOtherInvoices.Where(x => x.Type == "COMMISSION").Sum(x => x.Total), sellerStats.Sum(x => x.TotalEstimatedCommissionVnd))
-      : PeriodOtherInvoices.Where(x => x.Type == "COMMISSION").Sum(x => x.Total));
+    Math.Max(PeriodOtherInvoices.Where(x => x.Type == "COMMISSION").Sum(x => x.Total), sellerStats.Sum(x => x.TotalEstimatedCommissionVnd));
 
   private long PeriodSellerAndTechRemainingVnd =>
     Math.Max(0, PeriodSellerAndTechIncurredVnd - PeriodOtherInvoices.Sum(x => x.Paid));
@@ -1303,22 +1682,19 @@ else
     .Where(x => string.IsNullOrWhiteSpace(search) ||
       (x.PeriodLabel + " " + x.CategoryLabel + " " + x.PartnerName + " " + x.SubInfo).Contains(search, StringComparison.OrdinalIgnoreCase));
 
+  private IEnumerable<SellerPeriodStatVm> FilteredSellerStats => sellerStats
+    .Where(s => string.IsNullOrWhiteSpace(sellerSearch) ||
+      (s.SellerCode + " " + s.SellerName + " " + s.Department + " " + s.Phone).Contains(sellerSearch, StringComparison.OrdinalIgnoreCase));
+
   private IEnumerable<CompletedOrderSnapshotVm> FilteredSnapshots => completedSnapshots
-    .Where(x =>
-    {
-      var dtStr = !string.IsNullOrWhiteSpace(x.ActivatedAt) ? x.ActivatedAt : x.CompletedAt;
-      var pk = !string.IsNullOrWhiteSpace(dtStr) && dtStr.Length >= 7 && dtStr[4] == '-' ? dtStr[..7] : CurrentPeriodKey;
-      var py = pk.Length >= 4 && int.TryParse(pk[..4], out var y) ? y : DateTime.Today.Year;
-      var pm = pk.Length >= 7 && int.TryParse(pk[5..7], out var m) ? m : DateTime.Today.Month;
-      return MatchesPeriodKey(pk, py, pm);
-    })
+    .Where(MatchesSnapshotTime)
     .Where(x => string.IsNullOrWhiteSpace(snapshotSellerFilter) || x.SellerDisplay.Contains(snapshotSellerFilter, StringComparison.OrdinalIgnoreCase))
     .Where(x => string.IsNullOrWhiteSpace(search) ||
-      (x.OrderCode + " " + x.CustomerName + " " + x.ContactName + " " + x.SellerDisplay + " " + x.ProductSummary)
+      (x.OrderCode + " " + x.CustomerName + " " + x.ContactName + " " + x.SellerDisplay + " " + x.ProductSummary + " " + x.DisplayTimestamp)
         .Contains(search, StringComparison.OrdinalIgnoreCase));
 
   private IEnumerable<InvoiceVm> FilteredInvoices => invoices
-    .Where(x => MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth))
+    .Where(MatchesInvoiceTime)
     .Where(x => activeTab switch
     {
       "PURCHASE" => x.Type is "PURCHASE" or "SUPPLIER",
@@ -1330,17 +1706,19 @@ else
     .Where(x => string.IsNullOrWhiteSpace(statusFilter) ||
       (statusFilter == "UNPAID" ? x.Balance > 0 && x.Status != "VOID" : x.Status == statusFilter))
     .Where(x => string.IsNullOrWhiteSpace(search) ||
-      (x.PeriodLabel + " " + x.Code + " " + x.Customer + " " + x.Notes + " " + x.RefCode + " " + TypeLabel(x.Type) + " " +
+      (x.PeriodLabel + " " + x.DisplayTimestamp + " " + x.Code + " " + x.Customer + " " + x.Notes + " " + x.RefCode + " " + TypeLabel(x.Type) + " " +
        (x.Lines is { Count: > 0 } ? string.Join(" ", x.Lines.Select(l => l.ProductSku + " " + l.Description)) : ""))
         .Contains(search, StringComparison.OrdinalIgnoreCase));
 
   private IEnumerable<PaymentRowVm> FilteredPayments => payments
-    .Where(x => MatchesPeriodKey(x.PeriodKey, x.PeriodYear, x.PeriodMonth))
+    .Where(MatchesPaymentTime)
     .Where(x => string.IsNullOrWhiteSpace(cashBookFundFilter) || x.Method == cashBookFundFilter)
     .Where(x => string.IsNullOrWhiteSpace(cashBookDirFilter) || x.Direction == cashBookDirFilter)
     .Where(x => string.IsNullOrWhiteSpace(search) ||
-      (x.PaymentNo + " " + x.InvoiceNo + " " + x.Partner + " " + x.Method + " " + x.Notes)
+      (x.PaymentNo + " " + x.InvoiceNo + " " + x.Partner + " " + x.Method + " " + x.Notes + " " + x.DisplayTimestamp)
         .Contains(search, StringComparison.OrdinalIgnoreCase));
+
+  private CashBookSummaryVm FilteredCashBook => DemoDb.ComputeCashBookSummary(FilteredPayments);
 
   protected override async Task OnInitializedAsync()
   {
@@ -1379,17 +1757,22 @@ else
   {
     showPay = form == nameof(showPay) && !showPay;
     showCreate = form == nameof(showCreate) && !showCreate;
+    if (showCreate)
+    {
+      newIssuedText = VnDateTimeHelper.FormatDisplay(VnDateTimeHelper.NowVn);
+    }
   }
 
   private void Reload()
   {
     sellerChoices = Db.SellerChoices();
     completedSnapshots = Db.CompletedOrderSnapshots();
-    sellerStats = Db.SellerPeriodStats();
+    allTimeSellerStats = Db.SellerPeriodStats();
+    sellerStats = Db.SellerPeriodStats(rangeFrom, rangeTo);
     invoices = Db.Invoices().Where(x => CanSeeType(x.Type)).ToList();
     payments = Db.Payments().Where(x => CanSeeType(x.InvoiceType)).ToList();
-    cashBook = Db.CashBookSummary();
-    partnerDebts = Db.PartnerDebtSummaries();
+    cashBook = DemoDb.ComputeCashBookSummary(payments);
+    partnerDebts = Db.PartnerDebtSummaries(rangeFrom, rangeTo).Where(d => CanSeePartnerCategory(d.CategoryCode)).ToList();
 
     SyncSelectedPayInvoice();
     if (selectedInvoice != null)
@@ -1425,11 +1808,9 @@ else
 
   private void JumpToPartnerInvoices(PartnerDebtSummaryVm d)
   {
-    if (d.PeriodYear > 0 && d.PeriodMonth > 0)
+    if (d.PeriodYear > 0 && d.PeriodMonth > 0 && !rangeFrom.HasValue && !rangeTo.HasValue)
     {
-      periodYear = d.PeriodYear;
-      periodMonth = d.PeriodMonth;
-      debtAgeFilter = "";
+      SelectPeriod(d.PeriodYear, d.PeriodMonth);
     }
     if (d.CategoryCode == "SUPPLIER")
     {
@@ -1485,6 +1866,7 @@ else
     newPartnerLabel = $"{s.SellerName} ({s.SellerCode})";
     newQty = 1;
     newUnitPrice = s.TotalEstimatedCommissionVnd > 0 ? s.TotalEstimatedCommissionVnd : Math.Max(100_000, s.OrderCommissionRateVnd);
+    newIssuedText = VnDateTimeHelper.FormatDisplay(VnDateTimeHelper.NowVn);
     newDescription = $"Chi hoa hồng cuối kỳ cho NV bán hàng {s.SellerName} ({s.SellerCode}): {s.CompletedDeviceQty} thiết bị hoàn thành + {s.RenewalCount} lượt gia hạn.";
     showCreate = true;
     showPay = false;
@@ -1518,6 +1900,13 @@ else
     "SALE" => canCustomer,
     "RENEWAL" => canRenewal,
     "PURCHASE" or "SUPPLIER" => canSupplier,
+    _ => canOther
+  };
+
+  private bool CanSeePartnerCategory(string catCode) => catCode switch
+  {
+    "SUPPLIER" => canSupplier,
+    "CUSTOMER" => canCustomer || canRenewal,
     _ => canOther
   };
 
@@ -1573,6 +1962,8 @@ else
         throw new InvalidOperationException("Vui lòng chọn Khách hàng.");
       if (newType is "SERVICE" or "COMMISSION" && string.IsNullOrWhiteSpace(newPartnerLabel))
         throw new InvalidOperationException("Vui lòng nhập tên Kỹ thuật / Nhân viên bán hàng thụ hưởng.");
+      if (!string.IsNullOrWhiteSpace(newIssuedText) && !VnDateTimeHelper.TryParseUserFilterInput(newIssuedText, false, out _, out _))
+        throw new InvalidOperationException("Thời điểm phát sinh phải đúng định dạng dd/MM/yyyy HH:mm:ss (hoặc dd/MM/yyyy).");
 
       var createdId = Db.CreateCustomInvoice(
         newType,
@@ -1584,13 +1975,14 @@ else
         newQty,
         newUnitPrice,
         newDueDate.ToString("yyyy-MM-dd"),
-        newIssuedDate.ToString("yyyy-MM-dd"));
+        newIssuedText);
 
       newDescription = "";
       showCreate = false;
       Reload();
-      selectedInvoice = invoices.FirstOrDefault(x => x.Id == createdId);
-      message = $"Đã lập chứng từ công nợ {selectedInvoice?.Code} thành công.";
+      var created = invoices.FirstOrDefault(x => x.Id == createdId);
+      if (created != null) OpenInvoiceDetail(created);
+      message = $"Đã lập chứng từ công nợ {created?.Code} thành công.";
     }
     catch (Exception ex)
     {
@@ -1666,11 +2058,37 @@ else
     "PURCHASE" => "1. Công nợ Nhà cung cấp (Chi nhập hàng & thiết bị)",
     "SALE" => "2. Công nợ Khách hàng (Khoản thu khách hàng: Đơn lắp đặt & Gia hạn)",
     "RENEWAL" => "2b. Công nợ Gia hạn thiết bị",
-    "OTHER" => "3. Công nợ Nhân viên bán hàng (Hoa hồng) & Chi phí Kỹ thuật lắp đặt",
-    _ => "Danh sách tất cả Chứng từ Công nợ (Phải thu & Phải trả)"
+    "OTHER" => "3B. Chứng từ Công nợ Nhân viên bán hàng (Hoa hồng) & Kỹ thuật lắp đặt",
+    _ => "5. Danh sách tất cả Chứng từ Công nợ (Phải thu & Phải trả)"
   };
 
   private static string Money(long v) => v.ToString("N0") + " ₫";
+
+  private async Task ExportInvoiceLinesExcel(InvoiceVm inv, List<InvoiceLineVm> lines)
+  {
+    var headers = new[]
+    {
+      "STT", "Số chứng từ", "Đối tác", "Thời gian phát sinh", "Mã SP (SKU)",
+      "Diễn giải / Hạng mục chi tiết", "Số lượng", "Đơn giá (VND)", "Thành tiền (VND)"
+    };
+    var rows = lines.Select((l, idx) =>
+    {
+      var ldt = VnDateTimeHelper.TryExtractLineTimestamp(l.Description, inv.TimestampDt);
+      return new object?[]
+      {
+        idx + 1,
+        inv.Code,
+        inv.Customer,
+        ldt.HasValue ? VnDateTimeHelper.FormatDisplay(ldt.Value) : inv.DisplayTimestamp,
+        string.IsNullOrWhiteSpace(l.ProductSku) ? "—" : l.ProductSku,
+        l.Description,
+        l.Quantity,
+        l.UnitPrice,
+        l.LineTotal
+      };
+    });
+    await ExcelExporter.DownloadAsync(JS, $"chi-tiet-{inv.Code.ToLowerInvariant()}", "Chi tiết chứng từ", headers, rows);
+  }
 
   private async Task ExportPartnerDebtsExcel()
   {
@@ -1679,8 +2097,8 @@ else
     {
       "STT", "Kỳ Tháng/Năm", "Phân loại tuổi nợ", "Nhóm công nợ", "Tính chất",
       "Đối tác (NCC / Khách hàng / NV bán hàng)", "Thông tin chi tiết", "Số chứng từ",
-      "Nợ cũ chuyển sang (VND)", "Phát sinh trong tháng (VND)", "Đã thanh toán (VND)",
-      "Còn nợ tháng này (VND)", "Lũy kế còn nợ (VND)", "Trạng thái"
+      "Nợ cũ chuyển sang (VND)", "Phát sinh trong kỳ (VND)", "Đã thanh toán (VND)",
+      "Còn nợ trong kỳ (VND)", "Lũy kế còn nợ (VND)", "Trạng thái"
     };
     var rows = list.Select((d, idx) => new object?[]
     {
@@ -1709,7 +2127,7 @@ else
     {
       "STT", "Số phiếu", "Loại phiếu", "Sổ quỹ (TM / NH)", "Hạng mục nghiệp vụ",
       "Chứng từ công nợ", "Đối tác", "Khoản Thu (+) (VND)", "Khoản Chi (-) (VND)",
-      "Tồn quỹ sau GD (VND)", "Ngày giao dịch", "Ghi chú"
+      "Tồn quỹ sau GD (VND)", "Thời gian giao dịch (dd/MM/yyyy HH:mm:ss)", "Ghi chú"
     };
     var rows = list.Select((p, idx) => new object?[]
     {
@@ -1723,7 +2141,7 @@ else
       p.Direction == "IN" ? p.Amount : 0L,
       p.Direction == "OUT" ? p.Amount : 0L,
       p.BalanceAfterTotalVnd,
-      p.PaidAt,
+      p.DisplayTimestamp,
       p.Notes
     });
     await ExcelExporter.DownloadAsync(JS, "so-quy-thu-chi", "Sổ quỹ Thu Chi", headers, rows);
@@ -1731,6 +2149,7 @@ else
 
   private async Task ExportSellerStatsExcel()
   {
+    var list = FilteredSellerStats.ToList();
     var headers = new[]
     {
       "STT", "Mã NV bán hàng", "Nhân viên bán hàng", "Bộ phận / Kênh",
@@ -1738,7 +2157,7 @@ else
       "Lợi nhuận gộp (VND)", "Số lượt gia hạn", "Doanh thu gia hạn (VND)",
       "Định mức HH đơn (VND)", "Định mức HH gia hạn (VND)", "Công nợ Hoa hồng (VND)", "Đã lập chứng từ HH (VND)"
     };
-    var rows = sellerStats.Select((s, idx) => new object?[]
+    var rows = list.Select((s, idx) => new object?[]
     {
       idx + 1,
       s.SellerCode,
@@ -1765,7 +2184,7 @@ else
     {
       "STT", "Mã đơn / Chứng từ", "Trạng thái", "Mã KH", "Khách hàng", "Khách lắp / Chủ xe",
       "Nhân viên bán hàng", "Sản phẩm & Đơn giá", "Số lượng SP", "Doanh thu (VND)",
-      "Giá vốn (VND)", "Công lắp (VND)", "Lợi nhuận gộp (VND)", "Ngày kích hoạt / Hoàn thành"
+      "Giá vốn (VND)", "Công lắp (VND)", "Lợi nhuận gộp (VND)", "Thời gian hoàn thành / Kích hoạt"
     };
     var rows = list.Select((o, idx) => new object?[]
     {
@@ -1782,7 +2201,7 @@ else
       o.CostSnapshotVnd,
       o.InstallerFeeSnapshotVnd,
       o.GrossProfitSnapshotVnd,
-      string.IsNullOrWhiteSpace(o.ActivatedAt) ? o.CompletedAt : o.ActivatedAt
+      o.DisplayTimestamp
     });
     await ExcelExporter.DownloadAsync(JS, "so-chi-tiet-don-hang-doanh-thu", "Chi tiết doanh thu", headers, rows);
   }
@@ -1792,7 +2211,7 @@ else
     var list = FilteredInvoices.ToList();
     var headers = new[]
     {
-      "STT", "Kỳ Tháng/Năm", "Phân loại tuổi nợ", "Ngày lập", "Số chứng từ",
+      "STT", "Kỳ Tháng/Năm", "Phân loại tuổi nợ", "Thời gian lập (dd/MM/yyyy HH:mm:ss)", "Số chứng từ",
       "Phân mục công nợ", "Đối tác (NCC / Khách hàng / NV bán hàng)",
       "Mã tham chiếu gốc", "Chi tiết mặt hàng / Ghi chú", "Phát sinh (VND)",
       "Đã thu / Đã chi (VND)", "Còn nợ (VND)", "Đến hạn", "Trạng thái", "Chốt số KT"
@@ -1802,7 +2221,7 @@ else
       idx + 1,
       x.PeriodLabel,
       x.PeriodKey == CurrentPeriodKey ? "Công nợ mới" : "Công nợ cũ",
-      x.CreatedAt,
+      x.DisplayTimestamp,
       x.Code,
       TypeLabel(x.Type),
       x.Customer,
@@ -1811,7 +2230,7 @@ else
       x.Total,
       x.Paid,
       x.Balance,
-      x.DueAt,
+      x.DisplayDueDate,
       StatusLabel(x.Status),
       x.IsLocked ? "Đã chốt số KT" : "Chưa chốt số"
     });

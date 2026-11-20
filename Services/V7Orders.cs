@@ -1011,10 +1011,10 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 }
             }
 
-            // Tự động tạo hóa đơn công nợ SALE gồm đầy đủ các dòng sản phẩm
+            // Tự động tạo hóa đơn công nợ SALE gồm đầy đủ các dòng sản phẩm (lưu chuẩn yyyy-MM-dd HH:mm:ss giờ VN)
             var invoiceNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,due_at,amount_vnd,notes)
-                VALUES($no,'SALE',$c,$o,date('now','+30 days'),$price,$notes)",
+            Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,issued_at,due_at,amount_vnd,notes)
+                VALUES($no,'SALE',$c,$o,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$price,$notes)",
                 ("$no", invoiceNo), ("$c", customer), ("$o", id), ("$price", totalPrice), ("$notes", $"Đơn hàng lắp đặt {orderCode}"));
             var invoiceId = Scalar(c, "SELECT last_insert_rowid()");
             foreach (var grp in lines.GroupBy(x => (x.ProductId, x.ProductName, x.UnitPrice)))
@@ -1028,8 +1028,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
             {
                 var srvNo = "CL-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                 var partnerLabel = !string.IsNullOrWhiteSpace(installerName) ? installerName : "Nhân sự lắp đặt";
-                Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,v7_order_id,due_at,amount_vnd,notes)
-                    VALUES($no,'SERVICE',$o,date('now','+15 days'),$fee,$notes)",
+                Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,v7_order_id,issued_at,due_at,amount_vnd,notes)
+                    VALUES($no,'SERVICE',$o,datetime('now','+7 hours'),date('now','+7 hours','+15 days'),$fee,$notes)",
                     ("$no", srvNo), ("$o", id), ("$fee", totalInstallerFee), ("$notes", $"{partnerLabel} — Công lắp đặt đơn {orderCode}"));
                 var srvInvId = Scalar(c, "SELECT last_insert_rowid()");
                 foreach (var grp in lines.Where(x => x.InstallerFee > 0).GroupBy(x => (x.ProductId, x.ProductName, x.InstallerFee)))

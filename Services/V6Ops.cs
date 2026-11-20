@@ -173,8 +173,8 @@ public sealed class V6Ops(IWebHostEnvironment environment)
                     var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                     var totalCost = unitCost * qty;
                     var invNote = string.IsNullOrWhiteSpace(note) ? $"Nhập kho số lượng ({qty} × {prodLabel})" : $"Nhập kho số lượng: {prodLabel} ({note})";
-                    Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
-                        VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                    Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,notes)
+                        VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$note)",
                         ("$no", invNo), ("$sup", supId), ("$amt", totalCost), ("$note", invNote));
                     var invId = InsertId(c);
                     Execute(c, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
@@ -303,8 +303,8 @@ public sealed class V6Ops(IWebHostEnvironment environment)
             if (!isReturnSup && totalCost > 0)
             {
                 var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-                Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
-                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$note)",
                     ("$no", invNo), ("$sup", header.Sup), ("$amt", totalCost), ("$note", $"Nhập hàng theo {header.PoNo}"));
                 var invId = InsertId(c);
                 foreach (var line in lines)

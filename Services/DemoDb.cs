@@ -510,8 +510,8 @@ public sealed class DemoDb
             {
                 var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                 var totalCost = cost * importedCount;
-                Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,due_at,amount_vnd,notes)
-                    VALUES($no,'PURCHASE',$sup,date('now','+30 days'),$amt,$note)",
+                Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,notes)
+                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$note)",
                     ("$no",invNo),("$sup",resolvedSup),("$amt",totalCost),("$note",$"Nhập lô {importedCount} IMEI ({code}): {prodName}"));
                 var invId = N(c,t,"SELECT last_insert_rowid()");
                 Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
@@ -1251,6 +1251,7 @@ public sealed class DemoDb
                 next = parsedNext.Date;
 
             var renStr = renDate.ToString("yyyy-MM-dd");
+            var renIssuedStr = $"{renStr} {VnDateTimeHelper.NowVn:HH:mm:ss}";
             var nextStr = next.ToString("yyyy-MM-dd");
 
             Exec(c,t,@"INSERT INTO renewals(activation_id,seller_id,seller_name,source_type,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
@@ -1263,8 +1264,8 @@ public sealed class DemoDb
             var sellerSegment = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $" · NV bán hàng: {resolvedSellerName}" : "";
             var sellerNote = $"Gia hạn 12 tháng · Thiết bị: {device.DeviceName} (IMEI: {device.Imei}{plateSegment}){sellerSegment}";
             Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,issued_at,due_at,amount_vnd,notes)
-               VALUES($no,'RENEWAL',$c,$r,$renAt,date($renAt,'+30 days'),$price,$notes)",
-               ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$renAt",renStr),("$price",price),("$notes",sellerNote));
+               VALUES($no,'RENEWAL',$c,$r,$renIssued,date($renAt,'+30 days'),$price,$notes)",
+               ("$no",invoiceNo),("$c",device.CustomerId),("$r",renewalId),("$renIssued",renIssuedStr),("$renAt",renStr),("$price",price),("$notes",sellerNote));
             var invoiceId = N(c,t,"SELECT last_insert_rowid()");
             Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,1,$price)",
                ("$i",invoiceId),("$desc",sellerNote),("$p",device.ProductId),("$price",price));
@@ -1628,7 +1629,18 @@ public sealed class DemoDb
             WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes, ' — ') > 0 THEN SUBSTR(i.notes, 1, INSTR(i.notes, ' — ') - 1) ELSE i.notes END
             ELSE '-'
           END AS partner_name,
-          i.amount_vnd,COALESCE(pa.paid,0),i.status,i.issued_at,i.due_at,
+          i.amount_vnd,COALESCE(pa.paid,0),i.status,
+          CASE
+            WHEN length(trim(COALESCE(i.issued_at,''))) > 10 THEN replace(substr(trim(i.issued_at),1,19),'T',' ')
+            WHEN o.completed_at IS NOT NULL AND substr(datetime(o.completed_at,'+7 hours'),1,10)=trim(i.issued_at)
+              THEN datetime(o.completed_at,'+7 hours')
+            WHEN i.created_at IS NOT NULL AND substr(datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(i.issued_at)
+              THEN datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours')
+            WHEN i.invoice_no LIKE 'HD-KH%' OR i.invoice_no LIKE 'CL-KT%'
+              THEN trim(i.issued_at) || ' 23:59:59'
+            ELSE trim(COALESCE(i.issued_at,'')) || ' 00:00:00'
+          END AS resolved_issued_at,
+          i.due_at,
           CASE
             WHEN i.renewal_id IS NOT NULL AND rp.id IS NOT NULL AND INSTR(COALESCE(i.notes,''), 'Thiết bị:') = 0
               THEN 'Thiết bị: ' || COALESCE(NULLIF(ra.device_type_label,''), CASE WHEN rp.sku='SP000001' THEN 'XANHGPS' WHEN rp.sku='DX00002' THEN 'NASA-4G-21000' WHEN rp.sku='DX00003' THEN 'TG2000' ELSE rp.name END, rp.sku)
@@ -1651,7 +1663,7 @@ public sealed class DemoDb
           LEFT JOIN products rp ON rp.id=ra.product_id
           LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) AS paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) pa ON pa.invoice_id=i.id
           WHERE i.deleted_at IS NULL
-          ORDER BY i.issued_at DESC, i.id DESC",
+          ORDER BY resolved_issued_at DESC, i.id DESC",
           r => {
               var id = L(r,0);
               var lines = allLines.TryGetValue(id, out var list) ? list : [];
@@ -1671,7 +1683,12 @@ public sealed class DemoDb
             WHEN COALESCE(p.notes,'')<>'' THEN CASE WHEN INSTR(p.notes, ' — ') > 0 THEN SUBSTR(p.notes, 1, INSTR(p.notes, ' — ') - 1) ELSE p.notes END
             ELSE '-'
           END,
-          p.paid_at,
+          CASE
+            WHEN length(trim(COALESCE(p.paid_at,''))) > 10 THEN replace(substr(trim(p.paid_at),1,19),'T',' ')
+            WHEN p.created_at IS NOT NULL AND substr(datetime(replace(substr(p.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(p.paid_at)
+              THEN datetime(replace(substr(p.created_at,1,19),'T',' '),'+7 hours')
+            ELSE trim(COALESCE(p.paid_at,'')) || ' 00:00:00'
+          END AS resolved_paid_at,
           COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,''))
           FROM payments p
           LEFT JOIN payment_allocations pa ON pa.payment_id=p.id AND pa.deleted_at IS NULL
@@ -1680,7 +1697,7 @@ public sealed class DemoDb
           LEFT JOIN suppliers s ON s.id=i.supplier_id
           LEFT JOIN v7_orders o ON o.id=i.v7_order_id
           WHERE p.deleted_at IS NULL
-          ORDER BY p.paid_at ASC, p.id ASC, COALESCE(pa.id,0) ASC",
+          ORDER BY resolved_paid_at ASC, p.id ASC, COALESCE(pa.id,0) ASC",
           r => (Id: L(r,0), No: S(r,1), Dir: S(r,2), Method: S(r,3), Amt: L(r,4), InvNo: S(r,5), InvType: S(r,6), Partner: S(r,7), PaidAt: S(r,8), Notes: S(r,9)));
 
         long runningCash = 0, runningBank = 0, runningTotal = 0;
@@ -1698,9 +1715,11 @@ public sealed class DemoDb
         return result;
     }
 
-    public CashBookSummaryVm CashBookSummary()
+    public CashBookSummaryVm CashBookSummary() => ComputeCashBookSummary(Payments());
+
+    public static CashBookSummaryVm ComputeCashBookSummary(IEnumerable<PaymentRowVm> sourceRows)
     {
-        var rows = Payments();
+        var rows = sourceRows as IReadOnlyList<PaymentRowVm> ?? sourceRows.ToList();
         var cashIn = rows.Where(x => x.Method == "CASH" && x.Direction == "IN").Sum(x => x.Amount);
         var cashOut = rows.Where(x => x.Method == "CASH" && x.Direction == "OUT").Sum(x => x.Amount);
         var bankIn = rows.Where(x => x.Method == "BANK" && x.Direction == "IN").Sum(x => x.Amount);
@@ -1725,22 +1744,38 @@ public sealed class DemoDb
             otherOut);
     }
 
-    public List<PartnerDebtSummaryVm> PartnerDebtSummaries()
+    public List<PartnerDebtSummaryVm> PartnerDebtSummaries(DateTime? from = null, DateTime? to = null)
     {
-        var invs = Invoices().Where(x => x.Status != "VOID").ToList();
-        var sellers = SellerPeriodStats();
+        var allValidInvs = Invoices().Where(x => x.Status != "VOID").ToList();
+        var invs = (from.HasValue || to.HasValue)
+            ? allValidInvs.Where(x => x.MatchesRange(from, to)).ToList()
+            : allValidInvs;
+        var sellers = SellerPeriodStats(from, to);
         var list = new List<PartnerDebtSummaryVm>();
 
+        static DateTime ResolveCarryCutoff(string periodKey, DateTime? rangeFrom)
+        {
+            var pStart = DateTime.MinValue;
+            if (!string.IsNullOrWhiteSpace(periodKey) && periodKey.Length >= 7 &&
+                int.TryParse(periodKey[..4], out var py) && int.TryParse(periodKey[5..7], out var pm) && pm is >= 1 and <= 12)
+            {
+                pStart = new DateTime(py, pm, 1, 0, 0, 0);
+            }
+            return rangeFrom.HasValue && rangeFrom.Value > pStart ? rangeFrom.Value : pStart;
+        }
+
         // 1. Công nợ Nhà cung cấp (Nhập hàng) — tách riêng theo từng Kỳ Tháng/Năm
+        var allSupInvs = allValidInvs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").ToList();
         var supInvs = invs.Where(x => x.Type is "PURCHASE" or "SUPPLIER").ToList();
         foreach (var g in supInvs
             .GroupBy(x => (x.PeriodKey, x.PeriodLabel, Partner: x.Customer))
             .OrderByDescending(g => g.Key.PeriodKey)
             .ThenBy(g => g.Key.Partner))
         {
-            var carryOld = supInvs
+            var cutoff = ResolveCarryCutoff(g.Key.PeriodKey, from);
+            var carryOld = allSupInvs
                 .Where(x => string.Equals(x.Customer, g.Key.Partner, StringComparison.OrdinalIgnoreCase)
-                         && string.CompareOrdinal(x.PeriodKey, g.Key.PeriodKey) < 0)
+                         && x.TimestampDt.HasValue && x.TimestampDt.Value < cutoff)
                 .Sum(x => x.Balance);
             list.Add(new PartnerDebtSummaryVm(
                 "SUPPLIER",
@@ -1758,6 +1793,7 @@ public sealed class DemoDb
         }
 
         // 2. Công nợ Khách hàng (Đơn lắp đặt & Gia hạn) — tách riêng theo từng Kỳ Tháng/Năm + tính Nợ cũ chuyển sang
+        var allCustInvs = allValidInvs.Where(x => x.Type is "SALE" or "RENEWAL").ToList();
         var custInvs = invs.Where(x => x.Type is "SALE" or "RENEWAL").ToList();
         foreach (var g in custInvs
             .GroupBy(x => (x.PeriodKey, x.PeriodLabel, Partner: x.Customer))
@@ -1766,9 +1802,10 @@ public sealed class DemoDb
         {
             var saleCount = g.Count(x => x.Type == "SALE");
             var renCount = g.Count(x => x.Type == "RENEWAL");
-            var carryOld = custInvs
+            var cutoff = ResolveCarryCutoff(g.Key.PeriodKey, from);
+            var carryOld = allCustInvs
                 .Where(x => string.Equals(x.Customer, g.Key.Partner, StringComparison.OrdinalIgnoreCase)
-                         && string.CompareOrdinal(x.PeriodKey, g.Key.PeriodKey) < 0)
+                         && x.TimestampDt.HasValue && x.TimestampDt.Value < cutoff)
                 .Sum(x => x.Balance);
             list.Add(new PartnerDebtSummaryVm(
                 "CUSTOMER",
@@ -1787,8 +1824,9 @@ public sealed class DemoDb
 
         // 3. Công nợ Sell / Nhân viên bán hàng (Hoa hồng phát sinh vs Đã thanh toán)
         var commInvoices = invs.Where(x => x.Type == "COMMISSION").ToList();
-        var curYm = DateTime.Today.ToString("yyyy-MM");
-        var curYmLabel = $"Tháng {DateTime.Today.Month:D2}/{DateTime.Today.Year}";
+        var refDt = to ?? from ?? VnDateTimeHelper.TodayVn;
+        var curYm = refDt.ToString("yyyy-MM");
+        var curYmLabel = $"Tháng {refDt.Month:D2}/{refDt.Year}";
         foreach (var s in sellers)
         {
             var matchedComm = commInvoices.Where(i =>
@@ -1823,15 +1861,17 @@ public sealed class DemoDb
         }
 
         // 4. Công nợ Kỹ thuật lắp đặt (Phụ cấp / Công lắp) — tách riêng theo từng Kỳ Tháng/Năm
+        var allSrvInvs = allValidInvs.Where(x => x.Type == "SERVICE").ToList();
         var srvInvs = invs.Where(x => x.Type == "SERVICE").ToList();
         foreach (var g in srvInvs
             .GroupBy(x => (x.PeriodKey, x.PeriodLabel, Partner: x.Customer))
             .OrderByDescending(g => g.Key.PeriodKey)
             .ThenBy(g => g.Key.Partner))
         {
-            var carryOld = srvInvs
+            var cutoff = ResolveCarryCutoff(g.Key.PeriodKey, from);
+            var carryOld = allSrvInvs
                 .Where(x => string.Equals(x.Customer, g.Key.Partner, StringComparison.OrdinalIgnoreCase)
-                         && string.CompareOrdinal(x.PeriodKey, g.Key.PeriodKey) < 0)
+                         && x.TimestampDt.HasValue && x.TimestampDt.Value < cutoff)
                 .Sum(x => x.Balance);
             list.Add(new PartnerDebtSummaryVm(
                 "TECH",
@@ -1878,7 +1918,7 @@ public sealed class DemoDb
                 ? "Thu khách / Thu công nợ"
                 : category == "PURCHASE" ? "Chi nhập hàng NCC" : "Chi thanh toán công nợ / chi phí";
             var fullNote = $"{catLabel}: {(string.IsNullOrWhiteSpace(partnerName) ? "Đối tác" : partnerName.Trim())} — {(string.IsNullOrWhiteSpace(note) ? catLabel : note.Trim())}";
-            Exec(c, t, "INSERT INTO payments(payment_no,direction,method,amount_vnd,notes) VALUES($n,$d,$m,$a,$note)",
+            Exec(c, t, "INSERT INTO payments(payment_no,direction,paid_at,method,amount_vnd,notes) VALUES($n,$d,datetime('now','+7 hours'),$m,$a,$note)",
                 ("$n", no), ("$d", direction), ("$m", method), ("$a", amount), ("$note", fullNote));
             var pid = N(c, t, "SELECT last_insert_rowid()");
             Log(c, t, "CASHBOOK", "PAYMENT", pid, $"{no} ({direction}/{method}): {amount:N0} VND - {fullNote}");
@@ -1905,8 +1945,24 @@ public sealed class DemoDb
             _ => "CT-"
         };
         var total = quantity * unitPriceVnd;
-        var issued = string.IsNullOrWhiteSpace(issuedAt) ? DateTime.Today.ToString("yyyy-MM-dd") : issuedAt.Trim();
-        var due = string.IsNullOrWhiteSpace(dueAt) ? DateTime.Today.AddDays(15).ToString("yyyy-MM-dd") : dueAt.Trim();
+        string issued;
+        if (string.IsNullOrWhiteSpace(issuedAt))
+        {
+            issued = VnDateTimeHelper.NowSql();
+        }
+        else if (VnDateTimeHelper.TryParseUserFilterInput(issuedAt, false, out var parsedIssued, out _))
+        {
+            // Nếu chỉ nhập ngày (00:00:00) thì gắn giờ thực tế hiện tại giờ VN
+            var rawTrim = issuedAt.Trim();
+            if (rawTrim.Length <= 10)
+                parsedIssued = parsedIssued.Date + VnDateTimeHelper.NowVn.TimeOfDay;
+            issued = parsedIssued.ToString(VnDateTimeHelper.SqlFormat, CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            issued = issuedAt.Trim();
+        }
+        var due = string.IsNullOrWhiteSpace(dueAt) ? VnDateTimeHelper.TodayVn.AddDays(15).ToString("yyyy-MM-dd") : dueAt.Trim();
         var noteText = string.IsNullOrWhiteSpace(partnerLabel) ? description.Trim() : $"{partnerLabel.Trim()} — {description.Trim()}";
 
         return Tx((c,t) => {
@@ -1931,7 +1987,7 @@ public sealed class DemoDb
         var direction = invoiceType is "SALE" or "RENEWAL" ? "IN" : "OUT";
         var prefix = direction == "IN" ? "PT-" : "PC-";
         var no = prefix + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-        Exec(c,t,"INSERT INTO payments(payment_no,direction,method,amount_vnd) VALUES($n,$d,$m,$a)",
+        Exec(c,t,"INSERT INTO payments(payment_no,direction,paid_at,method,amount_vnd) VALUES($n,$d,datetime('now','+7 hours'),$m,$a)",
           ("$n",no),("$d",direction),("$m",method),("$a",amount));
         var paymentId = N(c,t,"SELECT last_insert_rowid()");
         Exec(c,t,"INSERT INTO payment_allocations(payment_id,invoice_id,allocated_vnd) VALUES($p,$i,$a)",
@@ -2273,7 +2329,15 @@ public sealed class DemoDb
         using var c = Open();
         var orders = Query(c, @"
             SELECT o.id, o.code,
-                   COALESCE(substr(o.completed_at,1,19), substr(o.created_at,1,19), ''),
+                   CASE
+                     WHEN o.completed_at IS NOT NULL AND COALESCE(trim(o.activated_at),'')<>''
+                       THEN trim(o.activated_at) || substr(datetime(o.completed_at,'+7 hours'),11,9)
+                     WHEN o.completed_at IS NOT NULL
+                       THEN datetime(o.completed_at,'+7 hours')
+                     WHEN o.created_at IS NOT NULL
+                       THEN datetime(o.created_at,'+7 hours')
+                     ELSE ''
+                   END AS resolved_completed_at,
                    COALESCE(o.activated_at, ''),
                    COALESCE(cu.code, ''),
                    CASE WHEN COALESCE(cu.representative_name,'')<>'' THEN cu.name || ' (ĐD: ' || cu.representative_name || ')' ELSE cu.name END,
@@ -2303,7 +2367,7 @@ public sealed class DemoDb
             JOIN products p ON p.id = o.product_id
             LEFT JOIN v7_sellers sl ON sl.id = COALESCE(o.seller_record_id, cu.seller_id)
             WHERE o.status <> 'CANCELLED' AND o.deleted_at IS NULL
-            ORDER BY CASE WHEN o.status='COMPLETED' THEN 0 ELSE 1 END, o.id DESC",
+            ORDER BY CASE WHEN o.status='COMPLETED' THEN 0 ELSE 1 END, resolved_completed_at DESC, o.id DESC",
             r => new CompletedOrderSnapshotVm(
                 L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
                 r.IsDBNull(7) ? null : L(r,7),
@@ -2312,8 +2376,15 @@ public sealed class DemoDb
         // Bổ sung các chứng từ SALE thiết bị đang hoạt động của Khách hàng/HTX (không qua v7_orders) để Kế toán thống kê đầy đủ Snapshot
         var actBatches = Query(c, @"
             SELECT i.id, i.invoice_no,
-                   COALESCE(substr(i.issued_at,1,19), ''),
-                   COALESCE(substr(i.issued_at,1,10), ''),
+                   CASE
+                     WHEN length(trim(COALESCE(i.issued_at,''))) > 10 THEN replace(substr(trim(i.issued_at),1,19),'T',' ')
+                     WHEN i.created_at IS NOT NULL AND substr(datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(i.issued_at)
+                       THEN datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours')
+                     WHEN i.invoice_no LIKE 'HD-KH%'
+                       THEN trim(i.issued_at) || ' 23:59:59'
+                     ELSE trim(COALESCE(i.issued_at,'')) || ' 00:00:00'
+                   END AS resolved_issued_at,
+                   COALESCE(substr(trim(i.issued_at),1,10), ''),
                    COALESCE(cu.code, ''),
                    CASE WHEN COALESCE(cu.representative_name,'')<>'' THEN cu.name || ' (ĐD: ' || cu.representative_name || ')' ELSE cu.name END,
                    '',
@@ -2336,7 +2407,7 @@ public sealed class DemoDb
             JOIN customers cu ON cu.id = i.customer_id
             LEFT JOIN v7_sellers sl ON sl.id = cu.seller_id
             WHERE i.invoice_type = 'SALE' AND i.v7_order_id IS NULL AND i.status <> 'VOID' AND i.deleted_at IS NULL
-            ORDER BY i.issued_at DESC, i.id DESC",
+            ORDER BY resolved_issued_at DESC, i.id DESC",
             r => new CompletedOrderSnapshotVm(
                 -L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
                 r.IsDBNull(7) ? null : L(r,7),
@@ -2346,49 +2417,61 @@ public sealed class DemoDb
         return orders;
     }
 
-    public List<SellerPeriodStatVm> SellerPeriodStats()
+    public List<SellerPeriodStatVm> SellerPeriodStats(DateTime? from = null, DateTime? to = null)
     {
         using var c = Open();
-        return Query(c, @"
+        string? fromSql = from?.ToString(VnDateTimeHelper.SqlFormat, CultureInfo.InvariantCulture);
+        string? toSql = to?.ToString(VnDateTimeHelper.SqlFormat, CultureInfo.InvariantCulture);
+
+        const string ordTs = "CASE WHEN o.completed_at IS NOT NULL AND COALESCE(trim(o.activated_at),'')<>'' THEN trim(o.activated_at)||substr(datetime(o.completed_at,'+7 hours'),11,9) WHEN o.completed_at IS NOT NULL THEN datetime(o.completed_at,'+7 hours') ELSE datetime(o.created_at,'+7 hours') END";
+        const string invTs = "CASE WHEN length(trim(COALESCE(i.issued_at,'')))>10 THEN replace(substr(trim(i.issued_at),1,19),'T',' ') WHEN i.created_at IS NOT NULL AND substr(datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(i.issued_at) THEN datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours') ELSE trim(COALESCE(i.issued_at,''))||' 00:00:00' END";
+        const string renTs = "CASE WHEN length(trim(COALESCE(r.renewed_at,'')))>10 THEN replace(substr(trim(r.renewed_at),1,19),'T',' ') WHEN r.created_at IS NOT NULL AND substr(datetime(replace(substr(r.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(r.renewed_at) THEN datetime(replace(substr(r.created_at,1,19),'T',' '),'+7 hours') ELSE trim(COALESCE(r.renewed_at,''))||' 00:00:00' END";
+
+        var ordRangeCond = $"AND ($from IS NULL OR ({ordTs}) >= $from) AND ($to IS NULL OR ({ordTs}) <= $to)";
+        var invRangeCond = $"AND ($from IS NULL OR ({invTs}) >= $from) AND ($to IS NULL OR ({invTs}) <= $to)";
+        var renRangeCond = $"AND ($from IS NULL OR ({renTs}) >= $from) AND ($to IS NULL OR ({renTs}) <= $to)";
+
+        return Query(c, $@"
             SELECT s.id, s.code, s.full_name, COALESCE(s.phone,''), COALESCE(s.department,'Kinh doanh / Sale'),
                    COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
                    (SELECT COUNT(*) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED' {ordRangeCond}
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
                    + (SELECT COUNT(*) FROM invoices i JOIN customers cu ON cu.id=i.customer_id
-                      WHERE i.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND i.status<>'VOID' AND cu.seller_id=s.id),
+                      WHERE i.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND i.status<>'VOID' AND cu.seller_id=s.id {invRangeCond}),
                    (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED' {ordRangeCond}
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
                    + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN products p ON p.id=il.product_id JOIN customers cu ON cu.id=i.customer_id
-                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND p.is_serialized=1 AND i.status<>'VOID' AND cu.seller_id=s.id),
+                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND p.is_serialized=1 AND i.status<>'VOID' AND cu.seller_id=s.id {invRangeCond}),
                    (SELECT COALESCE(SUM(o.unit_price_vnd),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED' {ordRangeCond}
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
                    + (SELECT COALESCE(SUM(i.amount_vnd),0) FROM invoices i JOIN customers cu ON cu.id=i.customer_id
-                      WHERE i.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND i.status<>'VOID' AND cu.seller_id=s.id),
+                      WHERE i.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND i.status<>'VOID' AND cu.seller_id=s.id {invRangeCond}),
                    (SELECT COALESCE(SUM(o.unit_cost_snapshot_vnd),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED' {ordRangeCond}
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
                    + (SELECT COALESCE(SUM(il.quantity * COALESCE(p.base_cost_vnd,0)),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id LEFT JOIN products p ON p.id=il.product_id JOIN customers cu ON cu.id=i.customer_id
-                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND i.status<>'VOID' AND cu.seller_id=s.id),
+                      WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND i.status<>'VOID' AND cu.seller_id=s.id {invRangeCond}),
                    (SELECT COALESCE(SUM(COALESCE(o.installer_fee_vnd,0)),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED' {ordRangeCond}
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
                    (SELECT COUNT(*) FROM renewals r
-                    WHERE r.deleted_at IS NULL
+                    WHERE r.deleted_at IS NULL {renRangeCond}
                       AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
                    (SELECT COALESCE(SUM(r.amount_vnd),0) FROM renewals r
-                    WHERE r.deleted_at IS NULL
+                    WHERE r.deleted_at IS NULL {renRangeCond}
                       AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
                    (SELECT COALESCE(SUM(i.amount_vnd),0) FROM invoices i
-                    WHERE i.deleted_at IS NULL AND i.invoice_type='COMMISSION' AND i.status<>'VOID'
+                    WHERE i.deleted_at IS NULL AND i.invoice_type='COMMISSION' AND i.status<>'VOID' {invRangeCond}
                       AND (i.notes LIKE '%'||s.code||'%' OR i.notes LIKE '%'||s.full_name||'%'))
             FROM v7_sellers s
             WHERE s.deleted_at IS NULL
             ORDER BY s.id ASC",
             r => new SellerPeriodStatVm(
                 L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), L(r,6),
-                L(r,7), L(r,8), L(r,9), L(r,10), L(r,11), L(r,12), L(r,13), L(r,14)));
+                L(r,7), L(r,8), L(r,9), L(r,10), L(r,11), L(r,12), L(r,13), L(r,14)),
+            ("$from", fromSql), ("$to", toSql));
     }
 }

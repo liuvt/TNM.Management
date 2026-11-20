@@ -1,0 +1,363 @@
+@inject IJSRuntime JS
+
+<div class="erp-filter-bar">
+    <div class="erp-filter-row">
+        <span class="erp-dt-label" title="Chuẩn định dạng thời gian: dd/MM/yyyy HH:mm:ss">
+            🕒 Khung thời gian:
+        </span>
+
+        <div class="erp-dt-group">
+            <div class="erp-dt-field @(fromInvalid ? "invalid" : "")">
+                <span class="erp-dt-prefix">Từ ngày</span>
+                <input type="text"
+                       class="erp-dt-input"
+                       value="@fromText"
+                       @oninput="OnFromInput"
+                       @onblur="ApplyTextInputsAsync"
+                       @onkeydown="OnInputKeyDownAsync"
+                       placeholder="dd/MM/yyyy HH:mm:ss"
+                       autocomplete="off"
+                       spellcheck="false"
+                       title="Nhập Từ ngày định dạng dd/MM/yyyy HH:mm:ss (hoặc dd/MM/yyyy sẽ tự điền 00:00:00)" />
+                @if (!string.IsNullOrWhiteSpace(fromText))
+                {
+                    <button type="button" class="erp-dt-clear" data-confirm="none" title="Xóa Từ ngày" @onclick="ClearFromAsync">✕</button>
+                }
+                <button type="button" class="erp-dt-picker-btn" data-confirm="none" title="Chọn Từ ngày & giờ từ lịch" @onclick="OpenFromPickerAsync">📅</button>
+                <input id="@($"{uid}-from")"
+                       type="datetime-local"
+                       step="1"
+                       class="erp-dt-native"
+                       value="@VnDateTimeHelper.ToHtmlDateTimeLocal(From)"
+                       @onchange="OnNativeFromChangedAsync"
+                       tabindex="-1" />
+            </div>
+
+            <span class="erp-dt-arrow">→</span>
+
+            <div class="erp-dt-field @(toInvalid ? "invalid" : "")">
+                <span class="erp-dt-prefix">Đến ngày</span>
+                <input type="text"
+                       class="erp-dt-input"
+                       value="@toText"
+                       @oninput="OnToInput"
+                       @onblur="ApplyTextInputsAsync"
+                       @onkeydown="OnInputKeyDownAsync"
+                       placeholder="dd/MM/yyyy HH:mm:ss"
+                       autocomplete="off"
+                       spellcheck="false"
+                       title="Nhập Đến ngày định dạng dd/MM/yyyy HH:mm:ss (hoặc dd/MM/yyyy sẽ tự điền 23:59:59)" />
+                @if (!string.IsNullOrWhiteSpace(toText))
+                {
+                    <button type="button" class="erp-dt-clear" data-confirm="none" title="Xóa Đến ngày" @onclick="ClearToAsync">✕</button>
+                }
+                <button type="button" class="erp-dt-picker-btn" data-confirm="none" title="Chọn Đến ngày & giờ từ lịch" @onclick="OpenToPickerAsync">📅</button>
+                <input id="@($"{uid}-to")"
+                       type="datetime-local"
+                       step="1"
+                       class="erp-dt-native"
+                       value="@VnDateTimeHelper.ToHtmlDateTimeLocal(To)"
+                       @onchange="OnNativeToChangedAsync"
+                       tabindex="-1" />
+            </div>
+        </div>
+
+        <button type="button" class="btn btn-sm" data-confirm="none" @onclick="ApplyTextInputsAsync">
+            🔍 Tìm kiếm
+        </button>
+
+        <div class="erp-preset-pills">
+            <button type="button" class="erp-preset-pill @(ActivePreset == "TODAY" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("TODAY")'>Hôm nay</button>
+            <button type="button" class="erp-preset-pill @(ActivePreset == "7D" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("7D")'>7 ngày</button>
+            <button type="button" class="erp-preset-pill @(ActivePreset == "THIS_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("THIS_MONTH")'>Tháng này</button>
+            <button type="button" class="erp-preset-pill @(ActivePreset == "LAST_MONTH" ? "active" : "")" data-confirm="none" @onclick='() => ApplyPresetAsync("LAST_MONTH")'>Tháng trước</button>
+            <select class="erp-preset-select" value="@ActivePreset" @onchange="OnPresetSelectAsync" title="Chọn nhanh khung thời gian chuẩn">
+                <option value="">⚡ Khung nhanh...</option>
+                <option value="ALL">Tất cả thời gian</option>
+                <option value="TODAY">Hôm nay (00:00:00 → 23:59:59)</option>
+                <option value="YESTERDAY">Hôm qua</option>
+                <option value="7D">7 ngày gần đây</option>
+                <option value="30D">30 ngày gần đây</option>
+                <option value="THIS_MONTH">Tháng này</option>
+                <option value="LAST_MONTH">Tháng trước</option>
+                <option value="THIS_QUARTER">Quý này</option>
+                <option value="THIS_YEAR">Năm nay (@VnDateTimeHelper.TodayVn.Year)</option>
+            </select>
+        </div>
+
+        @if (From.HasValue || To.HasValue || !string.IsNullOrWhiteSpace(errorMsg))
+        {
+            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ResetAllAsync">
+                ↺ Xóa lọc ngày
+            </button>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(errorMsg))
+        {
+            <span class="erp-range-error">⚠ @errorMsg</span>
+        }
+        else if (MatchedCount.HasValue)
+        {
+            <span class="erp-range-badge @(From.HasValue || To.HasValue ? "" : "all-time")">
+                @if (From.HasValue || To.HasValue)
+                {
+                    <span>✓ Đang lọc: <strong>@MatchedCount.Value</strong>@(TotalCount.HasValue ? $" / {TotalCount.Value}" : "") @UnitLabel</span>
+                }
+                else
+                {
+                    <span>Toàn thời gian: <strong>@MatchedCount.Value</strong> @UnitLabel</span>
+                }
+            </span>
+        }
+    </div>
+
+    @if (ChildContent is not null)
+    {
+        <div class="erp-filter-row secondary-row">
+            <div class="erp-filter-controls">
+                @ChildContent
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private readonly string uid = "dtr-" + Guid.NewGuid().ToString("N")[..8];
+
+    [Parameter] public DateTime? From { get; set; }
+    [Parameter] public EventCallback<DateTime?> FromChanged { get; set; }
+
+    [Parameter] public DateTime? To { get; set; }
+    [Parameter] public EventCallback<DateTime?> ToChanged { get; set; }
+
+    [Parameter] public EventCallback<(DateTime? From, DateTime? To)> OnRangeChanged { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public int? MatchedCount { get; set; }
+    [Parameter] public int? TotalCount { get; set; }
+    [Parameter] public string UnitLabel { get; set; } = "bản ghi";
+
+    private DateTime? _syncedFrom;
+    private DateTime? _syncedTo;
+    private bool _initialized;
+    private string fromText = "";
+    private string toText = "";
+    private bool fromInvalid;
+    private bool toInvalid;
+    private string errorMsg = "";
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized || _syncedFrom != From || _syncedTo != To)
+        {
+            _initialized = true;
+            _syncedFrom = From;
+            _syncedTo = To;
+            fromText = From.HasValue ? VnDateTimeHelper.FormatDisplay(From.Value) : "";
+            toText = To.HasValue ? VnDateTimeHelper.FormatDisplay(To.Value) : "";
+            fromInvalid = false;
+            toInvalid = false;
+            errorMsg = "";
+        }
+    }
+
+    private string ActivePreset
+    {
+        get
+        {
+            if (!From.HasValue && !To.HasValue) return "ALL";
+            if (!From.HasValue || !To.HasValue) return "";
+            var today = VnDateTimeHelper.TodayVn;
+            var endToday = today.AddHours(23).AddMinutes(59).AddSeconds(59);
+
+            if (From.Value == today && To.Value == endToday) return "TODAY";
+            var yesterday = today.AddDays(-1);
+            if (From.Value == yesterday && To.Value == yesterday.AddHours(23).AddMinutes(59).AddSeconds(59)) return "YESTERDAY";
+            if (From.Value == today.AddDays(-6) && To.Value == endToday) return "7D";
+            if (From.Value == today.AddDays(-29) && To.Value == endToday) return "30D";
+
+            var firstThisMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0);
+            var endThisMonth = firstThisMonth.AddMonths(1).AddSeconds(-1);
+            if (From.Value == firstThisMonth && To.Value == endThisMonth) return "THIS_MONTH";
+
+            var firstLastMonth = firstThisMonth.AddMonths(-1);
+            var endLastMonth = firstThisMonth.AddSeconds(-1);
+            if (From.Value == firstLastMonth && To.Value == endLastMonth) return "LAST_MONTH";
+
+            var qStartMonth = ((today.Month - 1) / 3) * 3 + 1;
+            var firstThisQuarter = new DateTime(today.Year, qStartMonth, 1, 0, 0, 0);
+            var endThisQuarter = firstThisQuarter.AddMonths(3).AddSeconds(-1);
+            if (From.Value == firstThisQuarter && To.Value == endThisQuarter) return "THIS_QUARTER";
+
+            var firstThisYear = new DateTime(today.Year, 1, 1, 0, 0, 0);
+            var endThisYear = new DateTime(today.Year, 12, 31, 23, 59, 59);
+            if (From.Value == firstThisYear && To.Value == endThisYear) return "THIS_YEAR";
+
+            return "";
+        }
+    }
+
+    private void OnFromInput(ChangeEventArgs e)
+    {
+        fromText = e.Value?.ToString() ?? "";
+        fromInvalid = false;
+        errorMsg = "";
+    }
+
+    private void OnToInput(ChangeEventArgs e)
+    {
+        toText = e.Value?.ToString() ?? "";
+        toInvalid = false;
+        errorMsg = "";
+    }
+
+    private async Task OnInputKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ApplyTextInputsAsync();
+        }
+    }
+
+    private async Task OpenFromPickerAsync() => await JS.InvokeVoidAsync("tnmOpenDateTimePicker", $"{uid}-from");
+    private async Task OpenToPickerAsync() => await JS.InvokeVoidAsync("tnmOpenDateTimePicker", $"{uid}-to");
+
+    private async Task OnNativeFromChangedAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            await ClearFromAsync();
+            return;
+        }
+        var dt = VnDateTimeHelper.ParseDbTimestamp(raw, false);
+        if (dt.HasValue)
+        {
+            await CommitRangeAsync(dt.Value, To);
+        }
+    }
+
+    private async Task OnNativeToChangedAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            await ClearToAsync();
+            return;
+        }
+        var dt = VnDateTimeHelper.ParseDbTimestamp(raw, false);
+        if (dt.HasValue)
+        {
+            // Nếu trước đó chưa chọn Đến ngày và trình duyệt trả mặc định 00:00:00, tự nâng lên 23:59:59 cuối ngày
+            if (!To.HasValue && dt.Value.TimeOfDay == TimeSpan.Zero)
+            {
+                dt = dt.Value.Date.AddHours(23).AddMinutes(59).AddSeconds(59);
+            }
+            await CommitRangeAsync(From, dt.Value);
+        }
+    }
+
+    private async Task ClearFromAsync() => await CommitRangeAsync(null, To);
+    private async Task ClearToAsync() => await CommitRangeAsync(From, null);
+    private async Task ResetAllAsync() => await CommitRangeAsync(null, null);
+
+    private async Task OnPresetSelectAsync(ChangeEventArgs e)
+    {
+        var code = e.Value?.ToString() ?? "";
+        if (!string.IsNullOrWhiteSpace(code))
+            await ApplyPresetAsync(code);
+    }
+
+    private async Task ApplyPresetAsync(string preset)
+    {
+        var today = VnDateTimeHelper.TodayVn;
+        var endToday = today.AddHours(23).AddMinutes(59).AddSeconds(59);
+        var firstThisMonth = new DateTime(today.Year, today.Month, 1, 0, 0, 0);
+
+        (DateTime? f, DateTime? t) = preset switch
+        {
+            "ALL" => (null, null),
+            "TODAY" => (today, endToday),
+            "YESTERDAY" => (today.AddDays(-1), today.AddDays(-1).AddHours(23).AddMinutes(59).AddSeconds(59)),
+            "7D" => (today.AddDays(-6), endToday),
+            "30D" => (today.AddDays(-29), endToday),
+            "THIS_MONTH" => (firstThisMonth, firstThisMonth.AddMonths(1).AddSeconds(-1)),
+            "LAST_MONTH" => (firstThisMonth.AddMonths(-1), firstThisMonth.AddSeconds(-1)),
+            "THIS_QUARTER" => (
+                new DateTime(today.Year, ((today.Month - 1) / 3) * 3 + 1, 1, 0, 0, 0),
+                new DateTime(today.Year, ((today.Month - 1) / 3) * 3 + 1, 1, 0, 0, 0).AddMonths(3).AddSeconds(-1)),
+            "THIS_YEAR" => (new DateTime(today.Year, 1, 1, 0, 0, 0), new DateTime(today.Year, 12, 31, 23, 59, 59)),
+            _ => (From, To)
+        };
+
+        await CommitRangeAsync(f, t);
+    }
+
+    private async Task ApplyTextInputsAsync()
+    {
+        fromInvalid = false;
+        toInvalid = false;
+        errorMsg = "";
+
+        DateTime? parsedFrom = null;
+        DateTime? parsedTo = null;
+
+        if (!string.IsNullOrWhiteSpace(fromText))
+        {
+            if (VnDateTimeHelper.TryParseUserFilterInput(fromText, false, out var fDt, out _))
+            {
+                parsedFrom = fDt;
+            }
+            else
+            {
+                fromInvalid = true;
+                errorMsg = "Từ ngày chưa đúng định dạng dd/MM/yyyy HH:mm:ss";
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(toText))
+        {
+            if (VnDateTimeHelper.TryParseUserFilterInput(toText, true, out var tDt, out _))
+            {
+                parsedTo = tDt;
+            }
+            else
+            {
+                toInvalid = true;
+                errorMsg = "Đến ngày chưa đúng định dạng dd/MM/yyyy HH:mm:ss";
+                return;
+            }
+        }
+
+        await CommitRangeAsync(parsedFrom, parsedTo);
+    }
+
+    private async Task CommitRangeAsync(DateTime? nextFrom, DateTime? nextTo)
+    {
+        fromInvalid = false;
+        toInvalid = false;
+        errorMsg = "";
+
+        // Tự động đảo chiều thông minh nếu người dùng nhập Từ ngày > Đến ngày
+        if (nextFrom.HasValue && nextTo.HasValue && nextFrom.Value > nextTo.Value)
+        {
+            (nextFrom, nextTo) = (nextTo, nextFrom);
+        }
+
+        _syncedFrom = nextFrom;
+        _syncedTo = nextTo;
+        fromText = nextFrom.HasValue ? VnDateTimeHelper.FormatDisplay(nextFrom.Value) : "";
+        toText = nextTo.HasValue ? VnDateTimeHelper.FormatDisplay(nextTo.Value) : "";
+
+        var changed = From != nextFrom || To != nextTo;
+        From = nextFrom;
+        To = nextTo;
+
+        if (changed)
+        {
+            await FromChanged.InvokeAsync(nextFrom);
+            await ToChanged.InvokeAsync(nextTo);
+            await OnRangeChanged.InvokeAsync((nextFrom, nextTo));
+        }
+    }
+}

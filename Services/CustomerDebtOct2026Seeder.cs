@@ -120,6 +120,11 @@ public static class CustomerDebtOct2026Seeder
                     }
                 }
             }
+
+            // 4. Chuẩn hóa mốc giờ:phút:giây (yyyy-MM-dd HH:mm:ss) cho các bảng kê cuối kỳ & phiếu thu đối soát
+            Exec(c, tx, "UPDATE payments SET paid_at='2026-10-31 08:54:00' WHERE payment_no='TT002098' AND length(trim(paid_at))<=10");
+            Exec(c, tx, "UPDATE payments SET paid_at='2026-10-28 16:01:00' WHERE payment_no='TT002051' AND length(trim(paid_at))<=10");
+            Exec(c, tx, "UPDATE invoices SET issued_at=trim(issued_at)||' 23:59:59' WHERE (invoice_no LIKE 'HD-KH%-T__' OR invoice_no LIKE 'CL-KT%-T__') AND length(trim(issued_at))=10");
         }
         finally
         {
@@ -311,7 +316,7 @@ public static class CustomerDebtOct2026Seeder
                 new SeedLine("DX00002", "[29/10/2026 16:49 · HD004305] Định vị Nasa - NCC TNM (SP000119) — Văn Đương 81H07123", 1, 700000),
             ],
             [
-                new SeedPayment("TT002098", "2026-10-31", 6180000, "TT002098 (31/10/2026 08:54) — Trừ thu hộ T10 · KH Đăng Tiến (HTX Sao Việt)"),
+                new SeedPayment("TT002098", "2026-10-31 08:54:00", 6180000, "TT002098 (31/10/2026 08:54) — Trừ thu hộ T10 · KH Đăng Tiến (HTX Sao Việt)"),
             ]),
         new SeedStatement(
             "HD-KH001687-T10", "Cty Đi Xanh", "KH001687", "", "10/2026", "2026-10-31", "2026-11-15",
@@ -348,7 +353,7 @@ public static class CustomerDebtOct2026Seeder
                 new SeedLine("DX00023", "[28/10/2026 10:42 · HD004314.01] Dịch vụ lắp đặt -CAM (SP000004) — ĐI XANH (Tháo camera) 60H37467", 1, 300000),
             ],
             [
-                new SeedPayment("TT002051", "2026-10-28", 23483310, "TT002051 (28/10/2026 16:01) — Thanh toán công nợ T10/2026 · KH Cty Đi Xanh"),
+                new SeedPayment("TT002051", "2026-10-28 16:01:00", 23483310, "TT002051 (28/10/2026 16:01) — Thanh toán công nợ T10/2026 · KH Cty Đi Xanh"),
             ]),
         new SeedStatement(
             "HD-KH000080-T10", "Hải Vân Xe Hợp Đồng", "KH000080", "0327999532", "10/2026", "2026-10-31", "2026-11-15",

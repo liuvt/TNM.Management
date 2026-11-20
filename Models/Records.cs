@@ -1,3 +1,5 @@
+using TNM.Management.Services;
+
 namespace TNM.Management.Models;
 
 public record DashboardVm(long Products, long Customers, long Stock, long Consigned, long Active, long Due30,
@@ -20,11 +22,11 @@ public record InvoiceLineVm(long Id, long InvoiceId, string Description, string 
 }
 public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0)
 {
-    public string PeriodKey => !string.IsNullOrWhiteSpace(PaidAt) && PaidAt.Length >= 7 && PaidAt[4] == '-'
-        ? PaidAt[..7]
-        : DateTime.Today.ToString("yyyy-MM");
-    public int PeriodYear => PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : DateTime.Today.Year;
-    public int PeriodMonth => PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : DateTime.Today.Month;
+    public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(PaidAt, false);
+    public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(PaidAt, false);
+    public string PeriodKey => TimestampDt.HasValue ? TimestampDt.Value.ToString("yyyy-MM") : (!string.IsNullOrWhiteSpace(PaidAt) && PaidAt.Length >= 7 && PaidAt[4] == '-' ? PaidAt[..7] : DateTime.Today.ToString("yyyy-MM"));
+    public int PeriodYear => TimestampDt?.Year ?? (PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : DateTime.Today.Year);
+    public int PeriodMonth => TimestampDt?.Month ?? (PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : DateTime.Today.Month);
     public string PeriodLabel => $"Tháng {PeriodMonth:D2}/{PeriodYear}";
 }
 public record CashBookSummaryVm(
@@ -64,12 +66,28 @@ public record InvoiceVm(long Id, string Code, string Type, string Customer, long
 {
     public long Balance => Total - Paid;
     public bool IsReceivable => Type is "SALE" or "RENEWAL";
-    public string PeriodKey => !string.IsNullOrWhiteSpace(CreatedAt) && CreatedAt.Length >= 7 && CreatedAt[4] == '-'
-        ? CreatedAt[..7]
-        : DateTime.Today.ToString("yyyy-MM");
-    public int PeriodYear => PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : DateTime.Today.Year;
-    public int PeriodMonth => PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : DateTime.Today.Month;
+    public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(CreatedAt, false);
+    public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(CreatedAt, false);
+    public string DisplayDueDate => VnDateTimeHelper.FormatDateOnly(DueAt);
+    public string PeriodKey => TimestampDt.HasValue ? TimestampDt.Value.ToString("yyyy-MM") : (!string.IsNullOrWhiteSpace(CreatedAt) && CreatedAt.Length >= 7 && CreatedAt[4] == '-' ? CreatedAt[..7] : VnDateTimeHelper.TodayVn.ToString("yyyy-MM"));
+    public int PeriodYear => TimestampDt?.Year ?? (PeriodKey.Length >= 4 && int.TryParse(PeriodKey[..4], out var y) ? y : VnDateTimeHelper.TodayVn.Year);
+    public int PeriodMonth => TimestampDt?.Month ?? (PeriodKey.Length >= 7 && int.TryParse(PeriodKey[5..7], out var m) ? m : VnDateTimeHelper.TodayVn.Month);
     public string PeriodLabel => $"Tháng {PeriodMonth:D2}/{PeriodYear}";
+
+    public bool MatchesRange(DateTime? from, DateTime? to)
+    {
+        if (!from.HasValue && !to.HasValue) return true;
+        if (VnDateTimeHelper.InRange(TimestampDt, from, to)) return true;
+        if (Code.StartsWith("HD-KH", StringComparison.OrdinalIgnoreCase) && Lines is { Count: > 1 })
+        {
+            return Lines.Any(l =>
+            {
+                var ldt = VnDateTimeHelper.TryExtractLineTimestamp(l.Description, null);
+                return ldt.HasValue && VnDateTimeHelper.InRange(ldt, from, to);
+            });
+        }
+        return false;
+    }
 }
 public record LedgerVm(long Id, string At, string Type, string Sku, string Imei, string Target, string Actor);
 public record AuditVm(long Id, string At, string Actor, string Action, string Entity, string Details);
@@ -104,6 +122,12 @@ public record CompletedOrderSnapshotVm(
 {
     public long GrossProfitSnapshotVnd => RevenueSnapshotVnd - CostSnapshotVnd - InstallerFeeSnapshotVnd;
     public bool IsLocked => OrderStatus is "COMPLETED" or "ACTIVATION_BATCH";
+    public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(!string.IsNullOrWhiteSpace(CompletedAt) ? CompletedAt : ActivatedAt, false);
+    public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(!string.IsNullOrWhiteSpace(CompletedAt) ? CompletedAt : ActivatedAt, false);
+    public string DisplayActivatedDate => !string.IsNullOrWhiteSpace(ActivatedAt) ? VnDateTimeHelper.FormatDateOnly(ActivatedAt) : DisplayTimestamp;
+    public string PeriodKey => TimestampDt.HasValue ? TimestampDt.Value.ToString("yyyy-MM") : VnDateTimeHelper.TodayVn.ToString("yyyy-MM");
+    public int PeriodYear => TimestampDt?.Year ?? VnDateTimeHelper.TodayVn.Year;
+    public int PeriodMonth => TimestampDt?.Month ?? VnDateTimeHelper.TodayVn.Month;
 }
 public record SellerPeriodStatVm(
     long SellerId,

@@ -36,6 +36,19 @@ window.tnmScrollCatalogEditor = function () {
     document.getElementById('catalog-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
+window.tnmOpenDateTimePicker = function (inputId) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    try {
+        if (typeof el.showPicker === 'function') {
+            el.showPicker();
+            return;
+        }
+    } catch (_) { }
+    el.focus();
+    el.click();
+};
+
 (function () {
     const STORAGE_INPUTS_KEY = 'tnm_pending_inputs_v1';
     const STORAGE_CLICKS_KEY = 'tnm_pending_clicks_v1';
@@ -138,7 +151,7 @@ window.tnmScrollCatalogEditor = function () {
         }
 
         // Ignore navigation, sidebar, topbar, tabs, summary filter bars, and pagination controls
-        if (btn.closest('.sidebar, .topbar, .tabs, .device-summary-bar, .device-due10-note, .table-pager, .catalog-pagination')) return null;
+        if (btn.closest('.sidebar, .topbar, .tabs, .device-summary-bar, .device-due10-note, .table-pager, .catalog-pagination, .erp-filter-bar')) return null;
         if (btn.classList.contains('mobile-scrim') || btn.classList.contains('mobile-toggle')) return null;
         if (/^(«|‹|›|»|\d+$)/.test(rawText) || rawText === '« Đầu' || rawText === '‹ Trước' || rawText === 'Sau ›' || rawText === 'Cuối »') return null;
 
