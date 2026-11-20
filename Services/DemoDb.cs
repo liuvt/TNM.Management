@@ -202,6 +202,8 @@ public sealed class DemoDb
             CustomerDebtOct2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
             // Đồng bộ chi tiết công nợ Nhà cung cấp NCC Nasa kỳ Tháng 10/2026 (còn nợ 62,680,000 ₫)
             SupplierDebtNasaOct2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
+            // Đối soát tồn kho cũ đầu kỳ (= 0 ₫), bổ sung CN T10 (TDC 51.5tr, Xanh GPS 84.05tr) & khôi phục các đơn nhập kho T11 (Nasa 60 ĐV + TDC 4 phiếu)
+            SupplierDebtReconcileNov2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
         }
     }
 
@@ -302,30 +304,14 @@ public sealed class DemoDb
         {
             if (devId > 0) ActorId = devId;
 
-            // Khôi phục 2 mã tồn kho chưa thanh toán (Tài xế công nghệ TDC & Xanh GPS MID) về trạng thái Chưa tất toán (OPEN), Chưa chốt số, Còn công nợ;
-            // chỉ giữ Đã tất toán & Chốt số = 0 cho Tồn kho cũ đã trả của CHEMTEC (NK-NCC00005-TONKHO) và Nasa (NK-NCC00003-TONKHO, đã theo bảng kê T10)
-            Exec(c, t, @"
-                UPDATE invoices
-                SET status = 'OPEN',
-                    is_locked = 0,
-                    locked_at = NULL,
-                    locked_by = NULL,
-                    notes = REPLACE(notes, 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0', 'Công nợ Nhà cung cấp theo Tồn kho thực tế')
-                WHERE invoice_no IN ('NK-NCC00001-TONKHO', 'NK-NCC00002-TONKHO')
-                  AND deleted_at IS NULL
-                  AND notes LIKE 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0%'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM payment_allocations pa
-                      WHERE pa.invoice_id = invoices.id AND pa.deleted_at IS NULL
-                  )");
-
+            // Tồn kho cũ đầu kỳ (NK-NCC00001..5-TONKHO) đã tất toán & chốt số đưa về 0; công nợ T10 & các phiếu nhập kho T11 được tách riêng độc lập
             Exec(c, t, @"
                 UPDATE invoices
                 SET status = 'PAID',
                     is_locked = 1,
                     locked_at = COALESCE(NULLIF(locked_at,''), datetime('now','+7 hours')),
                     notes = REPLACE(notes, 'Công nợ Nhà cung cấp theo Tồn kho thực tế', 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0')
-                WHERE invoice_no IN ('NK-NCC00003-TONKHO', 'NK-NCC00005-TONKHO')
+                WHERE invoice_no IN ('NK-NCC00001-TONKHO', 'NK-NCC00002-TONKHO', 'NK-NCC00003-TONKHO', 'NK-NCC00005-TONKHO')
                   AND deleted_at IS NULL
                   AND (status <> 'PAID' OR COALESCE(is_locked, 0) = 0)");
 
@@ -349,10 +335,11 @@ public sealed class DemoDb
                       WHERE itl.stock_unit_id = stock_units.id
                   )");
 
-            // 2. Xóa toàn bộ các chứng từ PURCHASE chưa phát sinh thanh toán trước mốc chuẩn hóa tồn kho
+            // 2. Chỉ xóa các chứng từ gộp tự động từng cộng lẫn thiết bị khách hàng (tuyệt đối KHÔNG xóa phiếu nhập kho thực tế hay công nợ kỳ trước)
             const string oldUnpaidPurchaseSql = @"
                 SELECT i.id FROM invoices i
                 WHERE i.invoice_type IN ('PURCHASE','SUPPLIER')
+                  AND i.notes LIKE 'Công nợ nhập hàng / tồn kho NCC (%'
                   AND NOT EXISTS (
                       SELECT 1 FROM payment_allocations pa
                       WHERE pa.invoice_id = i.id AND pa.deleted_at IS NULL
@@ -472,10 +459,8 @@ public sealed class DemoDb
                 var supInfo = QueryAny(c, t, "SELECT code, name FROM suppliers WHERE id=$id", r => (Code: S(r, 0), Name: S(r, 1)), ("$id", supId)).FirstOrDefault();
                 var supCode = string.IsNullOrWhiteSpace(supInfo.Code) ? $"NCC{supId:D5}" : supInfo.Code;
                 var invNo = $"NK-{supCode}-TONKHO";
-                var isSettledOldStock = supCode is "NCC00003" or "NCC00005";
-                var note = isSettledOldStock
-                    ? $"Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0 ({supCode} — {supInfo.Name} · {totalQty:N0} SP)"
-                    : $"Công nợ Nhà cung cấp theo Tồn kho thực tế ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
+                var isSettledOldStock = true;
+                var note = $"Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0 ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
 
                 Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,status,is_locked,locked_at,notes)
                     VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$st,$lk,CASE WHEN $lk=1 THEN datetime('now','+7 hours') ELSE NULL END,$note)",
@@ -2330,6 +2315,7 @@ public sealed class DemoDb
             SyncSupplierStockDebtBaseline(c, t);
             CustomerDebtOct2026Seeder.EnsureSeeded(c, t, v => ActorId = v, () => ActorId);
             SupplierDebtNasaOct2026Seeder.EnsureSeeded(c, t, v => ActorId = v, () => ActorId);
+            SupplierDebtReconcileNov2026Seeder.EnsureSeeded(c, t, v => ActorId = v, () => ActorId);
 
             // 1A. Đối soát đơn mua hàng PO đã nhận (RECEIVED) nhưng chưa có chứng từ PURCHASE (loại trừ nguồn Thiết bị hoàn trả)
             var missingPos = QueryTx(c, t, @"
