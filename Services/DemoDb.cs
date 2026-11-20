@@ -302,23 +302,32 @@ public sealed class DemoDb
         {
             if (devId > 0) ActorId = devId;
 
-            // Hoàn thành tất toán & chốt số (đưa công nợ về 0) cho toàn bộ chứng từ Tồn kho cũ đầu kỳ (NK-NCC%-TONKHO)
-            var pendingBaselineSettle = N(c, t, @"
-                SELECT COUNT(*) FROM invoices
-                WHERE invoice_no LIKE 'NK-NCC%-TONKHO'
+            // Khôi phục 2 mã tồn kho chưa thanh toán (Tài xế công nghệ TDC & Xanh GPS MID) về trạng thái Chưa tất toán (OPEN), Chưa chốt số, Còn công nợ;
+            // chỉ giữ Đã tất toán & Chốt số = 0 cho Tồn kho cũ đã trả của CHEMTEC (NK-NCC00005-TONKHO) và Nasa (NK-NCC00003-TONKHO, đã theo bảng kê T10)
+            Exec(c, t, @"
+                UPDATE invoices
+                SET status = 'OPEN',
+                    is_locked = 0,
+                    locked_at = NULL,
+                    locked_by = NULL,
+                    notes = REPLACE(notes, 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0', 'Công nợ Nhà cung cấp theo Tồn kho thực tế')
+                WHERE invoice_no IN ('NK-NCC00001-TONKHO', 'NK-NCC00002-TONKHO')
                   AND deleted_at IS NULL
-                  AND (status <> 'PAID' OR COALESCE(is_locked, 0) = 0)") > 0;
-            if (pendingBaselineSettle)
-            {
-                Exec(c, t, @"
-                    UPDATE invoices
-                    SET status = 'PAID',
-                        is_locked = 1,
-                        locked_at = COALESCE(NULLIF(locked_at,''), datetime('now','+7 hours')),
-                        notes = REPLACE(notes, 'Công nợ Nhà cung cấp theo Tồn kho thực tế', 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0')
-                    WHERE invoice_no LIKE 'NK-NCC%-TONKHO'
-                      AND deleted_at IS NULL");
-            }
+                  AND notes LIKE 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0%'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM payment_allocations pa
+                      WHERE pa.invoice_id = invoices.id AND pa.deleted_at IS NULL
+                  )");
+
+            Exec(c, t, @"
+                UPDATE invoices
+                SET status = 'PAID',
+                    is_locked = 1,
+                    locked_at = COALESCE(NULLIF(locked_at,''), datetime('now','+7 hours')),
+                    notes = REPLACE(notes, 'Công nợ Nhà cung cấp theo Tồn kho thực tế', 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0')
+                WHERE invoice_no IN ('NK-NCC00003-TONKHO', 'NK-NCC00005-TONKHO')
+                  AND deleted_at IS NULL
+                  AND (status <> 'PAID' OR COALESCE(is_locked, 0) = 0)");
 
             // Chỉ thực thi chuyển đổi chuẩn một lần khi còn tồn tại chứng từ gộp cũ bị cộng lẫn thiết bị khách hàng
             var hasLegacyInflatedPurchase = N(c, t, @"
@@ -463,11 +472,17 @@ public sealed class DemoDb
                 var supInfo = QueryAny(c, t, "SELECT code, name FROM suppliers WHERE id=$id", r => (Code: S(r, 0), Name: S(r, 1)), ("$id", supId)).FirstOrDefault();
                 var supCode = string.IsNullOrWhiteSpace(supInfo.Code) ? $"NCC{supId:D5}" : supInfo.Code;
                 var invNo = $"NK-{supCode}-TONKHO";
-                var note = $"Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0 ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
+                var isSettledOldStock = supCode is "NCC00003" or "NCC00005";
+                var note = isSettledOldStock
+                    ? $"Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0 ({supCode} — {supInfo.Name} · {totalQty:N0} SP)"
+                    : $"Công nợ Nhà cung cấp theo Tồn kho thực tế ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
 
                 Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,status,is_locked,locked_at,notes)
-                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,'PAID',1,datetime('now','+7 hours'),$note)",
-                    ("$no", invNo), ("$sup", supId), ("$amt", totalAmt), ("$note", note));
+                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$st,$lk,CASE WHEN $lk=1 THEN datetime('now','+7 hours') ELSE NULL END,$note)",
+                    ("$no", invNo), ("$sup", supId), ("$amt", totalAmt),
+                    ("$st", isSettledOldStock ? "PAID" : "OPEN"),
+                    ("$lk", isSettledOldStock ? 1 : 0),
+                    ("$note", note));
                 var invId = N(c, t, "SELECT last_insert_rowid()");
 
                 foreach (var it in ordered)
