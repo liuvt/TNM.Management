@@ -292,20 +292,38 @@ public sealed class DemoDb
     /// </summary>
     private void SyncSupplierStockDebtBaseline(SqliteConnection c, SqliteTransaction? t)
     {
-        // Chỉ thực thi chuyển đổi chuẩn một lần khi còn tồn tại chứng từ gộp cũ bị cộng lẫn thiết bị khách hàng
-        var hasLegacyInflatedPurchase = N(c, t, @"
-            SELECT COUNT(*) FROM invoices
-            WHERE invoice_type IN ('PURCHASE','SUPPLIER')
-              AND deleted_at IS NULL
-              AND notes LIKE 'Công nợ nhập hàng / tồn kho NCC (%'") > 0;
-        if (!hasLegacyInflatedPurchase)
-            return;
-
         var prevActor = ActorId;
         var devId = N(c, t, "SELECT COALESCE((SELECT id FROM app_users WHERE LOWER(username)='vanlt_it' LIMIT 1), 0)");
         try
         {
             if (devId > 0) ActorId = devId;
+
+            // Hoàn thành tất toán & chốt số (đưa công nợ về 0) cho toàn bộ chứng từ Tồn kho cũ đầu kỳ (NK-NCC%-TONKHO)
+            var pendingBaselineSettle = N(c, t, @"
+                SELECT COUNT(*) FROM invoices
+                WHERE invoice_no LIKE 'NK-NCC%-TONKHO'
+                  AND deleted_at IS NULL
+                  AND (status <> 'PAID' OR COALESCE(is_locked, 0) = 0)") > 0;
+            if (pendingBaselineSettle)
+            {
+                Exec(c, t, @"
+                    UPDATE invoices
+                    SET status = 'PAID',
+                        is_locked = 1,
+                        locked_at = COALESCE(NULLIF(locked_at,''), datetime('now','+7 hours')),
+                        notes = REPLACE(notes, 'Công nợ Nhà cung cấp theo Tồn kho thực tế', 'Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0')
+                    WHERE invoice_no LIKE 'NK-NCC%-TONKHO'
+                      AND deleted_at IS NULL");
+            }
+
+            // Chỉ thực thi chuyển đổi chuẩn một lần khi còn tồn tại chứng từ gộp cũ bị cộng lẫn thiết bị khách hàng
+            var hasLegacyInflatedPurchase = N(c, t, @"
+                SELECT COUNT(*) FROM invoices
+                WHERE invoice_type IN ('PURCHASE','SUPPLIER')
+                  AND deleted_at IS NULL
+                  AND notes LIKE 'Công nợ nhập hàng / tồn kho NCC (%'") > 0;
+            if (!hasLegacyInflatedPurchase)
+                return;
 
             // 1. Gỡ liên kết supplier_id trên các thiết bị INSTALLED được import từ file thiết bị khách hàng (không qua phiếu kho)
             Exec(c, t, @"
@@ -441,10 +459,10 @@ public sealed class DemoDb
                 var supInfo = QueryAny(c, t, "SELECT code, name FROM suppliers WHERE id=$id", r => (Code: S(r, 0), Name: S(r, 1)), ("$id", supId)).FirstOrDefault();
                 var supCode = string.IsNullOrWhiteSpace(supInfo.Code) ? $"NCC{supId:D5}" : supInfo.Code;
                 var invNo = $"NK-{supCode}-TONKHO";
-                var note = $"Công nợ Nhà cung cấp theo Tồn kho thực tế ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
+                var note = $"Tồn kho cũ đầu kỳ — Đã tất toán & chốt số đưa về 0 ({supCode} — {supInfo.Name} · {totalQty:N0} SP)";
 
-                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,status,notes)
-                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,'OPEN',$note)",
+                Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,status,is_locked,locked_at,notes)
+                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,'PAID',1,datetime('now','+7 hours'),$note)",
                     ("$no", invNo), ("$sup", supId), ("$amt", totalAmt), ("$note", note));
                 var invId = N(c, t, "SELECT last_insert_rowid()");
 
@@ -479,7 +497,7 @@ public sealed class DemoDb
           K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at)>=date('now')"),
           K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at) BETWEEN date('now') AND date('now','+30 days')"),
           K("SELECT COUNT(*) FROM v7_orders WHERE status IN ('PENDING','APPROVED','DISPATCHED','REPORTED') AND deleted_at IS NULL"),
-          K("SELECT COALESCE(SUM(i.amount_vnd-COALESCE(p.paid,0)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.deleted_at IS NULL AND i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
+          K("SELECT COALESCE(SUM(CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE(p.paid,0) END),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.deleted_at IS NULL AND i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
           K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type IN ('SALE','RENEWAL') AND status!='VOID'"),
           K("SELECT COALESCE(SUM(pa.allocated_vnd),0) FROM payment_allocations pa JOIN payments p ON p.id=pa.payment_id WHERE p.deleted_at IS NULL AND pa.deleted_at IS NULL AND p.direction='IN'"),
           K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type='RENEWAL' AND status!='VOID'")
@@ -1769,6 +1787,39 @@ public sealed class DemoDb
         });
     }
 
+    public int SettleAndLockInvoicesBatch(IEnumerable<long> invoiceIds)
+    {
+        var ids = invoiceIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+        return Tx((c, t) =>
+        {
+            var count = 0;
+            foreach (var invId in ids)
+            {
+                var renId = N(c, t, "SELECT COALESCE(renewal_id, 0) FROM invoices WHERE id=$id AND deleted_at IS NULL", ("$id", invId));
+                Exec(c, t, @"UPDATE invoices
+                    SET status='PAID',
+                        is_locked=1,
+                        locked_at=COALESCE(NULLIF(locked_at,''), datetime('now','+7 hours')),
+                        locked_by=COALESCE(locked_by, $actor)
+                    WHERE id=$id AND deleted_at IS NULL AND status<>'VOID'",
+                    ("$actor", ActorId > 0 ? ActorId : null), ("$id", invId));
+                if (renId > 0)
+                {
+                    Exec(c, t, @"UPDATE renewals
+                        SET is_locked=1,
+                            locked_at=COALESCE(NULLIF(locked_at,''), datetime('now','+7 hours')),
+                            locked_by=COALESCE(locked_by, $actor)
+                        WHERE id=$rid AND deleted_at IS NULL",
+                        ("$actor", ActorId > 0 ? ActorId : null), ("$rid", renId));
+                }
+                count++;
+            }
+            Log(c, t, "SETTLE_LOCK_BATCH", "FINANCE", 0, $"Tất toán & chốt số đưa công nợ về 0 cho {count} chứng từ");
+            return count;
+        });
+    }
+
     private static void SyncUnlockedSellerCommissionInvoices(SqliteConnection c, SqliteTransaction t)
     {
         var sellers = QueryTx(c, t, @"
@@ -1821,7 +1872,7 @@ public sealed class DemoDb
             WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes, ' — ') > 0 THEN SUBSTR(i.notes, 1, INSTR(i.notes, ' — ') - 1) ELSE i.notes END
             ELSE '-'
           END AS partner_name,
-          i.amount_vnd,COALESCE(pa.paid,0),i.status,
+          i.amount_vnd,CASE WHEN i.status='PAID' THEN i.amount_vnd ELSE COALESCE(pa.paid,0) END,i.status,
           CASE
             WHEN length(trim(COALESCE(i.issued_at,''))) > 10 THEN replace(substr(trim(i.issued_at),1,19),'T',' ')
             WHEN o.completed_at IS NOT NULL AND substr(datetime(o.completed_at,'+7 hours'),1,10)=trim(i.issued_at)
@@ -2194,7 +2245,7 @@ public sealed class DemoDb
     {
         if (amount <= 0 || !(new[]{"CASH","BANK"}).Contains(method)) throw new InvalidOperationException("Số tiền và phương thức không hợp lệ.");
         Tx((c,t) => {
-            var inv = QueryTx(c,t,@"SELECT i.amount_vnd-COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL),0),i.status
+            var inv = QueryTx(c,t,@"SELECT CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL),0) END,i.status
               FROM invoices i WHERE i.id=$id AND i.deleted_at IS NULL", r => (Balance:L(r,0),Status:S(r,1)),("$id",invoiceId)).SingleOrDefault();
             if(inv.Balance < amount || inv.Status == "VOID" || inv.Status == "")
                 throw new InvalidOperationException("Thanh toán vượt công nợ hoặc chứng từ không hợp lệ.");

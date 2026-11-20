@@ -1203,6 +1203,18 @@ else
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportInvoicesExcel">📥 Xuất Excel (@FilteredInvoices.Count())</button>
+        @if (canPay && FilteredInvoices.Any(i => i.Balance > 0 && i.Status != "VOID"))
+        {
+          <button type="button"
+                  class="btn btn-sm"
+                  data-confirm="edit"
+                  data-confirm-title="Hoàn thành tất toán & chốt số đưa về 0"
+                  data-confirm-msg="Xác nhận đánh dấu Đã tất toán (PAID), đưa số dư Còn nợ về 0 ₫ và khóa sổ toàn bộ danh sách đang lọc (không trừ Sổ quỹ hiện tại)?"
+                  @onclick="SettleAndLockFilteredInvoices"
+                  title="Tất toán công nợ cũ đã thanh toán ngoài / trước kỳ, chốt số và đưa Còn nợ về 0 ₫">
+            ✓ Chốt số &amp; Đưa về 0 (@FilteredInvoices.Count(i => i.Balance > 0 && i.Status != "VOID"))
+          </button>
+        }
         @if (canPay && FilteredInvoices.Any(i => !i.IsLocked))
         {
           <button type="button" class="btn secondary btn-sm" @onclick="LockFilteredInvoices" title="Khóa sổ / chốt số toàn bộ chứng từ đang hiển thị để không cho phép sửa/xóa lịch sử gia hạn">
@@ -1351,6 +1363,16 @@ else
                   {
                     <button type="button" class="btn" data-confirm="none" style="padding:4px 8px;font-size:12px" @onclick="() => QuickPay(x)">
                       @(x.IsReceivable ? "Thu khách" : x.Type is "PURCHASE" or "SUPPLIER" ? "Chi nhập hàng" : "Chi trả")
+                    </button>
+                    <button type="button"
+                            class="btn secondary"
+                            data-confirm="edit"
+                            data-confirm-title="Chốt số & đưa công nợ về 0"
+                            data-confirm-msg="@($"Xác nhận hoàn thành tất toán & chốt số đưa chứng từ {x.Code} ({x.Customer}) về 0 ₫?")"
+                            style="padding:4px 8px;font-size:12px"
+                            @onclick="() => SettleSingleInvoice(x)"
+                            title="Hoàn thành chốt số & đưa công nợ cũ về 0 ₫ (không ảnh hưởng Sổ quỹ hiện tại)">
+                      ✓ Chốt = 0
                     </button>
                   }
                   @if (canPay && x.Status != "VOID")
@@ -2086,6 +2108,38 @@ else
       var count = Db.LockInvoicesBatch(ids, true);
       Reload();
       message = $"Đã chốt số / khóa sổ Kế toán cho {count} chứng từ.";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task SettleSingleInvoice(InvoiceVm inv)
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      await Gate.RequireAsync(PermissionForType(inv.Type));
+      Db.SettleAndLockInvoicesBatch([inv.Id]);
+      Reload();
+      message = $"Đã hoàn thành tất toán, chốt số Kế toán và đưa công nợ chứng từ {inv.Code} ({inv.Customer}) về 0 ₫.";
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task SettleAndLockFilteredInvoices()
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      var ids = FilteredInvoices.Where(x => x.Balance > 0 && x.Status != "VOID").Select(x => x.Id).ToList();
+      var count = Db.SettleAndLockInvoicesBatch(ids);
+      Reload();
+      message = $"Đã hoàn thành tất toán, chốt số Kế toán và đưa công nợ về 0 ₫ cho {count} chứng từ.";
     }
     catch (Exception ex)
     {
