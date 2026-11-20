@@ -14,7 +14,7 @@
             <div class="brand-symbol" aria-hidden="true">
                 <img src="imgs/logo.png" alt="Logo" class="brand-logo-img" />
             </div>
-            <div class="brand-text"><strong>TNM<span>.</span>Management</strong><small>Workspace</small></div>
+            <div class="brand-text"><strong>TNM<span>.</span>Management</strong><small>Quản trị thiết bị</small></div>
         </a>
         <div class="workspace-chip"><span class="workspace-dot"></span><span>Không gian quản lý TNM</span><AppIcon Name="chevron" Size="14" /></div>
         <nav class="sidebar-nav" aria-label="Menu nghiệp vụ">
@@ -23,7 +23,7 @@
                     @if (Accounts.HasPermission(nav.User, Permissions.DashboardView))
                     {
                         <div class="nav-heading">Tổng quan</div>
-                        <NavLink href="/" Match="NavLinkMatch.All"><AppIcon Name="dashboard" /> <span>Dashboard</span></NavLink>
+                        <NavLink href="/" Match="NavLinkMatch.All"><AppIcon Name="dashboard" /> <span>Bảng điều hành</span></NavLink>
                     }
                     <div class="nav-heading">Kinh doanh</div>
                     @if (Accounts.HasPermission(nav.User, Permissions.ProductsView))
@@ -67,7 +67,7 @@
                         <NavLink href="/devices">
                             <AppIcon Name="device" />
                             <span style="flex:1">Thiết bị &amp; gia hạn</span>
-                            <span class="nav-due10-badge @(due10Count > 0 ? "has-alert" : "")" title="@($"Note cảnh báo: Có {due10Count} thiết bị còn hạn từ 10 ngày trở xuống (đã loại bỏ thiết bị hết hạn)")">(@due10Count)</span>
+                            <span class="nav-due10-badge @(due10Count > 0 ? "has-alert" : "")" title="@($"Cảnh báo gia hạn: Có {due10Count} thiết bị còn hạn từ 10 ngày trở xuống (đã loại bỏ thiết bị hết hạn)")">(@due10Count)</span>
                         </NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.InventoryWarranty)) { <NavLink href="/warranties"><AppIcon Name="wrench" /> <span>Bảo hành</span></NavLink> }
@@ -99,7 +99,7 @@
         <header class="topbar">
             <div class="topbar-left">
                 <button type="button" class="mobile-toggle" aria-label="Mở menu" @onclick="ToggleMenu"><AppIcon Name="menu" Size="21" /></button>
-                <div class="breadcrumbs"><span>Workspace</span><AppIcon Name="chevron" Size="14" /><strong>Quản lý vận hành</strong></div>
+                <div class="breadcrumbs"><span>Hệ thống</span><AppIcon Name="chevron" Size="14" /><strong>Quản lý vận hành</strong></div>
             </div>
             <AuthorizeView Context="header">
                 <Authorized>
@@ -115,7 +115,7 @@
             </AuthorizeView>
         </header>
         <main class="content" data-rendered-path="@CurrentRenderedPath">
-            <div class="system-notice"><AppIcon Name="sparkles" Size="16" /><span><strong>TNM Workspace</strong> · Dữ liệu và chức năng hiển thị theo quyền tài khoản.</span></div>
+            <div class="system-notice"><AppIcon Name="sparkles" Size="16" /><span><strong>Hệ thống TNM</strong> · Dữ liệu và chức năng hiển thị theo quyền tài khoản.</span></div>
             @Body
         </main>
     </div>
@@ -141,7 +141,7 @@
     private void ToggleMenu() => mobileMenuOpen = !mobileMenuOpen;
     private void CloseMenu() => mobileMenuOpen = false;
     private static string Initials(string? display) => string.Join("", (display ?? "U").Split(' ', StringSplitOptions.RemoveEmptyEntries).TakeLast(2).Select(x => x[..1].ToUpperInvariant()));
-    private string PrimaryRole(ClaimsPrincipal principal) => Accounts.Roles(AuthRepository.PrincipalId(principal)).FirstOrDefault() ?? "Thành viên";
+    private string PrimaryRole(ClaimsPrincipal principal) => VnLabels.RoleName(Accounts.Roles(AuthRepository.PrincipalId(principal)).FirstOrDefault());
     public void Dispose()
     {
         Navigation.LocationChanged -= OnLocationChanged;

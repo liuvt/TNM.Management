@@ -137,7 +137,7 @@ else if (activeTab == "IMEI" && canImeiView)
             <select @bind="stockId">
               @foreach (var x in stock.Where(x => x.Status is "IN_STOCK" or "CONSIGNED" or "TECHNICIAN"))
               {
-                <option value="@x.Id">@x.Imei — @x.Status</option>
+                <option value="@x.Id">@x.Imei — @VnLabels.StockStatus(x.Status)</option>
               }
             </select>
           </label>
@@ -207,7 +207,7 @@ else if (activeTab == "IMEI" && canImeiView)
               <td><strong>@stt</strong></td>
               <td><strong>@s.Sku</strong></td>
               <td class="wrap-cell">@s.ProductName</td>
-              <td>@(s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng")</td>
+              <td>@(s.IsSerialized ? "Theo IMEI / Số sê-ri" : "Theo số lượng")</td>
               <td><span class="chip @(s.InStockQty > 0 ? "green-chip" : "orange-chip")" style="font-size:0.9rem;font-weight:700">@s.InStockQty.ToString("N0")</span></td>
               <td>@s.ConsignedOrTechQty.ToString("N0")</td>
               <td><strong>@s.InstalledQty.ToString("N0")</strong></td>
@@ -240,7 +240,7 @@ else if (activeTab == "IMEI" && canImeiView)
             <option value="@w.Id">@w.Name (Tồn kho: @stock.Count(s => s.Status == "IN_STOCK" && s.WarehouseId == w.Id))</option>
           }
         </select>
-        <input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, SKU, người giữ..." />
+        <input class="search-input" @bind="search" @bind:event="oninput" placeholder="Lọc IMEI, mã hàng, người giữ..." />
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportStockExcel">📥 Xuất Excel (@FilteredStock.Count())</button>
       </div>
     </div>
@@ -250,8 +250,8 @@ else if (activeTab == "IMEI" && canImeiView)
         <thead>
           <tr>
             <th>STT</th>
-            <th>IMEI / SERIAL</th>
-            <th>SKU</th>
+            <th>SỐ IMEI / SÊ-RI</th>
+            <th>MÃ HÀNG</th>
             <th>TÊN THIẾT BỊ</th>
             <th>TRẠNG THÁI</th>
             <th>VỊ TRÍ / ĐƠN VỊ GIỮ</th>
@@ -268,7 +268,7 @@ else if (activeTab == "IMEI" && canImeiView)
               <td class="wrap-cell">@x.Product</td>
               <td><span class="chip @CssStatus(x.Status)">@StatusText(x.Status)</span></td>
               <td class="wrap-cell">@x.Holder</td>
-              <td>@x.UpdatedAt</td>
+              <td>@VnDateTimeHelper.FormatDisplay(x.UpdatedAt)</td>
             </tr>
           }
         </tbody>
@@ -431,7 +431,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
             <option value="@w.Name">@w.Name (@balances.Where(b => b.Warehouse == w.Name).Sum(b => b.Quantity).ToString("N0"))</option>
           }
         </select>
-        <input class="search-input" @bind="qtySearch" @bind:event="oninput" placeholder="Lọc SKU, tên hàng, kho, vị trí..." />
+        <input class="search-input" @bind="qtySearch" @bind:event="oninput" placeholder="Lọc mã hàng, tên hàng, kho, vị trí..." />
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportBalancesExcel">📥 Xuất Excel (@FilteredBalances.Count)</button>
       </div>
     </div>
@@ -441,7 +441,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
         <thead>
           <tr>
             <th>STT</th>
-            <th>SKU</th>
+            <th>Mã hàng</th>
             <th>Tên hàng</th>
             <th>Kho</th>
             <th>Vị trí / Trạng thái</th>
@@ -473,7 +473,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
         <p>Đang hiển thị @FilteredMovements.Count / @movements.Count giao dịch.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input class="search-input" @bind="moveSearch" @bind:event="oninput" @bind:after="() => movePager.Reset()" placeholder="Lọc phiếu, SKU, kho, loại, ghi chú..." />
+        <input class="search-input" @bind="moveSearch" @bind:event="oninput" @bind:after="() => movePager.Reset()" placeholder="Lọc phiếu, mã hàng, kho, nghiệp vụ, ghi chú..." />
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportMovementsExcel">📥 Xuất Excel (@FilteredMovements.Count)</button>
       </div>
     </div>
@@ -483,12 +483,12 @@ else if (activeTab == "QUANTITY" && canQtyView)
         <thead>
           <tr>
             <th>STT</th>
-            <th>Ngày</th>
-            <th>Phiếu</th>
-            <th>SKU</th>
+            <th>Thời gian</th>
+            <th>Số phiếu</th>
+            <th>Mã hàng</th>
             <th>Kho / Vị trí</th>
             <th>Số lượng ±</th>
-            <th>Loại</th>
+            <th>Nghiệp vụ kho</th>
             <th>Ghi chú</th>
           </tr>
         </thead>
@@ -497,12 +497,12 @@ else if (activeTab == "QUANTITY" && canQtyView)
           {
             <tr>
               <td><strong>@stt</strong></td>
-              <td>@x.When</td>
+              <td>@VnDateTimeHelper.FormatDisplay(x.When)</td>
               <td>@x.Document</td>
               <td>@x.Sku</td>
               <td>@x.Warehouse / @x.Location</td>
               <td><strong>@x.Delta</strong></td>
-              <td>@x.Type</td>
+              <td><span class="chip">@VnLabels.QuantityMovementType(x.Type)</span></td>
               <td class="wrap-cell">@x.Note</td>
             </tr>
           }
@@ -558,14 +558,14 @@ else if (activeTab == "QUANTITY" && canQtyView)
 
   private List<QuantityEntry> FilteredMovements => movements.Where(x =>
     string.IsNullOrWhiteSpace(moveSearch) ||
-    ($"{x.When} {x.Document} {x.Sku} {x.Warehouse} {x.Location} {x.Type} {x.Note}").Contains(moveSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+    ($"{x.When} {x.Document} {x.Sku} {x.Warehouse} {x.Location} {VnLabels.QuantityMovementType(x.Type)} {x.Note}").Contains(moveSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
 
   private async Task ExportSummariesExcel()
   {
-    var headers = new[] { "STT", "Mã SP", "Tên sản phẩm", "Loại quản lý", "Tồn trong kho (Khả dụng)", "Ký gửi / Kỹ thuật giữ", "Đã lắp đặt / Kích hoạt" };
+    var headers = new[] { "STT", "Mã hàng", "Tên sản phẩm", "Loại quản lý", "Tồn trong kho (Khả dụng)", "Ký gửi / Kỹ thuật giữ", "Đã lắp đặt / Kích hoạt" };
     var rows = summaries.Select((s, idx) => new object?[]
     {
-      idx + 1, s.Sku, s.ProductName, s.IsSerialized ? "Theo IMEI / Serial" : "Theo số lượng", s.InStockQty, s.ConsignedOrTechQty, s.InstalledQty
+      idx + 1, s.Sku, s.ProductName, s.IsSerialized ? "Theo IMEI / Số sê-ri" : "Theo số lượng", s.InStockQty, s.ConsignedOrTechQty, s.InstalledQty
     });
     await ExcelExporter.DownloadAsync(JS, "tong-hop-ton-kho-san-pham", "Tổng hợp tồn kho", headers, rows);
   }
@@ -573,10 +573,10 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private async Task ExportStockExcel()
   {
     var list = FilteredStock.ToList();
-    var headers = new[] { "STT", "Số IMEI / Serial", "Mã SKU", "Tên thiết bị", "Trạng thái", "Vị trí / Đơn vị giữ", "Cập nhật gần nhất" };
+    var headers = new[] { "STT", "Số IMEI / Sê-ri", "Mã hàng", "Tên thiết bị", "Trạng thái", "Vị trí / Đơn vị giữ", "Cập nhật gần nhất" };
     var rows = list.Select((x, idx) => new object?[]
     {
-      idx + 1, x.Imei, x.Sku, x.Product, StatusText(x.Status), x.Holder, x.UpdatedAt
+      idx + 1, x.Imei, x.Sku, x.Product, StatusText(x.Status), x.Holder, VnDateTimeHelper.FormatDisplay(x.UpdatedAt)
     });
     await ExcelExporter.DownloadAsync(JS, "danh-sach-thiet-bi-imei", "Thiết bị IMEI", headers, rows);
   }
@@ -584,7 +584,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private async Task ExportBalancesExcel()
   {
     var list = FilteredBalances;
-    var headers = new[] { "STT", "Mã SKU", "Tên hàng", "Kho", "Vị trí / Trạng thái", "Số lượng tồn" };
+    var headers = new[] { "STT", "Mã hàng", "Tên hàng", "Kho", "Vị trí / Trạng thái", "Số lượng tồn" };
     var rows = list.Select((x, idx) => new object?[]
     {
       idx + 1, x.Sku, x.Product, x.Warehouse, x.Location, x.Quantity
@@ -595,10 +595,10 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private async Task ExportMovementsExcel()
   {
     var list = FilteredMovements;
-    var headers = new[] { "STT", "Ngày giao dịch", "Số phiếu", "Mã SKU", "Kho", "Vị trí", "Số lượng biến động (±)", "Loại giao dịch", "Ghi chú" };
+    var headers = new[] { "STT", "Thời gian giao dịch", "Số phiếu", "Mã hàng", "Kho", "Vị trí", "Số lượng biến động (±)", "Nghiệp vụ kho", "Ghi chú" };
     var rows = list.Select((x, idx) => new object?[]
     {
-      idx + 1, x.When, x.Document, x.Sku, x.Warehouse, x.Location, x.Delta, x.Type, x.Note
+      idx + 1, VnDateTimeHelper.FormatDisplay(x.When), x.Document, x.Sku, x.Warehouse, x.Location, x.Delta, VnLabels.QuantityMovementType(x.Type), x.Note
     });
     await ExcelExporter.DownloadAsync(JS, "so-giao-dich-so-luong", "Sổ GD số lượng", headers, rows);
   }
@@ -791,16 +791,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
     }
   }
 
-  private string StatusText(string s) => s switch
-  {
-    "IN_STOCK" => "Trong kho",
-    "CONSIGNED" => "Ký gửi",
-    "TECHNICIAN" => "Kỹ thuật",
-    "INSTALLED" => "Đã kích hoạt",
-    "WARRANTY" => "Bảo hành",
-    "SUPPLIER" => "Nhà cung cấp",
-    _ => s
-  };
+  private string StatusText(string s) => VnLabels.StockStatus(s);
 
   private string CssStatus(string s) => s switch
   {

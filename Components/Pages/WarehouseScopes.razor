@@ -2,19 +2,19 @@
 @attribute [Authorize(Policy=Permissions.WarehouseScopeManage)]
 @inject V6Ops Ops
 @inject PermissionGate Gate
-<PageTitle>Phạm vi kho · TNM v6</PageTitle>
-<div class="page-head"><div><div class="eyebrow">SECURITY / DATA SCOPES</div><h1>Giới hạn kho theo User</h1><p>Áp dụng tại truy vấn và giao dịch sổ kho số lượng, mua hàng, kiểm kê. Tài khoản ADMIN luôn truy cập toàn bộ kho.</p></div></div>
+<PageTitle>Phạm vi kho · TNM.Management</PageTitle>
+<div class="page-head"><div><div class="eyebrow">HỆ THỐNG / PHẠM VI KHO HÀNG</div><h1>Giới hạn kho theo tài khoản</h1><p>Áp dụng tại truy vấn và giao dịch sổ kho số lượng, mua hàng, kiểm kê. Tài khoản Quản trị viên luôn truy cập toàn bộ kho.</p></div></div>
 <section class="panel"><div class="form-grid">
-<label>User<select @bind="user" @bind:after="Load"><option value="0">Chọn tài khoản</option>@foreach(var x in users){<option value="@x.Id">@x.Username — @x.Name (@x.Scope)</option>}</select></label>
-<label>Phạm vi<select @bind="scopeMode"><option value="ALL">Tất cả kho</option><option value="SELECTED">Chỉ kho được chọn</option></select></label>
-</div><p>Chọn kho được phép khi cấu hình giới hạn:</p>
+<label>Tài khoản người dùng<select @bind="user" @bind:after="Load"><option value="0">— Chọn tài khoản —</option>@foreach(var x in users){<option value="@x.Id">@x.Username — @x.Name (@VnLabels.WarehouseScope(x.Scope))</option>}</select></label>
+<label>Phạm vi truy cập kho<select @bind="scopeMode"><option value="ALL">Toàn bộ các kho</option><option value="SELECTED">Theo kho được phân công</option></select></label>
+</div><p>Chọn các kho được phép thao tác khi bật chế độ giới hạn:</p>
 @foreach(var w in warehouses){<label style="display:block;margin:7px 0"><input type="checkbox" checked="@selected.Contains(w.Id)" @onchange="e=>Change(w.Id,e.Value is true)" /> @w.Code — @w.Name</label>}
-<div class="form-actions"><button class="btn" @onclick="Save">Lưu phạm vi User</button><button class="btn" @onclick="Load">Nạp quyền User</button><span class="feedback">@message</span></div>
-<div class="panel-note">Khi đổi phạm vi, security stamp được cập nhật để User phải đăng nhập lại. Các phân hệ cũ chưa hỗ trợ scope toàn diện sẽ không được coi là đã an toàn theo kho.</div></section>
+<div class="form-actions"><button class="btn" @onclick="Save">Lưu phạm vi kho</button><button class="btn secondary" data-confirm="none" @onclick="Load">Nạp quyền tài khoản</button><span class="feedback">@message</span></div>
+<div class="panel-note">Khi đổi phạm vi kho, mã bảo mật phiên làm việc được làm mới tự động để người dùng đăng nhập lại và nhận phạm vi kho mới.</div></section>
 @code {
  private long user;private string scopeMode="ALL";private bool all { get => scopeMode=="ALL"; set => scopeMode = value ? "ALL" : "SELECTED"; }private List<WarehousePick> warehouses=[];private List<UserWarehouseRow> users=[];private HashSet<long> selected=[];private string message="";
  protected override async Task OnInitializedAsync(){await Gate.RequireAsync(Permissions.WarehouseScopeManage);warehouses=Ops.AllWarehouses();users=Ops.UsersWarehouseScopes();}
  private void Change(long id,bool value){if(value)selected.Add(id);else selected.Remove(id);}
- private void Load(){var account=users.FirstOrDefault(x=>x.Id==user);all=account?.Scope!="SELECTED";selected=Ops.AssignedWarehouses(user).ToHashSet();message="Đã nạp cấu hình.";}
- private async Task Save(){try{var actor=await Gate.RequireAsync(Permissions.WarehouseScopeManage);Ops.SetWarehouseScope(actor,user,all,selected);users=Ops.UsersWarehouseScopes();message="Đã lưu cấu hình và thu hồi phiên đăng nhập User.";}catch(Exception ex){message=ex.Message;}}
+ private void Load(){var account=users.FirstOrDefault(x=>x.Id==user);all=account?.Scope!="SELECTED";selected=Ops.AssignedWarehouses(user).ToHashSet();message="Đã nạp cấu hình phạm vi kho.";}
+ private async Task Save(){try{var actor=await Gate.RequireAsync(Permissions.WarehouseScopeManage);Ops.SetWarehouseScope(actor,user,all,selected);users=Ops.UsersWarehouseScopes();message="Đã lưu cấu hình và yêu cầu tài khoản đăng nhập lại.";}catch(Exception ex){message=ex.Message;}}
 }

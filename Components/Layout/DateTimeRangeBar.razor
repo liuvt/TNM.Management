@@ -70,7 +70,7 @@
                 <div class="erp-picker-popover" @onclick:stopPropagation="true">
                     @* Cột trái: Presets chuẩn GitHub / Shadcn / Ant Design *@
                     <div class="erp-pop-sidebar">
-                        <div class="erp-pop-side-title">Khung chuẩn ERP</div>
+                        <div class="erp-pop-side-title">Chọn nhanh thời gian</div>
                         <button type="button" class="erp-pop-preset-btn @(ActivePreset == "ALL" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("ALL")'>Tất cả thời gian</button>
                         <button type="button" class="erp-pop-preset-btn @(ActivePreset == "TODAY" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("TODAY")'>Hôm nay</button>
                         <button type="button" class="erp-pop-preset-btn @(ActivePreset == "YESTERDAY" ? "active" : "")" data-confirm="none" @onclick='() => SelectPresetAndCloseAsync("YESTERDAY")'>Hôm qua</button>

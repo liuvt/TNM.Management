@@ -7,7 +7,7 @@
 
 <div class="page-head">
   <div>
-    <div class="eyebrow">FINANCE / DEBT &amp; CASHBOOK REPORT</div>
+    <div class="eyebrow">TÀI CHÍNH &amp; KẾ TOÁN / CÔNG NỢ &amp; SỔ QUỸ</div>
     <h1>Báo cáo Công nợ &amp; Thanh toán — Sổ quỹ</h1>
     <p>
       <strong>1. Báo cáo Công nợ:</strong> Nhà cung cấp (Nhập hàng) · Khách hàng (Đơn lắp &amp; Gia hạn) · Nhân viên bán hàng (Hoa hồng &amp; Kỹ thuật) &nbsp;|&nbsp;
@@ -140,7 +140,7 @@
     <div class="panel-head" style="margin-bottom:10px">
       <div>
         <h2>B. Sổ quỹ: Khoản Thu / Khoản Chi / Tồn quỹ @(HasAnyTimeFilter ? "(Theo khung lọc)" : "(Toàn hệ thống)")</h2>
-        <p>Tách biệt rõ nguồn <strong>Tiền mặt (CASH)</strong> và <strong>Ngân hàng (BANK)</strong>.</p>
+        <p>Tách biệt rõ nguồn <strong>Tiền mặt</strong> và <strong>Ngân hàng</strong>.</p>
       </div>
       <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => SetTab("PAYMENTS")'>Xem Sổ quỹ chi tiết →</button>
     </div>
@@ -237,16 +237,16 @@
       <div>
         <h2>Lập Phiếu Thu / Phiếu Chi vào Sổ quỹ (Tiền mặt / Ngân hàng)</h2>
         <p>
-          <strong>Khoản thu (IN):</strong> Thu tiền khách hàng / thu công nợ &nbsp;|&nbsp;
-          <strong>Khoản chi (OUT):</strong> Chi trả tiền nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng hoặc công kỹ thuật.
+          <strong>Khoản thu:</strong> Thu tiền khách hàng / thu công nợ &nbsp;|&nbsp;
+          <strong>Khoản chi:</strong> Chi trả tiền nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng hoặc công kỹ thuật.
         </p>
       </div>
     </div>
     <div class="form-grid">
       <label>1. Loại giao dịch Sổ quỹ *
         <select @bind="payDirection" @bind:after="OnPayDirectionChanged">
-          <option value="IN">Khoản Thu (+): Thu khách / Thu công nợ (Phiếu Thu PT)</option>
-          <option value="OUT">Khoản Chi (-): Chi nhập hàng NCC / Chi NV bán hàng &amp; Kỹ thuật (Phiếu Chi PC)</option>
+          <option value="IN">Khoản Thu (+): Thu khách / Thu công nợ (Phiếu Thu)</option>
+          <option value="OUT">Khoản Chi (-): Chi nhập hàng NCC / Chi NV bán hàng &amp; Kỹ thuật (Phiếu Chi)</option>
         </select>
       </label>
 
@@ -254,22 +254,22 @@
         <select @bind="payCategory" @bind:after="OnPayCategoryChanged">
           @if (payDirection == "IN")
           {
-            <option value="CUSTOMER_DEBT">Thu khách / Thu công nợ đơn lắp đặt (SALE)</option>
-            <option value="RENEWAL_DEBT">Thu khách / Thu công nợ gia hạn (RENEWAL)</option>
+            <option value="CUSTOMER_DEBT">Thu khách / Thu công nợ đơn lắp đặt</option>
+            <option value="RENEWAL_DEBT">Thu khách / Thu công nợ gia hạn</option>
           }
           else
           {
-            <option value="SUPPLIER_PURCHASE">Chi: Nhập hàng Nhà cung cấp (PURCHASE)</option>
-            <option value="SELLER_COMMISSION">Chi: Hoa hồng Nhân viên bán hàng (COMMISSION)</option>
-            <option value="TECH_SERVICE">Chi: Phụ cấp / Công kỹ thuật lắp đặt (SERVICE)</option>
+            <option value="SUPPLIER_PURCHASE">Chi: Nhập hàng Nhà cung cấp</option>
+            <option value="SELLER_COMMISSION">Chi: Hoa hồng Nhân viên bán hàng</option>
+            <option value="TECH_SERVICE">Chi: Phụ cấp / Công kỹ thuật lắp đặt</option>
           }
         </select>
       </label>
 
       <label>3. Sổ quỹ thanh toán (Tiền mặt / Ngân hàng) *
         <select @bind="method">
-          <option value="CASH">Quỹ Tiền mặt (CASH)</option>
-          <option value="BANK">Quỹ Ngân hàng / Chuyển khoản (BANK)</option>
+          <option value="CASH">Quỹ Tiền mặt</option>
+          <option value="BANK">Quỹ Ngân hàng / Chuyển khoản</option>
         </select>
       </label>
 
@@ -330,16 +330,16 @@
         <select @bind="newType">
           @if (canSupplier)
           {
-            <option value="PURCHASE">1. Công nợ Nhà cung cấp — Nhập hàng (PURCHASE - Phải trả)</option>
+            <option value="PURCHASE">1. Công nợ Nhà cung cấp — Nhập hàng (Khoản phải trả)</option>
           }
           @if (canCustomer)
           {
-            <option value="SALE">2. Công nợ Khách hàng — Đơn lắp đặt (SALE - Phải thu)</option>
+            <option value="SALE">2. Công nợ Khách hàng — Đơn lắp đặt (Khoản phải thu)</option>
           }
           @if (canOther)
           {
-            <option value="COMMISSION">3a. Công nợ Nhân viên bán hàng — Hoa hồng (COMMISSION - Phải trả)</option>
-            <option value="SERVICE">3b. Công nợ Kỹ thuật — Công lắp đặt (SERVICE - Phải trả)</option>
+            <option value="COMMISSION">3a. Công nợ Nhân viên bán hàng — Hoa hồng (Khoản phải trả)</option>
+            <option value="SERVICE">3b. Công nợ Kỹ thuật — Công lắp đặt (Khoản phải trả)</option>
           }
         </select>
       </label>
@@ -496,7 +496,7 @@
              @bind="invLineSearch"
              @bind:event="oninput"
              @bind:after="() => invLinePager.Reset()"
-             placeholder="Tìm mã SKU, số HD00..., biển số xe, chủ xe trong chứng từ..." />
+             placeholder="Tìm mã sản phẩm, số HD00..., biển số xe, chủ xe trong chứng từ..." />
     </DateTimeRangeBar>
 
     <div class="table-wrap">
@@ -505,7 +505,7 @@
           <tr>
             <th>STT</th>
             <th>THỜI GIAN PHÁT SINH</th>
-            <th>MÃ SP (SKU)</th>
+            <th>MÃ SẢN PHẨM</th>
             <th>DIỄN GIẢI / HẠNG MỤC CHI TIẾT</th>
             <th>SỐ LƯỢNG</th>
             <th>ĐƠN GIÁ</th>
@@ -705,7 +705,7 @@ else if (activeTab == "PAYMENTS")
   <section class="panel" style="margin-bottom:16px">
     <div class="panel-head">
       <div>
-        <h2>4A. Bảng Tổng hợp Sổ quỹ: Tiền mặt (CASH) &amp; Ngân hàng (BANK)</h2>
+        <h2>4A. Bảng Tổng hợp Sổ quỹ: Tiền mặt &amp; Ngân hàng</h2>
         <p>
           Tổng hợp phát sinh Thu / Chi theo đúng khung thời gian <code>dd/MM/yyyy HH:mm:ss</code> đang chọn và đối chiếu Tồn quỹ lũy kế hiện tại.
         </p>
@@ -736,7 +736,7 @@ else if (activeTab == "PAYMENTS")
         <tbody>
           <tr>
             <td><strong>1</strong></td>
-            <td><span class="chip green-chip">1. Quỹ Tiền mặt (CASH)</span></td>
+            <td><span class="chip green-chip">1. Quỹ Tiền mặt</span></td>
             <td><strong style="color:#15803d">+@Money(periodCash.CashInVnd)</strong></td>
             <td><strong style="color:#dc2626">-@Money(periodCash.CashOutVnd)</strong></td>
             <td><strong style="color:@(periodCash.CashBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(periodCash.CashBalanceVnd)</strong></td>
@@ -745,7 +745,7 @@ else if (activeTab == "PAYMENTS")
           </tr>
           <tr>
             <td><strong>2</strong></td>
-            <td><span class="chip blue-chip">2. Quỹ Ngân hàng (BANK)</span></td>
+            <td><span class="chip blue-chip">2. Quỹ Ngân hàng</span></td>
             <td><strong style="color:#15803d">+@Money(periodCash.BankInVnd)</strong></td>
             <td><strong style="color:#dc2626">-@Money(periodCash.BankOutVnd)</strong></td>
             <td><strong style="color:@(periodCash.BankBalanceVnd >= 0 ? "#0284c7" : "#dc2626")">@Money(periodCash.BankBalanceVnd)</strong></td>
@@ -787,8 +787,8 @@ else if (activeTab == "PAYMENTS")
                       UnitLabel="phiếu giao dịch">
       <select class="search-input" style="min-width:175px" @bind="cashBookFundFilter" @bind:after="() => paymentPager.Reset()">
         <option value="">— Mọi Sổ quỹ (TM + NH) —</option>
-        <option value="CASH">Quỹ Tiền mặt (CASH)</option>
-        <option value="BANK">Quỹ Ngân hàng (BANK)</option>
+        <option value="CASH">Quỹ Tiền mặt</option>
+        <option value="BANK">Quỹ Ngân hàng</option>
       </select>
       <select class="search-input" style="min-width:190px" @bind="cashBookDirFilter" @bind:after="() => paymentPager.Reset()">
         <option value="">— Mọi Khoản Thu &amp; Chi —</option>
@@ -838,7 +838,7 @@ else if (activeTab == "PAYMENTS")
               </td>
               <td>
                 <span class="chip @(p.Method == "CASH" ? "green-chip" : "blue-chip")">
-                  @(p.Method == "CASH" ? "Tiền mặt (CASH)" : "Ngân hàng (BANK)")
+                  @(p.Method == "CASH" ? "Tiền mặt" : "Ngân hàng")
                 </span>
               </td>
               <td class="wrap-cell">
@@ -1080,7 +1080,7 @@ else if (activeTab == "SNAPSHOT_STATS")
                   }
                   else
                   {
-                    <span class="chip orange-chip">Đang xử lý (@o.OrderStatus)</span>
+                    <span class="chip orange-chip">@VnLabels.OrderStatus(o.OrderStatus)</span>
                   }
                 </div>
               </td>
@@ -1209,7 +1209,7 @@ else
                   class="btn btn-sm"
                   data-confirm="edit"
                   data-confirm-title="Hoàn thành tất toán & chốt số đưa về 0"
-                  data-confirm-msg="Xác nhận đánh dấu Đã tất toán (PAID), đưa số dư Còn nợ về 0 ₫ và khóa sổ toàn bộ danh sách đang lọc (không trừ Sổ quỹ hiện tại)?"
+                  data-confirm-msg="Xác nhận đánh dấu Đã tất toán, đưa số dư Còn nợ về 0 ₫ và khóa sổ toàn bộ danh sách đang lọc (không trừ Sổ quỹ hiện tại)?"
                   @onclick="SettleAndLockFilteredInvoices"
                   title="Tất toán công nợ cũ đã thanh toán ngoài / trước kỳ, chốt số và đưa Còn nợ về 0 ₫">
             ✓ Chốt số &amp; Đưa về 0 (@FilteredInvoices.Count(i => i.Balance > 0 && i.Status != "VOID"))
@@ -1234,17 +1234,17 @@ else
       @if (activeTab == "SALE")
       {
         <select class="search-input" style="min-width:195px" @bind="customerSubTypeFilter" @bind:after="() => invoicePager.Reset()">
-          <option value="">— Đơn lắp đặt + Gia hạn —</option>
-          <option value="SALE">Công nợ Đơn lắp đặt (SALE)</option>
-          <option value="RENEWAL">Công nợ Gia hạn (RENEWAL)</option>
+          <option value="">— Đơn lắp đặt &amp; Gia hạn —</option>
+          <option value="SALE">Công nợ Đơn lắp đặt</option>
+          <option value="RENEWAL">Công nợ Gia hạn thuê bao</option>
         </select>
       }
       <select class="search-input" style="min-width:180px" @bind="statusFilter" @bind:after="() => invoicePager.Reset()">
         <option value="">— Mọi trạng thái —</option>
-        <option value="UNPAID">Còn nợ (OPEN + PARTIAL)</option>
-        <option value="OPEN">Chưa thanh toán (OPEN)</option>
-        <option value="PARTIAL">Thanh toán 1 phần (PARTIAL)</option>
-        <option value="PAID">Đã tất toán (PAID)</option>
+        <option value="UNPAID">Đang còn nợ</option>
+        <option value="OPEN">Chưa thanh toán</option>
+        <option value="PARTIAL">Thanh toán 1 phần</option>
+        <option value="PAID">Đã tất toán</option>
       </select>
       <input class="search-input"
              style="min-width:260px;flex:1"
@@ -2158,24 +2158,9 @@ else
       _ => "Khoản chi: Thanh toán công nợ"
     };
 
-  private static string TypeLabel(string type) => type switch
-  {
-    "PURCHASE" or "SUPPLIER" => "1. Công nợ Nhà cung cấp (Nhập hàng)",
-    "SALE" => "2a. Công nợ Khách hàng (Đơn lắp)",
-    "RENEWAL" => "2b. Công nợ Khách hàng (Gia hạn)",
-    "COMMISSION" => "3a. Công nợ NV bán hàng (Hoa hồng)",
-    "SERVICE" => "3b. Công nợ Kỹ thuật lắp đặt",
-    _ => type
-  };
+  private static string TypeLabel(string type) => VnLabels.InvoiceType(type);
 
-  private static string StatusLabel(string status) => status switch
-  {
-    "OPEN" => "Chưa thanh toán (OPEN)",
-    "PARTIAL" => "Thanh toán 1 phần (PARTIAL)",
-    "PAID" => "Đã tất toán (PAID)",
-    "VOID" => "Đã hủy (VOID)",
-    _ => status
-  };
+  private static string StatusLabel(string status) => VnLabels.InvoiceStatus(status);
 
   private static string TabHeading(string tab) => tab switch
   {
@@ -2192,7 +2177,7 @@ else
   {
     var headers = new[]
     {
-      "STT", "Số chứng từ", "Đối tác", "Thời gian phát sinh", "Mã SP (SKU)",
+      "STT", "Số chứng từ", "Đối tác", "Thời gian phát sinh", "Mã sản phẩm",
       "Diễn giải / Hạng mục chi tiết", "Số lượng", "Đơn giá (VND)", "Thành tiền (VND)"
     };
     var rows = lines.Select((l, idx) =>
@@ -2257,8 +2242,8 @@ else
     {
       idx + 1,
       p.PaymentNo,
-      p.Direction == "IN" ? "Khoản Thu (PT)" : "Khoản Chi (PC)",
-      p.Method == "CASH" ? "Tiền mặt (CASH)" : "Ngân hàng (BANK)",
+      p.Direction == "IN" ? "Khoản Thu (Phiếu Thu)" : "Khoản Chi (Phiếu Chi)",
+      p.Method == "CASH" ? "Tiền mặt" : "Ngân hàng",
       CashBookCategoryLabel(p),
       p.InvoiceNo,
       p.Partner,
@@ -2314,7 +2299,7 @@ else
     {
       idx + 1,
       o.OrderCode,
-      o.OrderStatus,
+      VnLabels.OrderStatus(o.OrderStatus),
       o.CustomerCode,
       o.CustomerName,
       o.ContactName,

@@ -152,7 +152,7 @@ else
             <div class="panel-head">
                 <div>
                     <h2>@(editingId.HasValue ? "Cập nhật" : "Khai báo mới") — @Title</h2>
-                    <p>@(CurrentSection=="installers" ? "Khai báo hồ sơ người lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm." : CurrentSection=="sellers" ? "Khai báo nhân viên bán hàng của công ty để đồng bộ Khách hàng, Đơn hàng SO, Gia hạn thiết bị và thống kê hoa hồng cuối kỳ." : "Thông tin được dùng chung ở các luồng PO, SO, kho và thanh toán.")</p>
+                    <p>@(CurrentSection=="installers" ? "Khai báo hồ sơ người lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm." : CurrentSection=="sellers" ? "Khai báo nhân viên bán hàng của công ty để đồng bộ Khách hàng, Đơn hàng lắp đặt, Gia hạn thiết bị và thống kê hoa hồng cuối kỳ." : "Thông tin được dùng chung ở các luồng đơn mua hàng, đơn lắp đặt, quản lý kho và thanh toán.")</p>
                 </div>
                 <button type="button" class="btn secondary" @onclick="CloseEditor">Đóng</button>
             </div>
@@ -241,7 +241,7 @@ else
                     }
                     else if(Section=="customers")
                     {
-                        <label>Người đại diện (B2B)<input @bind="representativeName" placeholder="Để trống nếu khách lẻ; nhập người đại diện nếu đơn vị B2B" maxlength="160" /></label>
+                        <label>Người đại diện (Đơn vị / Doanh nghiệp)<input @bind="representativeName" placeholder="Để trống nếu khách lẻ; nhập người đại diện nếu là đơn vị / HTX" maxlength="160" /></label>
                         <label>Số điện thoại<input @bind="phone" placeholder="0901234567" /></label>
                         <label>Nhân viên bán hàng phụ trách *
                             <select @bind="selectedSellerId" @bind:after="OnCustomerSellerSelected">
@@ -273,10 +273,10 @@ else
                     </label>
                     <label>Bộ phận / Khối Kinh doanh *
                         <select @bind="department">
-                            <option value="Sale Nội bộ (Kinh doanh)">Sale Nội bộ (Kinh doanh)</option>
-                            <option value="Sale Đại lý / HTX (B2B)">Sale Đại lý / HTX (B2B)</option>
-                            <option value="Sale Nội bộ & Gia hạn">Sale Nội bộ &amp; Gia hạn</option>
-                            <option value="Cộng tác viên Sale (CTV)">Cộng tác viên Sale (CTV)</option>
+                            <option value="Kinh doanh nội bộ">Kinh doanh nội bộ</option>
+                            <option value="Kinh doanh Đại lý / HTX">Kinh doanh Đại lý / HTX</option>
+                            <option value="Kinh doanh nội bộ & Gia hạn">Kinh doanh nội bộ &amp; Gia hạn</option>
+                            <option value="Cộng tác viên kinh doanh (CTV)">Cộng tác viên kinh doanh (CTV)</option>
                             <option value="Trưởng nhóm Kinh doanh">Trưởng nhóm Kinh doanh</option>
                         </select>
                     </label>
@@ -407,7 +407,7 @@ else
                     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.85rem">
                         <div>
                             <h3 style="font-size:0.95rem;margin:0;color:#252637">Bảng định mức đơn giá công lắp theo sản phẩm (VND)</h3>
-                            <small style="color:#747782">Đã thiết lập đơn giá cho <strong>@installerProductRates.Count(kv => kv.Value > 0) / @products.Count</strong> sản phẩm · Tự động tính công lắp khi điều phối đơn hàng SO.</small>
+                            <small style="color:#747782">Đã thiết lập đơn giá cho <strong>@installerProductRates.Count(kv => kv.Value > 0) / @products.Count</strong> sản phẩm · Tự động tính công lắp khi điều phối đơn hàng lắp đặt.</small>
                         </div>
                         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;background:#faf9f8;padding:0.5rem 0.75rem;border:1px solid #eeeef1;border-radius:9px">
                             <span style="font-size:11.5px;font-weight:650;color:#575866">Áp dụng nhanh tất cả SP:</span>
@@ -643,7 +643,7 @@ else
                     <thead><tr>
                         <th>STT</th>
                         <th><input type="checkbox" aria-label="Chọn tất cả dòng đang hiển thị" checked="@PageAllSelected" @onchange="TogglePage" /></th>
-                        <th>Mã / ID</th><th>Tên / đối tượng</th><th>Nhóm / khu vực</th><th>Thông tin</th>
+                        <th>Mã định danh</th><th>Tên / Đối tượng</th><th>Nhóm / Khu vực</th><th>Thông tin chi tiết</th>
                         @if(canUpdate || canAudit){<th>Thao tác</th>}
                     </tr></thead>
                     <tbody>
@@ -731,16 +731,16 @@ else
         "buy-prices"=>"Giá & Chương trình — Bảng giá nhập NCC", "sale-prices"=>"Giá & Chương trình — Bảng giá khách hàng", "campaigns"=>"Giá & Chương trình — Chương trình ưu đãi",_=>"Danh mục đầu vào"};
     private string Description => CurrentSection switch {
         "supplier-groups"=>"Phân loại các nhà cung cấp để thiết lập giá nhập riêng cho từng nhóm.",
-        "product-groups"=>"Mỗi sản phẩm thuộc một nhóm; dữ liệu được dùng chung cho PO, SO và báo cáo.",
+        "product-groups"=>"Mỗi sản phẩm thuộc một nhóm; dữ liệu được dùng chung cho mua hàng, đơn lắp đặt và báo cáo.",
         "customer-groups"=>"Mỗi khách hàng thuộc một nhóm và hưởng bảng giá, chương trình tương ứng.",
-        "sellers"=>"Khai báo danh sách nhân viên bán hàng của công ty nhằm đồng bộ Khách hàng, Đơn hàng SO, Gia hạn thiết bị và thống kê doanh số / hoa hồng cuối kỳ.",
+        "sellers"=>"Khai báo danh sách nhân viên bán hàng của công ty nhằm đồng bộ Khách hàng, Đơn hàng lắp đặt, Gia hạn thiết bị và thống kê doanh số / hoa hồng cuối kỳ.",
         "installers"=>"Quản lý hồ sơ người lắp đặt (kỹ thuật viên nội bộ, cộng tác viên, đối tác) và cấu hình định mức tiền công đi lắp theo từng sản phẩm.",
         "installer-rates"=>"Tra cứu và cập nhật bảng đơn giá đi lắp của từng người lắp đặt ứng với từng sản phẩm.",
         "areas"=>"Một khu vực có thể quản lý nhiều kho; vị trí của kho là địa chỉ kho.",
         "buy-prices"=>"Mỗi nhóm NCC có giá mua theo từng sản phẩm và ngày hiệu lực.",
         "sale-prices"=>"Giá bán theo nhóm khách hàng và sản phẩm; hỗ trợ giá lắp đặt, gia hạn.",
         "campaigns"=>"Quản lý ưu đãi theo nhóm khách hàng và khoảng thời gian áp dụng.",
-        _=>"Tra cứu danh sách, tìm kiếm, chọn dòng, xuất CSV và thêm/sửa khi cần."};
+        _=>"Tra cứu danh sách, tìm kiếm, chọn dòng, xuất Excel và thêm/sửa khi cần."};
     private string CodeExample => CurrentSection switch {"supplier-groups"=>"NCC-DIEN-TU","suppliers"=>"NCC001","product-groups"=>"CAMERA","customer-groups"=>"DAI-LY","customers"=>"KH00010","sellers"=>"SL001","installers"=>"KT001","areas"=>"KV-MIEN-NAM","warehouses"=>"KHO-RG",_=>"Mã"};
     private string NameExample => CurrentSection switch {"supplier-groups"=>"Nhà cung cấp điện tử","suppliers"=>"Công ty Thiết bị A","product-groups"=>"Camera","customer-groups"=>"Đại lý","customers"=>"Nguyễn Văn An","sellers"=>"Nguyễn Minh Anh","installers"=>"Trần Quốc Bảo","areas"=>"Miền Nam","warehouses"=>"Kho Rạch Giá",_=>"Tên"};
     private string ReadPermission => CurrentSection switch {"product-groups"=>Permissions.ProductsView,"customer-groups" or "customers" or "sellers"=>Permissions.CustomersView,"buy-prices" or "sale-prices" or "campaigns" or "installer-rates"=>Permissions.PricesView,_=>Permissions.MasterDataManage};
@@ -827,7 +827,7 @@ else
     private void ResetPage(){catalogPager.Reset();}
     private void ToggleRow(long id,bool value){if(value)selected.Add(id);else selected.Remove(id);}
     private void TogglePage(ChangeEventArgs e){bool check=e.Value is bool b && b;foreach(var r in PageRows){if(check)selected.Add(r.Id);else selected.Remove(r.Id);}}
-    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch=quickSubGroupName="";showQuickSubGroup=false;department=CurrentSection=="sellers"?"Sale Nội bộ (Kinh doanh)":"Kỹ thuật";groupId=parentGroupId=subGroupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
+    private void ResetFields(){editingId=null;code=name=phone=tax=address=sourceName=representativeName=installerProdSearch=quickSubGroupName="";showQuickSubGroup=false;department=CurrentSection=="sellers"?"Kinh doanh nội bộ":"Kỹ thuật";groupId=parentGroupId=subGroupId=productId=buyPrice=standard=installed=renewal=selectedSellerId=0;if(CurrentSection=="sellers"){standard=100000;renewal=50000;}bulkInstallerRate=150000;discount=0;effective=DateTime.Today;until=DateTime.Today.AddDays(30);installerProductRates.Clear();pendingDelete=null;}
     private void OnCustomerMainGroupChanged()
     {
         if (subGroupId > 0 && !customerGroups.Any(x => x.Id == subGroupId && x.ParentId == groupId))
@@ -1083,7 +1083,7 @@ else
             }
             default:
             {
-                headers = ["STT", "Mã / ID", "Tên / Đối tượng", "Nhóm / Khu vực", "Thông tin chi tiết"];
+                headers = ["STT", "Mã định danh", "Tên / Đối tượng", "Nhóm / Khu vực", "Thông tin chi tiết"];
                 dataRows = rows.Select((x, idx) => new object?[]
                 {
                     idx + 1, x.Code, x.Name, x.Group, x.Details

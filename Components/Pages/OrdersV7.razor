@@ -11,12 +11,12 @@
 <div class="page-head">
     <div>
         <div class="eyebrow">KINH DOANH / ĐIỀU PHỐI CSKH &amp; KHO</div>
-        <h1>Đơn hàng &amp; Điều phối lắp đặt (SO)</h1>
+        <h1>Đơn hàng &amp; Điều phối lắp đặt</h1>
         <p>1. Nhận thông tin từ nhân viên bán hàng → 2. CSKH tạo đơn &amp; điều sản phẩm ở kho, chọn ĐV lắp đặt | Hãng lắp đặt (tick Không/Trừ tồn kho) → 3. ĐV lắp đặt gửi về Số IMEI &amp; thông tin phụ → 4. CSKH bổ sung Ngày kích hoạt IMEI &amp; Hoàn thành đơn (chỉ trừ tồn kho khi đơn thành công).</p>
     </div>
     <div class="button-group">
         <button type="button" class="btn" data-confirm="none" @onclick="OpenCreateModal">
-            + Tạo đơn hàng (SO)
+            + Tạo đơn lắp đặt
         </button>
         <button type="button" class="btn secondary" data-confirm="none" @onclick="OpenQuickPasteModal">
             📋 Dán nhanh tin nhắn NV bán hàng
@@ -132,7 +132,7 @@
                         <input @bind="notes" placeholder="VD: không thu tiền, khi đến địa chỉ lắp liên hệ sdt: 0886287429" />
                     </label>
                     <label class="checkbox-row">
-                        <input type="checkbox" @bind="cod" /> Thu hộ tiền mặt khi lắp (COD)
+                        <input type="checkbox" @bind="cod" /> Thu hộ tiền mặt khi lắp đặt
                     </label>
                 </div>
 
@@ -287,7 +287,7 @@
             </div>
 
             <div class="so-modal-footer">
-                <button class="btn" data-confirm="add" data-confirm-title="Xác nhận Tạo đơn hàng (SO)" data-confirm-msg="Bạn có chắc chắn muốn tạo đơn hàng lắp đặt (SO) mới với các thông tin đã nhập không?" @onclick="Create">+ Tạo đơn hàng (SO)</button>
+                <button class="btn" data-confirm="add" data-confirm-title="Xác nhận Tạo đơn hàng lắp đặt" data-confirm-msg="Bạn có chắc chắn muốn tạo đơn hàng lắp đặt mới với các thông tin đã nhập không?" @onclick="Create">+ Tạo đơn lắp đặt</button>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseCreateModal">Đóng</button>
             </div>
         </div>
@@ -297,18 +297,18 @@
 <section class="panel">
     <div class="panel-head">
         <div>
-            <h2>Danh sách đơn hàng lắp đặt (SO)</h2>
-            <p>Đang hiển thị <strong>@FilteredOrders.Count</strong> / @orders.Count đơn hàng · Tổng doanh thu danh sách lọc: <strong style="color:#0284c7">@FilteredOrders.Where(x => x.Status != "CANCELLED").Sum(x => x.Price).ToString("N0") ₫</strong>. Bấm <strong>+ Tạo đơn hàng (SO)</strong> để thêm đơn mới hoặc bấm <strong>Điều chỉnh / Xử lý</strong> ở từng đơn.</p>
+            <h2>Danh sách đơn hàng lắp đặt</h2>
+            <p>Đang hiển thị <strong>@FilteredOrders.Count</strong> / @orders.Count đơn hàng · Tổng doanh thu danh sách lọc: <strong style="color:#0284c7">@FilteredOrders.Where(x => x.Status != "CANCELLED").Sum(x => x.Price).ToString("N0") ₫</strong>. Bấm <strong>+ Tạo đơn lắp đặt</strong> để thêm đơn mới hoặc bấm <strong>Điều chỉnh / Xử lý</strong> ở từng đơn.</p>
         </div>
         <div class="button-group">
-            <button type="button" class="btn" data-confirm="none" @onclick="OpenCreateModal">+ Tạo đơn hàng (SO)</button>
+            <button type="button" class="btn" data-confirm="none" @onclick="OpenCreateModal">+ Tạo đơn lắp đặt</button>
             <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportOrdersExcel">📥 Xuất Excel (@FilteredOrders.Count)</button>
         </div>
     </div>
 
     <div class="device-summary-bar" style="margin-bottom:12px">
         <button type="button" class="device-summary-item total @(soStatusFilter == "ALL" ? "active" : "")" @onclick='() => SetOrderStatusFilter("ALL")'>
-            <span>Tất cả đơn (SO):</span>
+            <span>Tất cả đơn hàng:</span>
             <strong>@orders.Count</strong>
         </button>
         <button type="button" class="device-summary-item @(soStatusFilter == "PROCESSING" ? "active" : "")" @onclick='() => SetOrderStatusFilter("PROCESSING")'>
@@ -334,12 +334,12 @@
         <select class="search-input" style="min-width:175px" @bind="soStatusFilter" @bind:after="() => orderPager.Reset()">
             <option value="ALL">— Mọi trạng thái (@orders.Count) —</option>
             <option value="PROCESSING">Đang xử lý / Chờ hoàn thành</option>
-            <option value="PENDING">1. Chờ điều phối (PENDING)</option>
-            <option value="DISPATCHED">2. Đang đi lắp đặt (DISPATCHED)</option>
-            <option value="REPORTED">3. Đã báo IMEI (REPORTED)</option>
-            <option value="COMPLETED">4. Đã hoàn thành (COMPLETED)</option>
+            <option value="PENDING">1. Chờ điều phối</option>
+            <option value="DISPATCHED">2. Đang đi lắp đặt</option>
+            <option value="REPORTED">3. Đã báo số IMEI</option>
+            <option value="COMPLETED">4. Đã hoàn thành</option>
             <option value="MISSING_IMEI">⚠️ Đã hoàn thành (Chờ bổ sung IMEI)</option>
-            <option value="CANCELLED">✕ Đã hủy (CANCELLED)</option>
+            <option value="CANCELLED">✕ Đã hủy đơn</option>
         </select>
         <select class="search-input" style="min-width:190px" @bind="soCustomerFilter" @bind:after="() => orderPager.Reset()">
             <option value="">— Tất cả Đơn vị / KH —</option>
@@ -767,7 +767,7 @@
                     {
                         <button type="button" class="btn secondary" data-confirm="edit" data-confirm-title="Xác nhận Lưu điều phối đơn hàng" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu thông tin điều phối kho & đơn vị lắp đặt cho đơn hàng {SelectedOrder.Code} không?")" @onclick="SaveOrderAndDispatch">1. Lưu thông tin &amp; Điều phối kho / ĐV lắp</button>
                         <button type="button" class="btn secondary" data-confirm="edit" data-confirm-title="Xác nhận Lưu IMEI &amp; thông tin phụ" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu danh sách Số IMEI và thông tin biển số cho đơn hàng {SelectedOrder.Code} không?")" @onclick="Report">2. Lưu Số IMEI &amp; Thông tin phụ</button>
-                        <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Hoàn thành đơn hàng (SO)" data-confirm-msg="@($"Bạn có chắc chắn muốn hoàn thành đơn hàng {SelectedOrder.Code} ({(noDeductStock ? "Không trừ kho - Hãng" : "Trừ tồn kho & ghi nhận công nợ")}) không?")" @onclick="Complete">3. Hoàn thành đơn @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho - Cho phép nhập IMEI sau)")</button>
+                        <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Hoàn thành đơn hàng lắp đặt" data-confirm-msg="@($"Bạn có chắc chắn muốn hoàn thành đơn hàng {SelectedOrder.Code} ({(noDeductStock ? "Không trừ kho - Hãng" : "Trừ tồn kho & ghi nhận công nợ")}) không?")" @onclick="Complete">3. Hoàn thành đơn @(noDeductStock ? "(Không trừ kho - Hãng)" : "(Trừ tồn kho - Cho phép nhập IMEI sau)")</button>
                         <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="@(isMainDev ? "Xác nhận Hủy & Xóa cứng đơn hàng" : "Xác nhận Hủy đơn hàng")" data-confirm-msg="@(isMainDev ? $"Bạn có chắc chắn muốn hủy và xóa cứng đơn hàng {SelectedOrder.Code} khỏi cơ sở dữ liệu không?" : $"Bạn có chắc chắn muốn hủy đơn hàng {SelectedOrder.Code} không?")" @onclick="Cancel">@(isMainDev ? "🗑 Hủy & Xóa cứng đơn" : "Hủy đơn")</button>
                     }
                     else if(SelectedOrder.IsImmutable)
@@ -916,7 +916,7 @@
             "Số lượng SP", "Thời hạn", "Giá bán (VND)", "Giá vốn (VND)", "Công lắp (VND)",
             "Thời gian lắp", "Địa chỉ lắp", "Số IMEI", "Biển số xe", "Thông tin phụ / Số khung",
             "Kho xuất", "Chế độ tồn kho", "Phân loại ĐV lắp", "Đơn vị / Hãng lắp đặt",
-            "Ngày kích hoạt", "Thu hộ COD", "Ghi chú"
+            "Ngày kích hoạt", "Thu hộ tiền mặt", "Ghi chú"
         };
         var rows = list.Select((o, idx) =>
         {
@@ -957,11 +957,11 @@
                 o.InstallerTypeDisplay,
                 o.Installer ?? "",
                 o.ActivatedAt,
-                o.Cod ? "Có thu hộ COD" : "Không",
+                o.Cod ? "Có thu hộ" : "Không",
                 o.Notes
             };
         });
-        await ExcelExporter.DownloadAsync(JS, "don-hang-lap-dat-so", "Đơn hàng SO", headers, rows);
+        await ExcelExporter.DownloadAsync(JS, "don-hang-lap-dat", "Đơn lắp đặt", headers, rows);
         message = $"Đã xuất file Excel (.xlsx) gồm {list.Count} đơn hàng lắp đặt.";
     }
 

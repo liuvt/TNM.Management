@@ -452,9 +452,9 @@ public sealed class AuthRepository
     private static void SaveOverrides(SqliteConnection c,long userId,IReadOnlyDictionary<string,string>? overrides)
     {
         if(overrides is null) return;  // null = do not modify direct permissions
-        if(IsOwner(c,userId))throw new InvalidOperationException("Không được thay đổi quyền riêng của Owner.");
+        if(IsOwner(c,userId))throw new InvalidOperationException("Không được thay đổi quyền riêng của Chủ sở hữu.");
         if(IsAdmin(c,userId) && overrides.Count>0)
-            throw new InvalidOperationException("Tài khoản ADMIN có toàn quyền cố định, không cấp/từ chối quyền riêng.");
+            throw new InvalidOperationException("Tài khoản Quản trị viên có toàn quyền cố định, không cấp/từ chối quyền riêng.");
         foreach(var (key,effect) in overrides)
             if(!Permissions.IsImplemented(key) || (effect!="ALLOW" && effect!="DENY"))
                 throw new InvalidOperationException("Quyền trực tiếp không hợp lệ.");
@@ -477,11 +477,11 @@ public sealed class AuthRepository
         if(!HasPermission(c,actor,Permissions.UsersManage))throw new UnauthorizedAccessException("Không có quyền tạo người dùng.");
         CheckRoleIds(c,roleIds);
         if(roleIds.Any(id=> (Scalar(c,"SELECT code FROM roles WHERE id=$id",("$id",id)) as string)=="ADMIN") && !IsAdmin(c,actor))
-            throw new UnauthorizedAccessException("Chỉ ADMIN được tạo tài khoản ADMIN.");
+            throw new UnauthorizedAccessException("Chỉ Quản trị viên mới được tạo tài khoản Quản trị viên.");
         if(overrides is not null && !HasPermission(c,actor,Permissions.UsersPermissions))
-            throw new UnauthorizedAccessException("Không có quyền cấp quyền trực tiếp cho User.");
+            throw new UnauthorizedAccessException("Không có quyền cấp quyền trực tiếp cho tài khoản.");
         if(roleIds.Count==0 && (overrides is null || !overrides.Values.Contains("ALLOW")))
-            throw new InvalidOperationException("Chọn ít nhất một Role hoặc cấp ít nhất một quyền Cho phép riêng.");
+            throw new InvalidOperationException("Chọn ít nhất một vai trò hoặc cấp ít nhất một quyền Cho phép riêng.");
         GuardGrantCeiling(c,actor,roleIds,overrides);
         if(Convert.ToInt64(Scalar(c,"SELECT count(*) FROM app_users WHERE username=$u COLLATE NOCASE",("$u",username)))!=0)
             throw new InvalidOperationException("Tên đăng nhập đã tồn tại.");
@@ -507,12 +507,12 @@ public sealed class AuthRepository
         if(overrides is not null && !HasPermission(c,actor,Permissions.UsersPermissions))
             throw new UnauthorizedAccessException("Không có quyền sửa quyền trực tiếp.");
         if(IsHiddenMain(c,userId))throw new InvalidOperationException("Không tìm thấy tài khoản.");
-        if(IsOwner(c,userId))throw new InvalidOperationException("Owner là tài khoản hệ thống được bảo vệ; không thể khóa hoặc chỉnh Role/quyền tại đây.");
+        if(IsOwner(c,userId))throw new InvalidOperationException("Chủ sở hữu là tài khoản hệ thống được bảo vệ; không thể khóa hoặc chỉnh vai trò/quyền tại đây.");
         var oldName=Scalar(c,"SELECT username FROM app_users WHERE id=$id",("$id",userId)) as string ?? throw new InvalidOperationException("Không tìm thấy tài khoản.");
         var isAdmin=IsAdmin(c,userId);
         var willAdmin=roleIds.Any(id=>(Scalar(c,"SELECT code FROM roles WHERE id=$id",("$id",id)) as string)=="ADMIN");
         if((isAdmin || willAdmin) && !IsAdmin(c,actor))
-            throw new UnauthorizedAccessException("Chỉ ADMIN được thay đổi tài khoản ADMIN.");
+            throw new UnauthorizedAccessException("Chỉ Quản trị viên mới được thay đổi tài khoản Quản trị viên.");
         if(isAdmin && (!active||!willAdmin) && Convert.ToInt64(Scalar(c,@"SELECT count(DISTINCT u.id) FROM app_users u
             JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
             WHERE r.code='ADMIN' AND u.is_active=1 AND ur.deleted_at IS NULL"))<=1)
@@ -521,7 +521,7 @@ public sealed class AuthRepository
         {
             var grants=overrides?.Values ?? UserOverridesFromConnection(c,userId).Values;
             if(!grants.Contains("ALLOW"))
-                throw new InvalidOperationException("Tài khoản cần có Role hoặc ít nhất một quyền Cho phép riêng.");
+                throw new InvalidOperationException("Tài khoản cần có vai trò hoặc ít nhất một quyền Cho phép riêng.");
         }
         GuardGrantCeiling(c,actor,roleIds,overrides ?? UserOverridesFromConnection(c,userId));
         Exec(c,"UPDATE app_users SET display_name=$n,is_active=$a WHERE id=$id",("$n",displayName),("$a",active?1:0),("$id",userId));
@@ -540,9 +540,9 @@ public sealed class AuthRepository
         using var auditActor = TNM.Management.Services.AuditRuntime.As(actor);
         if(actor==userId) throw new InvalidOperationException("Không được tự cấp quyền cho tài khoản đang đăng nhập.");
         using var c=Open();Exec(c,"BEGIN IMMEDIATE;");try{
-        if(!HasPermission(c,actor,Permissions.UsersPermissions))throw new UnauthorizedAccessException("Không có quyền phân quyền theo User.");
+        if(!HasPermission(c,actor,Permissions.UsersPermissions))throw new UnauthorizedAccessException("Không có quyền phân quyền theo tài khoản.");
         if(IsHiddenMain(c,userId))throw new InvalidOperationException("Tài khoản không tồn tại.");
-        if(IsOwner(c,userId))throw new InvalidOperationException("Không được thay đổi quyền riêng của Owner.");
+        if(IsOwner(c,userId))throw new InvalidOperationException("Không được thay đổi quyền riêng của Chủ sở hữu.");
         if(Scalar(c,"SELECT username FROM app_users WHERE id=$id",("$id",userId)) is not string username)
             throw new InvalidOperationException("Tài khoản không tồn tại.");
         var targetRoles=new List<long>();
@@ -559,11 +559,11 @@ public sealed class AuthRepository
         using var auditActor = TNM.Management.Services.AuditRuntime.As(actor);
         if(!selected.All(Permissions.IsImplemented))throw new InvalidOperationException("Quyền không hợp lệ.");
         using var c=Open();Exec(c,"BEGIN IMMEDIATE;");try{
-        if(!HasPermission(c,actor,Permissions.RolesManage))throw new UnauthorizedAccessException("Không có quyền quản trị Role.");
+        if(!HasPermission(c,actor,Permissions.RolesManage))throw new UnauthorizedAccessException("Không có quyền quản trị vai trò.");
         var code=Scalar(c,"SELECT code FROM roles WHERE id=$id",("$id",roleId)) as string ?? throw new InvalidOperationException("Không tìm thấy vai trò.");
-        if(code=="ADMIN")throw new InvalidOperationException("Role ADMIN luôn có toàn bộ quyền và không thể sửa ở giao diện.");
+        if(code=="ADMIN")throw new InvalidOperationException("Vai trò Quản trị viên luôn có toàn bộ quyền và không thể sửa ở giao diện.");
         if(!IsAdmin(c,actor) && selected.Any(key=>!EffectivePermissions(c,actor).Contains(key)))
-            throw new UnauthorizedAccessException("Không thể cấp cho Role quyền ngoài phạm vi của tài khoản quản trị.");
+            throw new UnauthorizedAccessException("Không thể cấp cho vai trò quyền ngoài phạm vi của tài khoản quản trị.");
         Exec(c,"UPDATE role_permissions SET deleted_at=CURRENT_TIMESTAMP WHERE role_id=$id AND deleted_at IS NULL",("$id",roleId));
         foreach(var key in selected.Distinct())Exec(c,"INSERT INTO role_permissions(role_id,permission_key) VALUES($id,$k) ON CONFLICT(role_id,permission_key) DO UPDATE SET deleted_at=NULL,deleted_by=NULL",("$id",roleId),("$k",key));
         Exec(c,@"UPDATE user_security SET security_stamp=lower(hex(randomblob(16)))

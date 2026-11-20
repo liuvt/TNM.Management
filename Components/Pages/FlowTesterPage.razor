@@ -6,9 +6,9 @@
 
 <div class="page-head">
     <div>
-        <div class="eyebrow">HỆ THỐNG / KIỂM THỬ TỰ ĐỘNG E2E</div>
-        <h1>Kiểm thử toàn bộ luồng (Flow Tester)</h1>
-        <p>Tự động tạo Database SQLite sandbox độc lập trong bộ nhớ tạm và chạy 14 kịch bản xuyên suốt tất cả phân hệ V7. Không làm thay đổi dữ liệu thật.</p>
+        <div class="eyebrow">HỆ THỐNG / KIỂM THỬ TỰ ĐỘNG TOÀN LUỒNG</div>
+        <h1>Kiểm thử toàn bộ luồng nghiệp vụ</h1>
+        <p>Tự động khởi tạo cơ sở dữ liệu cô lập trong bộ nhớ tạm và chạy 14 kịch bản xuyên suốt tất cả các phân hệ. Tuyệt đối không làm thay đổi dữ liệu thật đang vận hành.</p>
     </div>
     <div class="button-group">
         <button type="button" class="btn" disabled="@running" @onclick="RunTests">
@@ -22,8 +22,8 @@
     <div class="stats-grid">
         <div class="stat">
             <small>Kết quả tổng thể</small>
-            <strong class="@(report.AllPassed ? "" : "orange")">@(report.AllPassed ? "PASS 100%" : "CÓ LỖI")</strong>
-            <span>Thực thi trên Sandbox DB</span>
+            <strong class="@(report.AllPassed ? "" : "orange")">@(report.AllPassed ? "ĐẠT 100%" : "CÓ LỖI")</strong>
+            <span>Thực thi trên môi trường cô lập</span>
         </div>
         <div class="stat">
             <small>Tổng số kịch bản</small>
@@ -46,7 +46,7 @@
         <div class="panel-head">
             <div>
                 <h2>Chi tiết các bước kiểm thử</h2>
-                <p>Từng bước kiểm tra cả luồng thuận (Happy Path) và các Trigger bảo vệ (Negative Test).</p>
+                <p>Từng bước kiểm tra cả luồng nghiệp vụ chuẩn và các ràng buộc bảo vệ dữ liệu tự động.</p>
             </div>
         </div>
         @{ var pagedSteps = stepPager.Slice(report.Steps, out var totalSteps); }
@@ -68,13 +68,13 @@
                         <tr>
                             <td><strong>@stt</strong></td>
                             <td>@step.Category</td>
-                            <td class="wrap-cell"><strong>@step.Name</strong></td>
+                            <td class="wrap-cell"><strong>@VnLabels.LocalizeText(step.Name)</strong></td>
                             <td>
                                 <span class="chip @(step.Passed ? "green-chip" : "orange-chip")">
-                                    @(step.Passed ? "PASS" : "FAIL")
+                                    @(step.Passed ? "ĐẠT" : "LỖI")
                                 </span>
                             </td>
-                            <td class="wrap-cell">@step.Detail</td>
+                            <td class="wrap-cell">@VnLabels.LocalizeText(step.Detail)</td>
                             <td>@step.DurationMs ms</td>
                         </tr>
                     }

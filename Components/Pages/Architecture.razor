@@ -7,9 +7,9 @@
 
 <div class="page-head">
     <div>
-        <div class="eyebrow">SYSTEM ARCHITECTURE / ROLE-BASED USER GUIDE</div>
+        <div class="eyebrow">HỆ THỐNG / MÔ HÌNH NGHIỆP VỤ &amp; HƯỚNG DẪN SỬ DỤNG</div>
         <h1>Mô hình hệ thống &amp; Hướng dẫn sử dụng</h1>
-        <p>Hiển thị cá nhân hóa các hạng mục chức năng, quy trình và hướng dẫn sử dụng <strong>tương ứng với phân quyền của tài khoản</strong>. Hãy bấm vào từng mục bên dưới để mở hộp thoại (Dialog) xem hướng dẫn chi tiết.</p>
+        <p>Hiển thị cá nhân hóa các hạng mục chức năng, quy trình và hướng dẫn sử dụng <strong>tương ứng với phân quyền của tài khoản</strong>. Hãy bấm vào từng mục bên dưới để mở hộp thoại xem hướng dẫn chi tiết.</p>
     </div>
 </div>
 
@@ -21,7 +21,7 @@
             </div>
             <div style="min-width:0">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    <strong style="font-size:14px;color:#1f2924">@targetUsername: ID #@targetUserId — @targetDisplayName</strong>
+                    <strong style="font-size:14px;color:#1f2924">@targetUsername: Mã #@targetUserId — @targetDisplayName</strong>
                     @if (!string.IsNullOrWhiteSpace(targetRolesLabel))
                     {
                         <span class="chip green-chip">Vai trò: @targetRolesLabel</span>
@@ -41,7 +41,7 @@
                 <select value="@targetUserId" @onchange="OnTargetUserChanged" style="min-height:34px;padding:5px 10px;border:1px solid #b2f2bb;border-radius:7px;font-size:12px;font-weight:650;color:#1f2924;background:#fff">
                     @foreach (var u in allUsers)
                     {
-                        <option value="@u.Id">@u.Username : ID #@u.Id — @u.DisplayName (@GetUserRolesDisplay(u))</option>
+                        <option value="@u.Id">@u.Username : Mã #@u.Id — @u.DisplayName (@GetUserRolesDisplay(u))</option>
                     }
                 </select>
             </div>
@@ -52,7 +52,7 @@
 <section class="panel">
     <div class="panel-head">
         <div>
-            <h2>1. Các hạng mục chức năng được cấp quyền (@VisibleMenuItemCount mục — Bấm vào từng mục để mở Dialog Hướng dẫn)</h2>
+            <h2>1. Các hạng mục chức năng được cấp quyền (@VisibleMenuItemCount mục — Bấm vào từng mục để mở Hộp thoại Hướng dẫn)</h2>
             <p>Chỉ hiển thị những phân hệ và màn hình mà tài khoản <strong>@targetUsername (#@targetUserId)</strong> có quyền truy cập và thao tác.</p>
         </div>
     </div>
@@ -82,11 +82,11 @@
                                     <span class="chip blue-chip" style="font-size:10px">@item.RouteLabel</span>
                                     @if (!string.IsNullOrWhiteSpace(item.TabBadge))
                                     {
-                                        <span class="chip green-chip" style="font-size:10px">@item.TabBadge</span>
+                                        <span class="chip green-chip" style="font-size:10px">@VnLabels.LocalizeText(item.TabBadge)</span>
                                     }
                                 </div>
-                                <h3 style="margin:0 0 5px;font-size:14px;font-weight:740;color:#1f2924">@item.Title</h3>
-                                <p style="margin:0;font-size:11.6px;color:#58665e;line-height:1.5">@item.Summary</p>
+                                <h3 style="margin:0 0 5px;font-size:14px;font-weight:740;color:#1f2924">@VnLabels.LocalizeText(item.Title)</h3>
+                                <p style="margin:0;font-size:11.6px;color:#58665e;line-height:1.5">@VnLabels.LocalizeText(item.Summary)</p>
                             </div>
                             <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px dashed #e5ece8;gap:6px;flex-wrap:wrap">
                                 <small style="color:#1b653e;font-weight:700">✓ Đã cấp @grantedCount quyền thao tác</small>
@@ -173,9 +173,9 @@
                     <tr>
                         <th>STT</th>
                         <th>Giai đoạn</th>
-                        <th>Điểm đầu vào (UI / Tác nhân)</th>
-                        <th>Xử lý nghiệp vụ &amp; Dịch vụ C#</th>
-                        <th>Bảng dữ liệu SQLite cập nhật</th>
+                        <th>Điểm đầu vào (Màn hình / Nhân sự)</th>
+                        <th>Xử lý nghiệp vụ tự động</th>
+                        <th>Phân hệ dữ liệu cập nhật</th>
                         <th>Kết quả đầu ra / Kế toán</th>
                         <th>Hướng dẫn</th>
                     </tr>
@@ -214,11 +214,11 @@
             <div class="so-modal-header">
                 <div>
                     <h2>
-                        <span>📖 @selectedGuide.Title</span>
+                        <span>📖 @VnLabels.LocalizeText(selectedGuide.Title)</span>
                         <span class="chip green-chip">@selectedGuide.Category</span>
                         @if (!string.IsNullOrWhiteSpace(selectedGuide.TabBadge))
                         {
-                            <span class="chip blue-chip">@selectedGuide.TabBadge</span>
+                            <span class="chip blue-chip">@VnLabels.LocalizeText(selectedGuide.TabBadge)</span>
                         }
                     </h2>
                     <p>
@@ -251,18 +251,18 @@
 
                 <div style="padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;line-height:1.6;color:#334155">
                     <strong style="color:#0f172a;display:block;margin-bottom:4px">🎯 Mục đích &amp; Chức năng chính:</strong>
-                    @selectedGuide.Purpose
+                    @VnLabels.LocalizeText(selectedGuide.Purpose)
                 </div>
 
                 @if (selectedGuide.Tabs.Count > 0)
                 {
                     <div style="padding:12px 14px;background:#fff;border:1px solid #dce5df;border-radius:10px">
-                        <strong style="color:#1b653e;display:block;margin-bottom:8px">🗂 Cấu trúc các Tab / Khu vực trong mục này:</strong>
+                        <strong style="color:#1b653e;display:block;margin-bottom:8px">🗂 Cấu trúc các Phân mục / Khu vực trong mục này:</strong>
                         <div style="display:grid;gap:8px">
                             @foreach (var tab in selectedGuide.Tabs)
                             {
                                 <div style="padding:8px 10px;background:#f8faf9;border:1px solid #e2ebe5;border-radius:8px;font-size:12px;line-height:1.5">
-                                    <strong style="color:#1b653e">• @tab.Name:</strong> @tab.Detail
+                                    <strong style="color:#1b653e">• @VnLabels.LocalizeText(tab.Name):</strong> @VnLabels.LocalizeText(tab.Detail)
                                 </div>
                             }
                         </div>
@@ -270,11 +270,11 @@
                 }
 
                 <div style="padding:12px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:10px">
-                    <strong style="color:#1e293b;display:block;margin-bottom:10px">📋 Hướng dẫn thao tác từng bước (Step-by-Step):</strong>
+                    <strong style="color:#1e293b;display:block;margin-bottom:10px">📋 Hướng dẫn thao tác chi tiết từng bước:</strong>
                     <div class="step-list" style="gap:10px">
                         @for (int i = 0; i < selectedGuide.Steps.Count; i++)
                         {
-                            var stepText = selectedGuide.Steps[i];
+                            var stepText = VnLabels.LocalizeText(selectedGuide.Steps[i]);
                             <div style="align-items:flex-start">
                                 <b style="width:28px;height:28px;font-size:11.5px;flex:none">B@(i + 1)</b>
                                 <span style="font-size:12.2px;color:#334155;line-height:1.55;padding-top:3px">@stepText</span>
@@ -290,7 +290,7 @@
                         <ul style="margin:0;padding-left:18px;color:#14532d;font-size:12px;line-height:1.65">
                             @foreach (var note in selectedGuide.Notes)
                             {
-                                <li>@note</li>
+                                <li>@VnLabels.LocalizeText(note)</li>
                             }
                         </ul>
                     </div>
@@ -299,7 +299,7 @@
                 @if (!string.IsNullOrWhiteSpace(selectedGuide.DataFlow))
                 {
                     <div style="padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:12px;color:#1e3a8a;line-height:1.55">
-                        <strong>🔄 Liên kết dữ liệu &amp; Kế toán:</strong> @selectedGuide.DataFlow
+                        <strong>🔄 Liên kết dữ liệu &amp; Kế toán:</strong> @VnLabels.LocalizeText(selectedGuide.DataFlow)
                     </div>
                 }
             </div>
@@ -308,7 +308,7 @@
                 <div>
                     @if (!string.IsNullOrWhiteSpace(resolvedHref))
                     {
-                        <a class="btn" href="@resolvedHref">Mở màn hình @selectedGuide.Title →</a>
+                        <a class="btn" href="@resolvedHref">Mở màn hình @VnLabels.LocalizeText(selectedGuide.Title) →</a>
                     }
                 </div>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseGuide">Đóng hướng dẫn</button>
@@ -403,25 +403,16 @@
 
     private string GetUserRolesDisplay(ManagedUser u)
     {
-        if (u.IsOwner) return "Chủ sở hữu (Owner)";
+        if (u.IsOwner) return "Chủ sở hữu";
         var names = u.RoleIds
             .Select(rid => allRoles.FirstOrDefault(r => r.Id == rid))
             .Where(r => r is not null)
             .Select(r => TranslateRoleCode(r!.Code))
             .ToList();
-        return names.Count > 0 ? string.Join(", ", names) : "Tùy chỉnh quyền";
+        return names.Count > 0 ? string.Join(", ", names) : "Cấp quyền trực tiếp";
     }
 
-    private static string TranslateRoleCode(string code) => code.ToUpperInvariant() switch
-    {
-        "ADMIN" => "Quản trị",
-        "MANAGER" => "Quản lý",
-        "ACCOUNTANT" => "Kế toán",
-        "WAREHOUSE" => "Kho",
-        "CSKH" => "CSKH",
-        "TECHNICIAN" => "Kỹ thuật",
-        _ => code
-    };
+    private static string TranslateRoleCode(string code) => VnLabels.RoleName(code);
 
     private bool HasAccess(string[] requiredAny)
     {
@@ -501,7 +492,7 @@
         ["dashboard"] = new(
             Key: "dashboard",
             Category: "TỔNG QUAN",
-            Title: "Dashboard — Bảng điều hành tổng quan",
+            Title: "Bảng điều hành tổng quan",
             RouteLabel: "/",
             PrimaryHref: "/",
             TabBadge: "1 màn hình",
@@ -512,23 +503,23 @@
             DetailPermissionKeys: [Permissions.DashboardView, Permissions.DashboardRevenue, Permissions.DashboardProfit, Permissions.DashboardStock, Permissions.DashboardDebt, Permissions.DashboardOrders, Permissions.DashboardDevices, Permissions.DashboardRenewals],
             Tabs:
             [
-                new("Chỉ số tài chính (4 thẻ KPI)", "Hiển thị Doanh thu đã ghi nhận, Đã thu thực tế, Công nợ phải thu còn lại và Lợi nhuận gộp ước tính (tùy theo quyền xem từng chỉ số)."),
+                new("Chỉ số tài chính (4 thẻ tổng hợp)", "Hiển thị Doanh thu đã ghi nhận, Đã thu thực tế, Công nợ phải thu còn lại và Lợi nhuận gộp ước tính (tùy theo quyền xem từng chỉ số)."),
                 new("Vòng đời thiết bị & Điểm cần chú ý", "Biểu đồ tỷ lệ IMEI Tồn kho / Đang ký gửi / Đã kích hoạt và danh sách cảnh báo thiết bị sắp hết hạn, đơn hàng chờ điều phối."),
-                new("Đi nhanh đến nghiệp vụ", "Các lối tắt mở nhanh Sản phẩm, Danh sách Kho, Đơn hàng SO, Khách hàng, Nhà cung cấp và Gia hạn thiết bị.")
+                new("Đi nhanh đến nghiệp vụ", "Các lối tắt mở nhanh Sản phẩm, Danh sách Kho, Đơn hàng lắp đặt, Khách hàng, Nhà cung cấp và Gia hạn thiết bị.")
             ],
             Steps:
             [
-                "Mở menu 'Dashboard' ở đầu thanh điều hướng bên trái để kiểm tra các chỉ số đầu ngày.",
+                "Mở menu 'Bảng điều hành' ở đầu thanh điều hướng bên trái để kiểm tra các chỉ số đầu ngày.",
                 "Quan sát mục 'Điểm cần chú ý': bấm 'Xử lý' tại dòng 'Thiết bị sắp gia hạn' để chuyển sang màn hình nhắc gia hạn cho khách, hoặc bấm 'Xử lý' tại dòng 'Đơn hàng chưa kích hoạt' để điều phối & hoàn thành đơn.",
                 "Sử dụng các ô trong khu vực 'Đi nhanh đến nghiệp vụ' để truy cập thẳng vào phân hệ cần làm việc.",
-                "Bấm 'Xem báo cáo →' ở góc phải tiêu đề nếu cần tra cứu sâu bảng kê doanh thu, giá vốn và xuất file CSV."
+                "Bấm 'Chi tiết ↗' ở góc phải tiêu đề nếu cần tra cứu sâu tồn kho thiết bị."
             ],
             Notes:
             [
                 "Các con số doanh thu, công nợ, lợi nhuận hiển thị tự động theo phân quyền chi tiết của tài khoản đang đăng nhập.",
-                "Số liệu trên Dashboard tự động cập nhật ngay khi đơn hàng SO hoàn thành, khi nhập kho hoặc khi Kế toán lập phiếu thu/chi."
+                "Số liệu trên Bảng điều hành tự động cập nhật ngay khi đơn hàng lắp đặt hoàn thành, khi nhập kho hoặc khi Kế toán lập phiếu thu/chi."
             ],
-            DataFlow: "Tổng hợp trực tiếp từ các bảng invoices, payments, stock_units, activations và v7_orders."),
+            DataFlow: "Tổng hợp trực tiếp từ Chứng từ công nợ, Sổ quỹ, Kho thiết bị IMEI, Thuê bao kích hoạt và Đơn hàng lắp đặt."),
 
         ["products"] = new(
             Key: "products",
@@ -1358,30 +1349,30 @@
 
     private static readonly List<CoreModuleVm> CoreModules =
     [
-        new("mod-01", "01", "Danh mục & Chính sách giá", "Sản phẩm (2 tab), Nhà cung cấp (2 tab), Khách hàng (2 tab), Nhân viên bán hàng, Người lắp đặt (2 tab), Giá & chương trình (3 tab)", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView, Permissions.OrdersView]),
-        new("mod-02", "02", "Nhập kho, Tồn kho IMEI / Số lượng & Bảo hành RMA", "Kho (Tab Kho IMEI | Tab Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Kiểm kê tồn kho, Bảo hành 3 bước", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty, Permissions.PurchaseView]),
-        new("mod-03", "03", "Đơn hàng & Điều phối lắp đặt (SO)", "Nhận đơn từ Nhân viên bán hàng → Tạo đơn (chưa trừ kho) → Mở Dialog trên từng dòng đơn để điều phối, nhập IMEI & Hoàn thành", [Permissions.OrdersView]),
+        new("mod-01", "01", "Danh mục & Chính sách giá", "Sản phẩm (2 phân mục), Nhà cung cấp (2 phân mục), Khách hàng (2 phân mục), Nhân viên bán hàng, Người lắp đặt, Giá & chương trình", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView, Permissions.OrdersView]),
+        new("mod-02", "02", "Nhập kho, Tồn kho IMEI / Số lượng & Bảo hành", "Kho (Kho IMEI | Kho số lượng), Danh sách Kho (Chi tiết Kho | Khu vực), Kiểm kê tồn kho, Bảo hành 3 bước", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty, Permissions.PurchaseView]),
+        new("mod-03", "03", "Đơn hàng & Điều phối lắp đặt", "Nhận đơn từ Nhân viên bán hàng → Tạo đơn (chưa trừ kho) → Mở hộp thoại trên từng dòng đơn để điều phối, nhập IMEI & Hoàn thành", [Permissions.OrdersView]),
         new("mod-04", "04", "Thiết bị đang hoạt động & Gia hạn thuê bao", "Theo dõi hạn thuê bao (Còn hạn, Sắp hết hạn, Quá hạn D+10/30/60), gia hạn 12 tháng gắn Nhân viên bán hàng phụ trách", [Permissions.DevicesView]),
-        new("mod-05", "05", "Kế toán Công nợ, Sổ Thu/Chi & Hoa hồng", "4 phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng NV bán hàng), Phiếu Thu/Chi & Khóa sổ cuối kỳ", [Permissions.FinanceView]),
-        new("mod-06", "06", "Phân quyền RBAC, Phạm vi Kho & Kiểm toán", "6 vai trò chuẩn + quyền riêng từng User, giới hạn kho theo User, hộp thoại xác nhận Thêm/Sửa/Xóa & lưu vết Trước/Sau", [Permissions.UsersView, Permissions.WarehouseScopeManage, Permissions.ReportsAuditView, Permissions.ArchitectureView])
+        new("mod-05", "05", "Kế toán Công nợ, Sổ Thu/Chi & Hoa hồng", "Các phân mục công nợ (Nhập NCC, Khách hàng, Gia hạn, Kỹ thuật/Hoa hồng NV bán hàng), Phiếu Thu/Chi & Khóa sổ cuối kỳ", [Permissions.FinanceView]),
+        new("mod-06", "06", "Phân quyền vai trò, Phạm vi Kho & Kiểm toán", "6 vai trò chuẩn + quyền riêng từng tài khoản, giới hạn kho theo nhân sự, hộp thoại xác nhận Thêm/Sửa/Xóa & lưu vết Trước/Sau", [Permissions.UsersView, Permissions.WarehouseScopeManage, Permissions.ReportsAuditView, Permissions.ArchitectureView])
     ];
 
     private static readonly List<CoreModuleVm> IntegrityRules =
     [
-        new("rule-1", "R1", "Quản lý IMEI duy nhất & Khử trùng thông minh", "Mỗi thiết bị chỉ ở 1 trạng thái tại 1 thời điểm; tự động lọc trùng và khôi phục IMEI xóa mềm khi nhập kho", [Permissions.InventoryView, Permissions.OrdersView, Permissions.DevicesView, Permissions.InventoryWarranty, Permissions.ArchitectureView]),
-        new("rule-2", "R2", "Trừ tồn kho đúng thời điểm Hoàn thành đơn", "Tạo đơn & điều phối chưa trừ kho; chỉ trừ kho khi bấm Hoàn thành đơn (cho phép Không trừ kho nếu Hãng lắp đặt)", [Permissions.OrdersView, Permissions.InventoryView, Permissions.QuantityStockView, Permissions.ArchitectureView]),
-        new("rule-3", "R3", "Bảo toàn đơn giá lịch sử (Historical Snapshot)", "Đơn hàng đã hoàn thành giữ nguyên giá bán, giá vốn, công lắp và Nhân viên bán hàng tại thời điểm phát sinh", [Permissions.OrdersView, Permissions.PricesView, Permissions.FinanceView, Permissions.ReportsView, Permissions.ArchitectureView]),
-        new("rule-4", "R4", "Đồng bộ Kế toán tự động 2 chiều", "Nhập kho sinh Công nợ NCC; Hoàn thành đơn sinh Công nợ KH & Công kỹ thuật; Gia hạn sinh Công nợ Gia hạn", [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.PurchaseView, Permissions.ArchitectureView]),
-        new("rule-5", "R5", "Dialog Xác nhận thao tác & Xóa mềm (Soft Delete)", "Mọi nút Thêm/Sửa/Xóa đều hiển thị Dialog xác nhận lại trước khi thực thi; cấm xóa vật lý & lưu vết Trước/Sau", [])
+        new("rule-1", "Q1", "Quản lý IMEI duy nhất & Khử trùng thông minh", "Mỗi thiết bị chỉ ở 1 trạng thái tại 1 thời điểm; tự động lọc trùng và khôi phục IMEI xóa mềm khi nhập kho", [Permissions.InventoryView, Permissions.OrdersView, Permissions.DevicesView, Permissions.InventoryWarranty, Permissions.ArchitectureView]),
+        new("rule-2", "Q2", "Trừ tồn kho đúng thời điểm Hoàn thành đơn", "Tạo đơn & điều phối chưa trừ kho; chỉ trừ kho khi bấm Hoàn thành đơn (cho phép Không trừ kho nếu Hãng lắp đặt)", [Permissions.OrdersView, Permissions.InventoryView, Permissions.QuantityStockView, Permissions.ArchitectureView]),
+        new("rule-3", "Q3", "Bảo toàn đơn giá lịch sử", "Đơn hàng đã hoàn thành giữ nguyên giá bán, giá vốn, công lắp và Nhân viên bán hàng tại thời điểm phát sinh", [Permissions.OrdersView, Permissions.PricesView, Permissions.FinanceView, Permissions.ReportsView, Permissions.ArchitectureView]),
+        new("rule-4", "Q4", "Đồng bộ Kế toán tự động 2 chiều", "Nhập kho sinh Công nợ NCC; Hoàn thành đơn sinh Công nợ KH & Công kỹ thuật; Gia hạn sinh Công nợ Gia hạn", [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.PurchaseView, Permissions.ArchitectureView]),
+        new("rule-5", "Q5", "Hộp thoại Xác nhận thao tác & Xóa an toàn", "Mọi nút Thêm/Sửa/Xóa đều hiển thị hộp thoại xác nhận trước khi thực thi; bảo toàn dữ liệu gốc & lưu vết Trước/Sau", [])
     ];
 
     private static readonly List<WorkflowStageVm> WorkflowStages =
     [
-        new("mod-01", 1, "B1. Danh mục & Giá", "Admin / Quản lý khai báo tại các mục Kinh doanh & Danh sách Kho", "InputCatalog, ProductMaster", "products, customers, suppliers, v7_sellers, employees, v7_group_prices, v7_installer_product_rates", "Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView]),
-        new("inventory", 2, "B2. Nhập kho & Kho IMEI", "Thủ kho nhập lô IMEI hoặc nhập số lượng tại /inventory (2 tab)", "DemoDb.Receive, V6Ops.ReceivePurchase, V6Ops.MoveQuantity", "stock_units, inventory_transactions, purchase_orders, quantity_movements", "Tăng tồn kho + Tự động sinh Công nợ Sản phẩm (PURCHASE)", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.PurchaseView]),
-        new("sales-orders", 3, "B3. Tạo đơn & Điều phối", "Nhân viên bán hàng gửi thông tin → CSKH tạo đơn tại /sales-orders", "V7Orders.CreateMulti, UpdateOrderInfo, Approve, Dispatch", "v7_orders (PENDING → DISPATCHED), v7_order_lines", "Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho", [Permissions.OrdersView]),
-        new("sales-orders", 4, "B4. Mở Dialog Nhập IMEI & Hoàn thành", "CSKH bấm nút '⚙ Điều chỉnh / Xử lý' trên dòng đơn → Nhập IMEI & bấm Hoàn thành", "V7Orders.ReportLines, V7Orders.Complete", "v7_orders (COMPLETED), stock_units (INSTALLED), v7_stock_effects, activations", "Trừ tồn kho + Sinh Công nợ KH (SALE) & Công kỹ thuật (SERVICE)", [Permissions.OrdersView]),
-        new("devices", 5, "B5. Theo dõi & Gia hạn TB", "CSKH gia hạn thiết bị 12 tháng & chọn Nhân viên bán hàng tại /devices", "DemoDb.Renew, DemoDb.UpdateActivationSchedule", "renewals, activations.expires_at, invoices", "Sinh Công nợ Gia hạn (RENEWAL) + Cộng chỉ tiêu hoa hồng NV bán hàng", [Permissions.DevicesView]),
-        new("finance", 6, "B6. Quyết toán & Hoa hồng", "Kế toán thu/chi công nợ, tính hoa hồng & khóa sổ cuối kỳ tại /finance", "DemoDb.PayInvoice, SellerPeriodStats, LockAccounting", "invoices (OPEN → PARTIAL → PAID), payments, payment_allocations", "Sổ Phiếu Thu (PT-) / Phiếu Chi (PC-), Báo cáo Lợi nhuận & Hoa hồng", [Permissions.FinanceView])
+        new("mod-01", 1, "B1. Danh mục & Giá", "Quản trị / Quản lý khai báo tại các mục Kinh doanh & Danh sách Kho", "Quản lý Danh mục & Bảng giá", "Sản phẩm, Khách hàng, Nhà cung cấp, NV bán hàng, Người lắp đặt, Bảng giá", "Định mức giá bán, giá nhập, công lắp và hoa hồng chuẩn", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView]),
+        new("inventory", 2, "B2. Nhập kho & Kho IMEI", "Thủ kho nhập lô IMEI hoặc nhập số lượng tại màn hình Kho", "Tiếp nhận Kho IMEI & Mua hàng NCC", "Thiết bị IMEI, Phiếu xuất nhập kho, Đơn mua hàng, Sổ kho số lượng", "Tăng tồn kho + Tự động sinh Công nợ Nhà cung cấp", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.PurchaseView]),
+        new("sales-orders", 3, "B3. Tạo đơn & Điều phối", "Nhân viên bán hàng gửi thông tin → CSKH tạo đơn lắp đặt", "Tiếp nhận & Điều phối đơn lắp đặt", "Đơn hàng lắp đặt (Chờ điều phối → Đang đi lắp), Chi tiết mặt hàng", "Chốt đơn giá tại thời điểm tạo đơn; chưa trừ tồn kho", [Permissions.OrdersView]),
+        new("sales-orders", 4, "B4. Nhập IMEI & Hoàn thành đơn", "CSKH bấm nút '⚙ Điều chỉnh / Xử lý' trên dòng đơn → Nhập IMEI & bấm Hoàn thành", "Ghi nhận IMEI & Hoàn tất lắp đặt", "Đơn hàng (Đã hoàn thành), Thiết bị IMEI (Đã lắp đặt), Thuê bao kích hoạt", "Trừ tồn kho + Sinh Công nợ Khách hàng & Công kỹ thuật", [Permissions.OrdersView]),
+        new("devices", 5, "B5. Theo dõi & Gia hạn TB", "CSKH gia hạn thiết bị 12 tháng & chọn Nhân viên bán hàng phụ trách", "Gia hạn thuê bao & Đồng bộ hạn", "Lịch sử gia hạn, Ngày hết hạn thiết bị, Chứng từ công nợ", "Sinh Công nợ Gia hạn + Cộng chỉ tiêu hoa hồng NV bán hàng", [Permissions.DevicesView]),
+        new("finance", 6, "B6. Quyết toán & Hoa hồng", "Kế toán thu/chi công nợ, tính hoa hồng & khóa sổ cuối kỳ", "Phân bổ thanh toán, Sổ quỹ & Chốt sổ", "Chứng từ công nợ (Chưa thanh toán → Thanh toán 1 phần → Đã tất toán), Sổ quỹ", "Sổ Phiếu Thu / Phiếu Chi, Báo cáo Lợi nhuận & Hoa hồng", [Permissions.FinanceView])
     ];
 }

@@ -8,9 +8,9 @@
 <PageTitle>Mua hàng NCC · TNM.Management</PageTitle>
 <div class="page-head">
     <div>
-        <div class="eyebrow">PURCHASE / RECEIVING</div>
+        <div class="eyebrow">KINH DOANH / MUA HÀNG NHÀ CUNG CẤP</div>
         <h1>Mua hàng nhà cung cấp</h1>
-        <p>Chọn NCC, hàng hóa, kho và vị trí nhận để lập PO. Phiếu nhận hàng sẽ ghi tăng tồn theo số lượng.</p>
+        <p>Chọn NCC, hàng hóa, kho và vị trí nhận để lập đơn mua hàng. Phiếu nhận hàng sẽ ghi tăng tồn kho theo số lượng.</p>
     </div>
     <div class="button-group">
         <button type="button" class="btn secondary" @onclick="RefreshCatalogs">Làm mới danh mục</button>
@@ -35,7 +35,7 @@
         {
             <div class="purchase-alert" role="status">
                 <strong>Chưa có nhà cung cấp.</strong>
-                <span>Database khởi tạo mới không tạo NCC giả. Vui lòng thêm NCC trước khi lập đơn mua.</span>
+                <span>Hệ thống khởi tạo mới chưa có danh sách NCC. Vui lòng thêm NCC trước khi lập đơn mua.</span>
                 @if (canManageSuppliers)
                 {
                     <button type="button" class="btn secondary btn-sm" @onclick="() => showSupplierForm = !showSupplierForm">
@@ -78,7 +78,7 @@
         {
             <div class="purchase-alert" role="status">
                 <strong>Không có hàng hóa phù hợp.</strong>
-                <span>Đơn mua số lượng chỉ chọn SKU đang hoạt động, loại Hàng hóa và không quản lý IMEI. Kiểm tra ở <a href="/products">Danh mục sản phẩm</a>.</span>
+                <span>Đơn mua số lượng chỉ chọn mã hàng đang kinh doanh, loại Hàng hóa và không quản lý IMEI. Kiểm tra ở <a href="/products">Danh mục sản phẩm</a>.</span>
             </div>
         }
         @if (warehouses.Count == 0)
@@ -92,7 +92,7 @@
         {
             <div class="purchase-alert" role="status">
                 <strong>Kho được chọn chưa có vị trí nhận hàng.</strong>
-                <span>Hãy tạo vị trí tại Kho số lượng trước khi lập PO.</span>
+                <span>Hãy tạo vị trí tại Kho số lượng trước khi lập đơn mua hàng.</span>
             </div>
         }
 
@@ -143,35 +143,35 @@
         </div>
         @if (!CanSubmit)
         {
-            <p class="purchase-help">Chọn đủ NCC, sản phẩm, kho và vị trí hợp lệ, đồng thời nhập số lượng lớn hơn 0 để lập PO.</p>
+            <p class="purchase-help">Chọn đủ NCC, sản phẩm, kho và vị trí hợp lệ, đồng thời nhập số lượng lớn hơn 0 để lập đơn mua hàng.</p>
         }
     </section>
 }
 
 <section class="panel">
     <div class="panel-head">
-        <div><h2>Danh sách đơn mua (PO)</h2><p>Đang hiển thị @FilteredOrders.Count / @orders.Count đơn mua · Phiếu chỉ được ghi tăng tồn khi bấm xác nhận nhận hàng.</p></div>
+        <div><h2>Danh sách đơn mua hàng</h2><p>Đang hiển thị @FilteredOrders.Count / @orders.Count đơn mua · Phiếu chỉ được ghi tăng tồn khi bấm xác nhận nhận hàng.</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <select class="search-input" @bind="poStatusFilter" @bind:after="() => poPager.Reset()">
                 <option value="ALL">— Mọi trạng thái (@orders.Count) —</option>
-                <option value="DRAFT">Chờ nhận hàng (DRAFT)</option>
-                <option value="RECEIVED">Đã nhận hàng (RECEIVED)</option>
+                <option value="DRAFT">Chờ nhận hàng</option>
+                <option value="RECEIVED">Đã nhập kho</option>
             </select>
-            <input class="search-input" style="min-width:220px" @bind="poSearch" @bind:event="oninput" @bind:after="() => poPager.Reset()" placeholder="Tìm số PO, NCC, kho, SKU..." />
+            <input class="search-input" style="min-width:220px" @bind="poSearch" @bind:event="oninput" @bind:after="() => poPager.Reset()" placeholder="Tìm mã đơn mua, NCC, kho, mã hàng..." />
             <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPurchasesExcel">📥 Xuất Excel (@FilteredOrders.Count)</button>
         </div>
     </div>
     @{ var pagedOrders = poPager.Slice(FilteredOrders, out var totalOrders); }
     <div class="table-wrap">
         <table>
-            <thead><tr><th>STT</th><th>Số PO</th><th>NCC</th><th>Kho</th><th>SKU</th><th>SL</th><th>Giá nhập</th><th>Trạng thái</th><th>Nhận hàng</th></tr></thead>
+            <thead><tr><th>STT</th><th>Mã đơn mua</th><th>Nhà cung cấp</th><th>Kho nhận</th><th>Mã hàng</th><th>SL</th><th>Giá nhập</th><th>Trạng thái</th><th>Nhận hàng</th></tr></thead>
             <tbody>
                 @foreach (var (stt, x) in pagedOrders)
                 {
                     <tr>
                         <td><strong>@stt</strong></td>
                         <td><strong>@x.Code</strong></td><td class="wrap-cell">@x.Supplier</td><td>@x.Warehouse</td><td>@x.Sku</td><td>@x.Qty</td>
-                        <td>@x.Cost.ToString("N0")</td><td>@x.Status</td>
+                        <td>@x.Cost.ToString("N0") ₫</td><td><span class="chip @(x.Status == "RECEIVED" ? "green-chip" : "orange-chip")">@VnLabels.PurchaseOrderStatus(x.Status)</span></td>
                         <td>@if (canReceive && x.Status == "DRAFT")
                             {
                                 <button type="button" class="btn btn-sm" @onclick="() => Receive(x.Id)">Xác nhận nhận đủ</button>
@@ -185,7 +185,7 @@
     <TablePager Pager="poPager" TotalCount="totalOrders" />
     @if (orders.Count == 0)
     {
-        <p class="purchase-help">Chưa có PO tại các kho bạn được phép xem.</p>
+        <p class="purchase-help">Chưa có đơn mua hàng nào tại các kho bạn được phép xem.</p>
     }
     <p class="feedback" role="status">@receivedMessage</p>
 </section>
@@ -208,18 +208,18 @@
     private string poSearch = "", poStatusFilter = "ALL";
     private List<PurchaseOrderRow> FilteredOrders => orders.Where(x =>
         (poStatusFilter == "ALL" || x.Status == poStatusFilter) &&
-        (string.IsNullOrWhiteSpace(poSearch) || ($"{x.Code} {x.Supplier} {x.Warehouse} {x.Sku} {x.Status}").Contains(poSearch.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
+        (string.IsNullOrWhiteSpace(poSearch) || ($"{x.Code} {x.Supplier} {x.Warehouse} {x.Sku} {VnLabels.PurchaseOrderStatus(x.Status)}").Contains(poSearch.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
 
     private async Task ExportPurchasesExcel()
     {
         var list = FilteredOrders;
-        var headers = new[] { "STT", "Số PO", "Nhà cung cấp", "Kho nhận", "Mã SKU", "Số lượng", "Đơn giá nhập (VND)", "Thành tiền (VND)", "Trạng thái" };
+        var headers = new[] { "STT", "Mã đơn mua", "Nhà cung cấp", "Kho nhận", "Mã hàng", "Số lượng", "Đơn giá nhập (VND)", "Thành tiền (VND)", "Trạng thái" };
         var rows = list.Select((x, idx) => new object?[]
         {
-            idx + 1, x.Code, x.Supplier, x.Warehouse, x.Sku, x.Qty, x.Cost, x.Qty * x.Cost, x.Status
+            idx + 1, x.Code, x.Supplier, x.Warehouse, x.Sku, x.Qty, x.Cost, x.Qty * x.Cost, VnLabels.PurchaseOrderStatus(x.Status)
         });
-        await ExcelExporter.DownloadAsync(JS, "don-mua-hang-po", "Đơn mua PO", headers, rows);
-        receivedMessage = $"Đã xuất file Excel (.xlsx) gồm {list.Count} đơn mua (PO).";
+        await ExcelExporter.DownloadAsync(JS, "don-mua-hang-ncc", "Đơn mua NCC", headers, rows);
+        receivedMessage = $"Đã xuất tệp Excel (.xlsx) gồm {list.Count} đơn mua hàng.";
     }
 
     private List<LocationPick> AvailableLocations => locations.Where(x => x.WarehouseId == warehouse).ToList();
@@ -305,7 +305,7 @@
                 throw new InvalidOperationException("Vui lòng chọn đủ NCC, sản phẩm, kho và vị trí nhận hợp lệ.");
             var id = Ops.CreatePurchase(actor, supplier, product, warehouse, location, quantity, cost, note);
             ReloadOrders();
-            message = $"Đã tạo PO #{id}. Chưa nhập kho cho đến khi xác nhận nhận hàng.";
+            message = $"Đã tạo đơn mua #{id}. Chưa nhập kho cho đến khi xác nhận nhận hàng.";
             receivedMessage = "";
             quantity = 1;
             note = "";

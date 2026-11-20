@@ -22,24 +22,24 @@ public static class CsvExports
     }
     public static byte[] Inventory(DemoDb db)
     {
-        var rows=new List<IEnumerable<string>> { new[] { "IMEI", "SKU", "Tên thiết bị", "Trạng thái", "Nơi giữ", "Cập nhật" } };
-        rows.AddRange(db.Stock().Select(x=>(IEnumerable<string>)new[] { x.Imei, x.Sku, x.Product, x.Status, x.Holder, x.UpdatedAt }));
+        var rows=new List<IEnumerable<string>> { new[] { "Số IMEI", "Mã sản phẩm", "Tên thiết bị", "Trạng thái", "Nơi giữ", "Cập nhật" } };
+        rows.AddRange(db.Stock().Select(x=>(IEnumerable<string>)new[] { x.Imei, x.Sku, x.Product, VnLabels.StockStatus(x.Status), x.Holder, VnDateTimeHelper.FormatDisplay(x.UpdatedAt) }));
         return Encode(rows);
     }
     public static byte[] ProductCatalog(ProductMaster master)
     {
         var rows=new List<IEnumerable<string>> { new[] {
-            "Mã sản phẩm","Tên sản phẩm","Nhóm sản phẩm","Loại","Đơn vị tính","IMEI","Bảo hành (tháng)","Trạng thái" } };
+            "Mã sản phẩm","Tên sản phẩm","Nhóm sản phẩm","Phân loại","Đơn vị tính","Quản lý IMEI","Bảo hành (tháng)","Trạng thái" } };
         rows.AddRange(master.Products(includeInactive:true).Select(x=>(IEnumerable<string>)new [] {
-            x.Sku,x.Name,x.GroupName,x.Kind,x.Unit,x.UsesImei?"Có":"Không",
+            x.Sku,x.Name,x.GroupName,VnLabels.ProductKind(x.Kind),x.Unit,x.UsesImei?"Có":"Không",
             x.WarrantyMonths.ToString(),x.IsActive?"Đang kinh doanh":"Ngừng kinh doanh" }));
         return Encode(rows);
     }
     public static byte[] QuantityLedger(V6Ops ops,long userId)
     {
-        var rows=new List<IEnumerable<string>> { new [] {"Ngày","Số phiếu","SKU","Kho","Vị trí","Số lượng +/-","Loại","Ghi chú"} };
+        var rows=new List<IEnumerable<string>> { new [] {"Thời gian","Số phiếu","Mã sản phẩm","Kho","Vị trí","Số lượng +/-","Nghiệp vụ kho","Ghi chú"} };
         rows.AddRange(ops.Movements(userId,200000).Select(x=>(IEnumerable<string>)new [] {
-            x.When,x.Document,x.Sku,x.Warehouse,x.Location,x.Delta.ToString(),x.Type,x.Note
+            VnDateTimeHelper.FormatDisplay(x.When),x.Document,x.Sku,x.Warehouse,x.Location,x.Delta.ToString(),VnLabels.QuantityMovementType(x.Type),x.Note
         }));
         return Encode(rows);
     }
@@ -67,11 +67,11 @@ public static class CsvExports
             var lineSummary = x.Lines is { Count: > 0 }
                 ? string.Join(" | ", x.Lines.Select(l => $"{(string.IsNullOrWhiteSpace(l.ProductSku) ? "" : $"[{l.ProductSku}] ")}{l.Description} (SL: {l.Quantity} × {l.UnitPrice:N0})"))
                 : x.Notes;
-            var nature = x.IsReceivable ? "Phải thu (IN)" : "Phải trả (OUT)";
+            var nature = x.IsReceivable ? "Khoản phải thu" : "Khoản phải trả";
             rows.Add(new[] {
-                x.PeriodLabel, x.Code, x.Type, nature, x.Customer, x.RefCode, lineSummary,
+                x.PeriodLabel, x.Code, VnLabels.InvoiceType(x.Type), nature, x.Customer, x.RefCode, lineSummary,
                 x.Total.ToString(), x.Paid.ToString(), x.Balance.ToString(),
-                x.Status, x.CreatedAt, x.DueAt, x.Notes
+                VnLabels.InvoiceStatus(x.Status), VnDateTimeHelper.FormatDisplay(x.CreatedAt), VnDateTimeHelper.FormatDisplay(x.DueAt, false), x.Notes
             });
         }
         return Encode(rows);
@@ -83,12 +83,12 @@ public static class CsvExports
         var rows = new List<IEnumerable<string>>
         {
             new[] { "BÁO CÁO SỔ QUỸ (THU / CHI / TỒN) — TIỀN MẶT & NGÂN HÀNG" },
-            new[] { "Chỉ tiêu", "Tổng Thu (IN)", "Tổng Chi (OUT)", "Tồn quỹ hiện tại (Thu - Chi)" },
-            new[] { "1. Quỹ Tiền mặt (CASH)", summary.CashInVnd.ToString(), summary.CashOutVnd.ToString(), summary.CashBalanceVnd.ToString() },
-            new[] { "2. Quỹ Ngân hàng (BANK)", summary.BankInVnd.ToString(), summary.BankOutVnd.ToString(), summary.BankBalanceVnd.ToString() },
+            new[] { "Chỉ tiêu", "Tổng Thu", "Tổng Chi", "Tồn quỹ hiện tại (Thu - Chi)" },
+            new[] { "1. Quỹ Tiền mặt", summary.CashInVnd.ToString(), summary.CashOutVnd.ToString(), summary.CashBalanceVnd.ToString() },
+            new[] { "2. Quỹ Ngân hàng", summary.BankInVnd.ToString(), summary.BankOutVnd.ToString(), summary.BankBalanceVnd.ToString() },
             new[] { "TỔNG CỘNG SỔ QUỸ", summary.TotalInVnd.ToString(), summary.TotalOutVnd.ToString(), summary.TotalBalanceVnd.ToString() },
             Array.Empty<string>(),
-            new[] { "Số phiếu", "Loại giao dịch", "Hạng mục Thu/Chi", "Quỹ (Tiền mặt / Ngân hàng)", "Chứng từ công nợ", "Đối tác / Khách hàng / NCC / Nhân viên bán hàng", "Số tiền Thu (+)", "Số tiền Chi (-)", "Tồn quỹ sau GD", "Ngày giao dịch", "Diễn giải" }
+            new[] { "Số phiếu", "Loại giao dịch", "Hạng mục Thu/Chi", "Nguồn quỹ", "Chứng từ công nợ", "Đối tác / Khách hàng / NCC / Nhân viên bán hàng", "Số tiền Thu (+)", "Số tiền Chi (-)", "Tồn quỹ sau GD", "Ngày giao dịch", "Diễn giải" }
         };
 
         foreach (var p in db.Payments())
@@ -101,15 +101,15 @@ public static class CsvExports
             rows.Add(new[]
             {
                 p.PaymentNo,
-                p.Direction == "IN" ? "Phiếu Thu (IN)" : "Phiếu Chi (OUT)",
+                VnLabels.PaymentDirection(p.Direction),
                 itemCat,
-                p.Method == "CASH" ? "Tiền mặt (CASH)" : "Ngân hàng (BANK)",
+                VnLabels.PaymentMethod(p.Method),
                 p.InvoiceNo,
                 p.Partner,
                 p.Direction == "IN" ? p.Amount.ToString() : "0",
                 p.Direction == "OUT" ? p.Amount.ToString() : "0",
                 p.BalanceAfterTotalVnd.ToString(),
-                p.PaidAt,
+                VnDateTimeHelper.FormatDisplay(p.PaidAt),
                 p.Notes
             });
         }

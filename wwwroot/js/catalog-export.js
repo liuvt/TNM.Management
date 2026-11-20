@@ -178,6 +178,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
             lower === 'làm mới' ||
             lower === 'làm mới danh mục' ||
             lower === 'nạp quyền user' ||
+            lower === 'nạp quyền tài khoản' ||
             lower === 'hiện tại' ||
             lower === 'điền mẫu thử nghiệm' ||
             lower === 'tự động điền vào đơn hàng' ||
@@ -211,6 +212,8 @@ window.tnmOpenDateTimePicker = function (inputId) {
                 lower === 'gửi ncc' ||
                 lower === 'hoàn tất / trả' ||
                 lower === 'chỉnh sửa quyền role' ||
+                lower === 'chỉnh sửa quyền vai trò' ||
+                lower === 'đóng quyền vai trò' ||
                 lower === '+ thêm nhân viên' ||
                 lower === '+ tạo nhà cung cấp mới' ||
                 lower === 'thu khách' ||

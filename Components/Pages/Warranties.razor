@@ -7,7 +7,7 @@
 
 <div class="page-head">
     <div>
-        <div class="eyebrow">WARRANTY / RMA WORKFLOW</div>
+        <div class="eyebrow">KHO &amp; THIẾT BỊ / BẢO HÀNH &amp; BẢO TRÌ</div>
         <h1>Bảo hành &amp; Bảo trì thiết bị</h1>
         <p>Luồng phối hợp CSKH ↔ Kỹ thuật ↔ Kho: Tiếp nhận báo lỗi từ khách hàng/kho → Gửi Nhà cung cấp (Hãng) → Hoàn tất trả lại xe khách hàng hoặc nhập lại kho.</p>
     </div>
@@ -32,9 +32,9 @@
             <span>→</span>
             <span class="chip purple-chip">Bước 2 (KT / Kho): Gửi Nhà cung cấp (NCC) sửa chữa</span>
             <span>→</span>
-            <span class="chip green-chip">Bước 3A (CSKH / KT): Hoàn tất trả lại xe khách (INSTALLED)</span>
+            <span class="chip green-chip">Bước 3A (CSKH / KT): Hoàn tất trả lại lắp trên xe khách</span>
             <span>hoặc</span>
-            <span class="chip orange-chip">Bước 3B (Kho): Hoàn tất nhập lại kho (IN_STOCK)</span>
+            <span class="chip orange-chip">Bước 3B (Kho): Hoàn tất nhập lại tồn kho</span>
         </div>
     </div>
 </div>
@@ -96,9 +96,9 @@
             </label>
             <label>Bước xử lý tiếp theo *
                 <select @bind="next">
-                    <option value="SENT_SUPPLIER">Bước 2: Gửi Nhà cung cấp / Hãng bảo hành (SENT_SUPPLIER)</option>
-                    <option value="COMPLETED">Bước 3: Hoàn tất bảo hành (COMPLETED)</option>
-                    <option value="CANCELLED">Hủy phiếu bảo hành / Không lỗi (CANCELLED)</option>
+                    <option value="SENT_SUPPLIER">Bước 2: Gửi Nhà cung cấp / Hãng bảo hành</option>
+                    <option value="COMPLETED">Bước 3: Hoàn tất bảo hành</option>
+                    <option value="CANCELLED">Hủy phiếu bảo hành / Không phát sinh lỗi</option>
                 </select>
             </label>
             @if (next == "SENT_SUPPLIER")
@@ -117,7 +117,7 @@
                 <label>Đích trả thiết bị sau bảo hành *
                     <select @bind="returnTarget">
                         <option value="CUSTOMER">Trả lại lắp trên xe Khách hàng / Đại lý (Giữ trạng thái Đang hoạt động)</option>
-                        <option value="WAREHOUSE">Nhập lại vào Kho TNM (Chuyển trạng thái Tồn kho IN_STOCK)</option>
+                        <option value="WAREHOUSE">Nhập lại vào Kho TNM (Chuyển về trạng thái Trong kho khả dụng)</option>
                     </select>
                 </label>
                 @if (returnTarget == "WAREHOUSE")
@@ -162,10 +162,10 @@
             </label>
             <label>Trạng thái phiếu bảo hành *
                 <select @bind="editStatus">
-                    <option value="RECEIVED">1. Đã tiếp nhận (Chờ xử lý - RECEIVED)</option>
-                    <option value="SENT_SUPPLIER">2. Đang gửi Nhà cung cấp / Hãng (SENT_SUPPLIER)</option>
-                    <option value="COMPLETED">3. Đã hoàn tất bảo hành (COMPLETED)</option>
-                    <option value="CANCELLED">Đã hủy phiếu bảo hành (CANCELLED)</option>
+                    <option value="RECEIVED">1. Đã tiếp nhận (Chờ xử lý)</option>
+                    <option value="SENT_SUPPLIER">2. Đang gửi Nhà cung cấp / Hãng</option>
+                    <option value="COMPLETED">3. Đã hoàn tất bảo hành</option>
+                    <option value="CANCELLED">Đã hủy phiếu bảo hành</option>
                 </select>
             </label>
             <label>Nhà cung cấp / Hãng bảo hành
@@ -190,8 +190,8 @@
             {
                 <label>Đích trả thiết bị khi hoàn tất / hủy *
                     <select @bind="editReturnTarget">
-                        <option value="CUSTOMER">Trả lại lắp trên xe Khách hàng / Đại lý (INSTALLED)</option>
-                        <option value="WAREHOUSE">Nhập lại vào Kho TNM (IN_STOCK)</option>
+                        <option value="CUSTOMER">Trả lại lắp trên xe Khách hàng / Đại lý (Đã lắp đặt trên xe)</option>
+                        <option value="WAREHOUSE">Nhập lại vào Kho TNM (Trong kho khả dụng)</option>
                     </select>
                 </label>
                 @if (editReturnTarget == "WAREHOUSE")

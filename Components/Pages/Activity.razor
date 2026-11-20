@@ -17,28 +17,28 @@
 {
     <section class="panel">
         <div class="panel-head"><div>
-            <h2>Lịch sử bản ghi — @recordSummary.Table #@RecordId</h2>
-            <p>Tạo: @recordSummary.Creates · Chỉnh sửa: @recordSummary.Updates lần · Xóa: @recordSummary.Deletes lần · Lần gần nhất: @recordSummary.LastAt</p>
+            <h2>Lịch sử bản ghi — @VnLabels.TableName(recordSummary.Table) #@RecordId</h2>
+            <p>Tạo mới: @recordSummary.Creates · Cập nhật: @recordSummary.Updates lần · Xóa: @recordSummary.Deletes lần · Lần gần nhất: @VnDateTimeHelper.FormatDisplay(recordSummary.LastAt)</p>
         </div></div>
     </section>
 }
 <section class="panel">
     <div class="panel-head">
-        <div><h2>Tra cứu thay đổi</h2><p>@total sự kiện · Hiển thị @eventPager.PageSize dòng/trang</p></div>
+        <div><h2>Tra cứu thay đổi dữ liệu</h2><p>@total sự kiện · Hiển thị @eventPager.PageSize dòng/trang</p></div>
         <div class="button-group">
-            <select class="search-input" @bind="table"><option value="">Tất cả bảng</option>@foreach(var item in tables){<option value="@item">@item</option>}</select>
-            <input class="search-input" @bind="key" placeholder="ID bản ghi, mã khóa" />
-            <input class="search-input" @bind="actorFilter" placeholder="Tài khoản / ID người sửa" />
+            <select class="search-input" @bind="table"><option value="">— Tất cả phân hệ dữ liệu —</option>@foreach(var item in tables){<option value="@item">@VnLabels.TableName(item)</option>}</select>
+            <input class="search-input" @bind="key" placeholder="Mã bản ghi, từ khóa dữ liệu" />
+            <input class="search-input" @bind="actorFilter" placeholder="Tài khoản người thực hiện" />
             <label class="catalog-page-size">Từ ngày <input type="date" @bind="fromDate" @bind:format="yyyy-MM-dd" /></label>
             <label class="catalog-page-size">Đến ngày <input type="date" @bind="toDate" @bind:format="yyyy-MM-dd" /></label>
-            <select class="search-input" @bind="action"><option value="">Mọi thao tác</option><option value="CREATE">Tạo mới</option><option value="UPDATE">Cập nhật</option><option value="DELETE">Xóa mềm</option><option value="RESTORE">Khôi phục</option></select>
+            <select class="search-input" @bind="action"><option value="">Mọi thao tác</option><option value="CREATE">Thêm mới</option><option value="UPDATE">Cập nhật</option><option value="DELETE">Xóa dữ liệu</option><option value="RESTORE">Khôi phục</option></select>
             <button type="button" class="btn secondary" @onclick="Search">Tìm kiếm</button>
             <button type="button" class="btn secondary" @onclick="Reset">Xóa lọc</button>
             <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportEventsExcel">📥 Xuất Excel (@total)</button>
         </div>
     </div>
     <div class="table-wrap"><table>
-        <thead><tr><th>STT</th><th>THỜI GIAN UTC</th><th>TÀI KHOẢN</th><th>THAO TÁC</th><th>BẢNG</th><th>KHÓA BẢN GHI</th><th>CHI TIẾT</th></tr></thead>
+        <thead><tr><th>STT</th><th>THỜI GIAN</th><th>TÀI KHOẢN</th><th>THAO TÁC</th><th>PHÂN HỆ DỮ LIỆU</th><th>MÃ BẢN GHI</th><th>CHI TIẾT</th></tr></thead>
         <tbody>
             @{
                 var startStt = eventPager.StartIndex((int)total);
@@ -50,8 +50,8 @@
                 var stt = startStt + rowIdx;
                 <tr @key="row.Id">
                     <td><strong>@stt</strong></td>
-                    <td>@row.At</td><td>@row.Actor</td><td><span class="chip">@ActionName(row.Action)</span></td>
-                    <td>@row.Table</td><td><code>@row.RecordKey</code></td>
+                    <td>@VnDateTimeHelper.FormatDisplay(row.At)</td><td>@row.Actor</td><td><span class="chip">@ActionName(row.Action)</span></td>
+                    <td>@VnLabels.TableName(row.Table)</td><td><code>@row.RecordKey</code></td>
                     <td><button class="btn secondary btn-sm" @onclick="()=>selected = selected == row.Id ? null : row.Id">@(selected == row.Id ? "Đóng" : "Trước / Sau")</button></td>
                 </tr>
                 @if(selected == row.Id)
@@ -70,10 +70,10 @@
     <TablePager Pager="eventPager" TotalCount="(int)total" OnChange="OnEventPagerChanged" />
 </section>
 <section class="panel">
-    <div class="panel-head"><div><h2>Hoạt động ngoài dữ liệu</h2><p>Đăng nhập, đăng xuất và các thao tác xuất báo cáo được ghi riêng.</p></div><button type="button" class="btn secondary" data-confirm="none" @onclick="ExportActionsExcel">📥 Xuất Excel (@recentActions.Count)</button></div>
+    <div class="panel-head"><div><h2>Nhật ký truy cập &amp; Xuất báo cáo</h2><p>Đăng nhập, đăng xuất và các thao tác xuất báo cáo được ghi nhận tự động.</p></div><button type="button" class="btn secondary" data-confirm="none" @onclick="ExportActionsExcel">📥 Xuất Excel (@recentActions.Count)</button></div>
     @{ var pagedActions = actionPager.Slice(recentActions, out var totalActions); }
-    <div class="table-wrap"><table><thead><tr><th>STT</th><th>THỜI GIAN UTC</th><th>TÀI KHOẢN</th><th>HÀNH ĐỘNG</th><th>TÀI NGUYÊN</th></tr></thead><tbody>
-        @foreach(var (stt, x) in pagedActions){<tr><td><strong>@stt</strong></td><td>@x.At</td><td>@x.Actor</td><td>@x.Action</td><td>@x.Resource</td></tr>}
+    <div class="table-wrap"><table><thead><tr><th>STT</th><th>THỜI GIAN</th><th>TÀI KHOẢN</th><th>THAO TÁC</th><th>PHÂN HỆ / MÀN HÌNH</th></tr></thead><tbody>
+        @foreach(var (stt, x) in pagedActions){<tr><td><strong>@stt</strong></td><td>@VnDateTimeHelper.FormatDisplay(x.At)</td><td>@x.Actor</td><td><span class="chip">@VnLabels.ActivityAction(x.Action)</span></td><td>@VnLabels.ActivityResource(x.Resource)</td></tr>}
     </tbody></table></div>
     <TablePager Pager="actionPager" TotalCount="totalActions" />
 </section>
@@ -105,27 +105,32 @@
     private void Search(){eventPager.Reset();selected=null;Reload();}
     private void Reset(){table="";key="";action="";actorFilter="";fromDate=null;toDate=null;eventPager.Reset();selected=null;recordSummary=null;Reload();}
     private void OnEventPagerChanged(){selected=null;Reload();}
-    private static string ActionName(string action)=>action switch {"CREATE"=>"Tạo","UPDATE"=>"Sửa","DELETE"=>"Xóa mềm","RESTORE"=>"Khôi phục",_=>action};
+    private static string ActionName(string action)=>VnLabels.OperationName(action);
     private async Task ExportEventsExcel()
     {
         var allFiltered = Trail.Search(table, key, action, 1, 10000, actorFilter, DateFilter(fromDate), DateFilter(toDate));
-        var headers = new[] { "STT", "Thời gian UTC", "Tài khoản", "Thao tác", "Bảng dữ liệu", "Khóa bản ghi", "Dữ liệu trước", "Dữ liệu sau" };
+        var headers = new[] { "STT", "Thời gian", "Tài khoản", "Thao tác", "Phân hệ dữ liệu", "Mã bản ghi", "Dữ liệu trước", "Dữ liệu sau" };
         var rows = allFiltered.Select((r, idx) => new object?[]
         {
-            idx + 1, r.At, r.Actor, ActionName(r.Action), r.Table, r.RecordKey, r.Before, r.After
+            idx + 1, VnDateTimeHelper.FormatDisplay(r.At), r.Actor, ActionName(r.Action), VnLabels.TableName(r.Table), r.RecordKey, VnLabels.LocalizeText(r.Before), VnLabels.LocalizeText(r.After)
         });
         await ExcelExporter.DownloadAsync(JS, "nhat-ky-thay-doi-du-lieu", "Tra cứu thay đổi", headers, rows);
     }
     private async Task ExportActionsExcel()
     {
-        var headers = new[] { "STT", "Thời gian UTC", "Tài khoản", "Hành động", "Tài nguyên" };
-        var rows = recentActions.Select((x, idx) => new object?[] { idx + 1, x.At, x.Actor, x.Action, x.Resource });
-        await ExcelExporter.DownloadAsync(JS, "hoat-dong-ngoai-du-lieu", "Hoạt động hệ thống", headers, rows);
+        var headers = new[] { "STT", "Thời gian", "Tài khoản", "Thao tác", "Phân hệ / Màn hình" };
+        var rows = recentActions.Select((x, idx) => new object?[] { idx + 1, VnDateTimeHelper.FormatDisplay(x.At), x.Actor, VnLabels.ActivityAction(x.Action), VnLabels.ActivityResource(x.Resource) });
+        await ExcelExporter.DownloadAsync(JS, "nhat-ky-truy-cap-he-thong", "Nhật ký truy cập", headers, rows);
     }
     private static string Pretty(string json)
     {
         if(string.IsNullOrWhiteSpace(json))return "—";
-        try {using var doc=System.Text.Json.JsonDocument.Parse(json);return System.Text.Json.JsonSerializer.Serialize(doc.RootElement,new System.Text.Json.JsonSerializerOptions{WriteIndented=true});}
-        catch{return json;}
+        try
+        {
+            using var doc=System.Text.Json.JsonDocument.Parse(json);
+            var formatted = System.Text.Json.JsonSerializer.Serialize(doc.RootElement,new System.Text.Json.JsonSerializerOptions{WriteIndented=true});
+            return VnLabels.LocalizeText(formatted);
+        }
+        catch{return VnLabels.LocalizeText(json);}
     }
 }

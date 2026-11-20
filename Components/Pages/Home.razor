@@ -2,7 +2,7 @@
 @page "/"
 @inject DemoDb Db
 @inject PermissionGate Gate
-<PageTitle>Dashboard · TNM</PageTitle>
+<PageTitle>Bảng điều hành · TNM</PageTitle>
 <div class="page-head"><div><div class="eyebrow">BẢNG ĐIỀU HÀNH</div><h1>Tổng quan hoạt động</h1><p>Dữ liệu xuyên suốt từ kho, đơn hàng, kích hoạt, gia hạn đến công nợ.</p></div></div>
 @if(canRevenue||canProfit||canDebt){
 <div class="stats-grid">
@@ -31,7 +31,7 @@
 <section class="panel"><div class="panel-head"><div><h2>Đi nhanh đến nghiệp vụ</h2><p>Quản lý dữ liệu và nghiệp vụ</p></div></div>
 <div class="quick-grid">
  @if(canInput){<a href="/catalog/product-groups"><AppIcon Name="settings" Size="23" /><strong>Danh mục đầu vào</strong><span>NCC, SP, kho, KH, giá và chương trình</span></a>}
- @if(canProducts){<a href="/products"><AppIcon Name="box" Size="23" /><strong>Sản phẩm</strong><span>Danh mục SKU và giá vốn</span></a><a href="/catalog/product-groups"><AppIcon Name="box" Size="23" /><strong>Nhóm sản phẩm</strong><span>Mỗi sản phẩm thuộc một nhóm</span></a>}
+ @if(canProducts){<a href="/products"><AppIcon Name="box" Size="23" /><strong>Sản phẩm</strong><span>Danh mục mã hàng và giá vốn</span></a><a href="/catalog/product-groups"><AppIcon Name="box" Size="23" /><strong>Nhóm sản phẩm</strong><span>Mỗi sản phẩm thuộc một nhóm</span></a>}
  @if(canInventory){<a href="/catalog/warehouses"><AppIcon Name="warehouse" Size="23" /><strong>Danh sách kho</strong><span>Quản lý kho và địa chỉ</span></a>}
  @if(canOrders){<a href="/sales-orders"><AppIcon Name="file" Size="23" /><strong>Đơn hàng</strong><span>Duyệt, điều phối và hoàn tất</span></a>}
  @if(canCustomers){<a href="/catalog/customers"><AppIcon Name="box" Size="23" /><strong>Khách hàng & nhóm giá</strong><span>Nhóm khách và bảng giá</span></a>}

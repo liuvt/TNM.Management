@@ -204,7 +204,7 @@ app.MapGet("/account/login", (HttpContext http, IAntiforgery xsrf, string? retur
 app.MapPost("/account/login", async (HttpContext http, IAntiforgery xsrf, AuthRepository repository, AuditTrail trail) =>
 {
     try { await xsrf.ValidateRequestAsync(http); }
-    catch (AntiforgeryValidationException) { return (IResult)Results.BadRequest("Invalid antiforgery token"); }
+    catch (AntiforgeryValidationException) { return (IResult)Results.BadRequest("Phiên xác thực biểu mẫu đã hết hạn, vui lòng tải lại trang và thử lại."); }
     var form=await http.Request.ReadFormAsync();
     var username=form["username"].ToString();
     var password=form["password"].ToString();
@@ -252,7 +252,7 @@ app.MapGet("/account/change-password", (HttpContext http, IAntiforgery xsrf, Aut
 app.MapPost("/account/change-password", async (HttpContext http, IAntiforgery xsrf, AuthRepository repository) =>
 {
     try { await xsrf.ValidateRequestAsync(http); }
-    catch (AntiforgeryValidationException) { return (IResult)Results.BadRequest("Invalid antiforgery token"); }
+    catch (AntiforgeryValidationException) { return (IResult)Results.BadRequest("Phiên xác thực biểu mẫu đã hết hạn, vui lòng tải lại trang và thử lại."); }
     var form = await http.Request.ReadFormAsync();
     var current = form["currentPassword"].ToString();
     var newPassword = form["newPassword"].ToString();
@@ -270,7 +270,7 @@ app.MapGet("/account/logout", (HttpContext http, IAntiforgery xsrf) =>
 app.MapPost("/account/logout", async (HttpContext http, IAntiforgery xsrf, AuditTrail trail) =>
 {
     try { await xsrf.ValidateRequestAsync(http); }
-    catch (AntiforgeryValidationException) { return (IResult)Results.BadRequest("Invalid antiforgery token"); }
+    catch (AntiforgeryValidationException) { return (IResult)Results.BadRequest("Phiên xác thực biểu mẫu đã hết hạn, vui lòng tải lại trang và thử lại."); }
     trail.RecordAction(AuthRepository.PrincipalId(http.User),"LOGOUT","/account/logout");
     await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/account/login");

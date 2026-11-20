@@ -447,10 +447,10 @@ public static class ExcelExporter
 
     private static string SanitizeSheetName(string name)
     {
-        if (string.IsNullOrWhiteSpace(name)) return "Data";
+        if (string.IsNullOrWhiteSpace(name)) return "DuLieu";
         var invalid = new[] { '\\', '/', '?', '*', ':', '[', ']' };
         var cleaned = new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
-        if (string.IsNullOrWhiteSpace(cleaned)) cleaned = "Data";
+        if (string.IsNullOrWhiteSpace(cleaned)) cleaned = "DuLieu";
         return cleaned.Length > 31 ? cleaned[..31] : cleaned;
     }
 

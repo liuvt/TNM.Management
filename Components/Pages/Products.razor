@@ -10,7 +10,7 @@
     <div>
         <div class="eyebrow">KINH DOANH / SẢN PHẨM</div>
         <h1>Sản phẩm — Chi tiết Sản phẩm</h1>
-        <p>Danh mục sử dụng chung cho PO, SO, kho, IMEI, bảng giá và gia hạn.</p>
+        <p>Danh mục sử dụng chung cho đơn mua hàng, đơn lắp đặt, quản lý kho, IMEI, bảng giá và gia hạn.</p>
     </div>
     <div class="button-group">
         @if(canCreate){<button type="button" class="btn" @onclick="Create">+ Tạo sản phẩm</button>}
@@ -43,13 +43,13 @@
             </label>
             <label>Tên sản phẩm * <input @bind="name" placeholder="Ví dụ: Camera AI 4G" maxlength="180" /></label>
             <label>Phân loại *
-                <select @bind="kind"><option value="GOODS">Hàng hóa</option><option value="SERVICE">Dịch vụ</option><option value="BUNDLE">Combo</option></select>
+                <select @bind="kind"><option value="GOODS">Hàng hóa / Thiết bị</option><option value="SERVICE">Dịch vụ / Gia hạn</option><option value="BUNDLE">Bộ sản phẩm trọn gói</option></select>
             </label>
             <label>Đơn vị tính * <input @bind="unit" placeholder="Cái / Bộ / Lần" maxlength="30" /></label>
             <label>Thời hạn bảo hành (tháng) <input type="number" min="0" max="240" @bind="warrantyMonths" /></label>
-            <label class="checkbox-row"><input type="checkbox" @bind="imei" disabled="@(kind!="GOODS")" /> Quản lý theo IMEI / số serial</label>
+            <label class="checkbox-row"><input type="checkbox" @bind="imei" disabled="@(kind!="GOODS")" /> Quản lý theo IMEI / số sê-ri</label>
         </div>
-        <p class="panel-note">Giá nhập quản lý theo nhóm NCC, giá bán theo nhóm khách hàng. Tồn kho được sinh từ chứng từ PO/SO hoặc điều chỉnh kho; không nhập tồn trong danh mục sản phẩm.</p>
+        <p class="panel-note">Giá nhập quản lý theo nhóm NCC, giá bán theo nhóm khách hàng. Tồn kho được sinh tự động từ đơn mua hàng, đơn lắp đặt hoặc phiếu điều chỉnh kho; không nhập tồn trực tiếp trong danh mục sản phẩm.</p>
         <div class="form-actions">
             <button type="button" class="btn" data-confirm="@(editingId.HasValue ? "edit" : "add")" data-confirm-msg="@(editingId.HasValue ? "Bạn có chắc chắn muốn lưu thay đổi thông tin sản phẩm này không?" : "Bạn có chắc chắn muốn tạo sản phẩm mới này không?")" @onclick="Save">@(editingId.HasValue?"Lưu thay đổi":"Tạo sản phẩm")</button>
             <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Hủy</button>
@@ -209,5 +209,5 @@
         }
         catch(Exception ex){message="Lỗi: "+ex.Message;}
     }
-    private static string KindName(string kind)=>kind switch{"GOODS"=>"Hàng hóa","SERVICE"=>"Dịch vụ","BUNDLE"=>"Combo",_=>kind};
+    private static string KindName(string kind)=>VnLabels.ProductKind(kind);
 }

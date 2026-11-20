@@ -2160,9 +2160,9 @@ public sealed class DemoDb
     public long RecordDirectCashBookEntry(string direction, string method, string category, long amount, string partnerName, string note, long? invoiceId = null)
     {
         if (direction is not ("IN" or "OUT"))
-            throw new InvalidOperationException("Loại phiếu Sổ quỹ phải là Thu (IN) hoặc Chi (OUT).");
+            throw new InvalidOperationException("Loại phiếu Sổ quỹ phải là Khoản Thu hoặc Khoản Chi.");
         if (method is not ("CASH" or "BANK"))
-            throw new InvalidOperationException("Quỹ thanh toán phải là Tiền mặt (CASH) hoặc Ngân hàng (BANK).");
+            throw new InvalidOperationException("Quỹ thanh toán phải là Tiền mặt hoặc Ngân hàng.");
         if (amount <= 0)
             throw new InvalidOperationException("Số tiền phải lớn hơn 0.");
 

@@ -4,48 +4,48 @@
 @inject PermissionGate Gate
 @inject IJSRuntime JS
 <PageTitle>Thiết bị · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">SUBSCRIPTIONS / RENEWAL</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt, hạn gia hạn và toàn bộ các lần gia hạn.</p></div></div>
+<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / QUẢN LÝ THIẾT BỊ &amp; GIA HẠN</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt, hạn gia hạn và toàn bộ các lần gia hạn.</p></div></div>
 <div class="crud-actionbar">
     @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Thời gian gia hạn & Ngày KH":"Cập nhật Thời gian gia hạn & Ngày kích hoạt")</button>}
-    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showImportPanel?"":"secondary")" @onclick="()=>ToggleForm(nameof(showImportPanel))">@(showImportPanel?"Đóng · 📥 Import / Quản lý File Thiết bị":"📥 Import / Quản lý File Thiết bị (12 cột)")</button>}
+    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showImportPanel?"":"secondary")" @onclick="()=>ToggleForm(nameof(showImportPanel))">@(showImportPanel?"Đóng · 📥 Nhập danh sách thiết bị":"📥 Nhập danh sách thiết bị (12 cột)")</button>}
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
-    <a class="btn secondary" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải File Chuẩn (.xlsx)</a>
+    <a class="btn secondary" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải Tệp Mẫu Chuẩn (.xlsx)</a>
 </div>
 
 @if(canRenew || canUpdateDevice){
 <div class="panel edit-panel" hidden="@(!showImportPanel)">
     <div class="panel-head">
         <div>
-            <h2>📥 Import &amp; Quản lý Danh sách Thiết bị theo Format chuẩn (12 cột)</h2>
-            <p>Hệ thống tự động kiểm tra theo <strong>Số EMEI Thiết bị</strong>: nếu trùng dữ liệu cũ sẽ <strong>cập nhật lại theo danh sách mới</strong>, nếu chưa có sẽ <strong>thêm mới</strong> vào danh sách quản lý.</p>
+            <h2>📥 Nhập &amp; Cập nhật Danh sách Thiết bị theo Mẫu chuẩn (12 cột)</h2>
+            <p>Hệ thống tự động kiểm tra theo <strong>Số IMEI Thiết bị</strong>: nếu trùng dữ liệu cũ sẽ <strong>cập nhật lại theo danh sách mới</strong>, nếu chưa có sẽ <strong>thêm mới</strong> vào danh sách quản lý.</p>
         </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-        <a class="btn secondary btn-sm" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải File Import Chuẩn Gốc (DATA_TB_TNM.xlsx · 3.021 dòng)</a>
-        <a class="btn secondary btn-sm" href="/templates/danh-sach-thiet-bi-import.csv" download="danh-sach-thiet-bi-import.csv">⬇ Tải File Import Chuẩn (CSV UTF-8 · 3.021 dòng)</a>
-        <a class="btn secondary btn-sm" href="/templates/mau-import-thiet-bi.csv" download="mau-import-thiet-bi.csv">⬇ Tải File Mẫu Import (10 dòng mẫu)</a>
-        <a class="btn btn-sm" href="/export/devices-import-format.csv" target="_blank">⬇ Xuất Toàn Bộ Thiết Bị Đang Quản Lý Theo Format Này (.csv)</a>
+        <a class="btn secondary btn-sm" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải Tệp Dữ Liệu Chuẩn Gốc (DATA_TB_TNM.xlsx · 3.021 dòng)</a>
+        <a class="btn secondary btn-sm" href="/templates/danh-sach-thiet-bi-import.csv" download="danh-sach-thiet-bi-import.csv">⬇ Tải Tệp Dữ Liệu Chuẩn (.csv · 3.021 dòng)</a>
+        <a class="btn secondary btn-sm" href="/templates/mau-import-thiet-bi.csv" download="mau-import-thiet-bi.csv">⬇ Tải Biểu Mẫu Nhập Liệu (10 dòng mẫu)</a>
+        <a class="btn btn-sm" href="/export/devices-import-format.csv" target="_blank">⬇ Xuất Toàn Bộ Thiết Bị Đang Quản Lý Theo Mẫu 12 Cột (.csv)</a>
     </div>
     <div style="font-size:12px;color:#334155;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:8px 12px;margin-bottom:12px">
         <strong>Cấu trúc 12 cột chuẩn:</strong>
-        <code>1. STT | 2. Biển số xe/Số khung | 3. Số EMEI Thiết bị | 4. Tên Thiết bị | 5. Tên Đại lý | 6. Tên Khách hàng | 7. SĐT Khách hàng | 8. Trạng thái thiết bị (Hoạt động / Khoá) | 9. Ngày kích hoạt | 10. Ngày hết hạn | 11. Ngày gia hạn gần nhất (nếu có) | 12. Số lần gia hạn</code>
+        <code>1. STT | 2. Biển số xe/Số khung | 3. Số IMEI Thiết bị | 4. Tên Thiết bị | 5. Tên Đại lý | 6. Tên Khách hàng | 7. SĐT Khách hàng | 8. Trạng thái thiết bị (Hoạt động / Khoá) | 9. Ngày kích hoạt | 10. Ngày hết hạn | 11. Ngày gia hạn gần nhất (nếu có) | 12. Số lần gia hạn</code>
     </div>
     <div class="form-grid">
-        <label>Chọn file Excel (<code>.xlsx</code>) hoặc CSV (<code>.csv</code>) theo mẫu 12 cột
+        <label>Chọn tệp Excel (<code>.xlsx</code>) hoặc bảng tính (<code>.csv</code>) theo mẫu 12 cột
             <InputFile OnChange="OnImportFileSelected" accept=".xlsx,.csv,.txt" />
         </label>
-        <label>Hoặc dán trực tiếp nội dung từ Excel / CSV (tùy chọn)
-            <textarea rows="3" @bind="importCsvPaste" placeholder="Dán các dòng dữ liệu từ Excel hoặc CSV (12 cột) vào đây..."></textarea>
+        <label>Hoặc dán trực tiếp nội dung bảng dữ liệu (tùy chọn)
+            <textarea rows="3" @bind="importCsvPaste" placeholder="Dán các dòng dữ liệu từ bảng Excel (12 cột) vào đây..."></textarea>
         </label>
     </div>
     <div class="form-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button type="button" class="btn" disabled="@isImporting" data-confirm="edit" data-confirm-title="Xác nhận Import &amp; Cập nhật Thiết bị" data-confirm-msg="Bạn có chắc chắn muốn thực hiện Import và cập nhật trùng dữ liệu thiết bị theo danh sách đã chọn không?" @onclick="ExecuteImportDevices">
-            @(isImporting ? "Đang kiểm tra trùng & cập nhật..." : "Thực hiện Import & Cập nhật trùng dữ liệu")
+        <button type="button" class="btn" disabled="@isImporting" data-confirm="edit" data-confirm-title="Xác nhận Nhập &amp; Cập nhật Thiết bị" data-confirm-msg="Bạn có chắc chắn muốn thực hiện nhập và cập nhật trùng dữ liệu thiết bị theo danh sách đã chọn không?" @onclick="ExecuteImportDevices">
+            @(isImporting ? "Đang kiểm tra trùng & cập nhật..." : "Thực hiện Nhập & Cập nhật dữ liệu")
         </button>
         @if (!string.IsNullOrWhiteSpace(selectedImportFileName))
         {
-            <span class="chip blue-chip">File đã chọn: @selectedImportFileName</span>
+            <span class="chip blue-chip">Tệp đã chọn: @selectedImportFileName</span>
         }
         @if (!string.IsNullOrWhiteSpace(importFeedback))
         {
@@ -69,7 +69,7 @@
         }
     </select>
 </label>
-<label>Tên thiết bị (Mã SKU)
+<label>Tên thiết bị (Mã sản phẩm)
     <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDeviceName} ({selectedRenewDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
 <label>Giá gia hạn áp dụng (12 tháng)
@@ -86,10 +86,10 @@
 </label>
 <label>Nguồn gia hạn
     <select @bind="source">
-        <option value="TNM">TNM</option>
+        <option value="TNM">Trường Nhật Minh</option>
         <option value="NCC">Nhà cung cấp</option>
-        <option value="HTX">Hợp tác xã</option>
-        <option value="B2C">Khách lẻ B2C</option>
+        <option value="HTX">Hợp tác xã / Đại lý</option>
+        <option value="B2C">Khách lẻ trực tiếp</option>
     </select>
 </label>
 <label>Thanh toán
@@ -116,7 +116,7 @@
         }
     </select>
 </label>
-<label>Tên thiết bị (Mã SKU)
+<label>Tên thiết bị (Mã sản phẩm)
     <input readonly value="@(selectedEditDevice is null ? "—" : $"{selectedEditDeviceName} ({selectedEditDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
 <label>Ngày kích hoạt IMEI *
@@ -172,7 +172,7 @@
             <div class="device-due10-note-title">
                 <span class="device-due10-badge-icon">🔔</span>
                 <div>
-                    <strong>Note cảnh báo gia hạn (Còn hạn 10 ngày trở xuống): <span>@due10WarningDevices.Count thiết bị</span></strong>
+                    <strong>Cảnh báo gia hạn ưu tiên (Còn hạn 10 ngày trở xuống): <span>@due10WarningDevices.Count thiết bị</span></strong>
                     <p>
                         @if (due10WarningDevices.Count > 0)
                         {
@@ -269,7 +269,7 @@
     }
     @if (canOverdue)
     {
-        <button type="button" class="device-summary-item muted @(filter == "OVERDUE" ? "active" : "")" title="Thiết bị đã quá hạn (đã loại bỏ khỏi Note cảnh báo ≤ 10 ngày)" @onclick='() => SetFilter("OVERDUE")'>
+        <button type="button" class="device-summary-item muted @(filter == "OVERDUE" ? "active" : "")" title="Thiết bị đã quá hạn (đã loại bỏ khỏi danh sách cảnh báo ≤ 10 ngày)" @onclick='() => SetFilter("OVERDUE")'>
             <span>Đã hết hạn (Loại bỏ cảnh báo):</span>
             <strong class="text-orange">@countOverdue</strong>
         </button>
@@ -319,7 +319,7 @@
             {
                 <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px">
                     <span class="chip red-warn-chip">⚠️ Còn @d ngày</span>
-                    <small style="font-size:10px;color:#c92a2a;font-weight:700">Note: Cảnh báo ≤ 10 ngày</small>
+                    <small style="font-size:10px;color:#c92a2a;font-weight:700">Lưu ý: Cảnh báo ≤ 10 ngày</small>
                 </div>
             }
             else if (d <= 30)
@@ -369,7 +369,7 @@
             <button type="button" class="btn secondary btn-sm" @onclick="CancelEditRenewal">Đóng</button>
         </div>
         <div class="form-grid">
-            <label>Tên thiết bị (Mã SKU)
+            <label>Tên thiết bị (Mã sản phẩm)
                 <input readonly value="@editingRenewalDeviceName" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
             </label>
             <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
@@ -383,10 +383,10 @@
             </label>
             <label>Nguồn gia hạn *
                 <select @bind="editRenewalSource">
-                    <option value="TNM">TNM</option>
+                    <option value="TNM">Trường Nhật Minh</option>
                     <option value="NCC">Nhà cung cấp</option>
-                    <option value="HTX">Hợp tác xã</option>
-                    <option value="B2C">Khách lẻ B2C</option>
+                    <option value="HTX">Hợp tác xã / Đại lý</option>
+                    <option value="B2C">Khách lẻ trực tiếp</option>
                 </select>
             </label>
             <label>Ngày thực hiện gia hạn *
@@ -403,8 +403,8 @@
             </label>
             <label>Hình thức thanh toán *
                 <select @bind="editRenewalPayMethod">
-                    <option value="DEBT">Ghi công nợ (OPEN)</option>
-                    <option value="CASH">Thanh toán ngay (PAID / Thu tiền mặt)</option>
+                    <option value="DEBT">Ghi công nợ (Chưa thanh toán)</option>
+                    <option value="CASH">Thanh toán ngay (Thu tiền mặt)</option>
                 </select>
             </label>
         </div>
@@ -440,7 +440,7 @@
     </td>
     <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td>
     <td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td>
-    <td>@x.Source</td>
+    <td>@VnLabels.RenewalSource(x.Source)</td>
     <td>@x.StartDate</td>
     <td>
         <div><small style="color:#64748b">@(string.IsNullOrWhiteSpace(x.PreviousExpiry) ? "—" : x.PreviousExpiry)</small> → <strong>@x.EndDate</strong></div>
@@ -521,7 +521,7 @@
    }
    else
    {
-    importFeedback = "Vui lòng chọn file (.xlsx / .csv) hoặc dán dữ liệu trước khi bấm Import.";
+    importFeedback = "Vui lòng chọn tệp (.xlsx / .csv) hoặc dán dữ liệu trước khi bấm Nhập dữ liệu.";
     return;
    }
    Reload();
@@ -529,7 +529,7 @@
   }
   catch (Exception ex)
   {
-   importFeedback = "Lỗi Import: " + ex.Message;
+   importFeedback = "Lỗi nhập dữ liệu: " + ex.Message;
   }
   finally
   {
@@ -563,7 +563,7 @@
   var list = FilteredDevicesList;
   var headers = new[]
   {
-   "STT", "Biển số xe/Số khung", "Số EMEI Thiết bị", "Tên Thiết bị", "Mã SKU",
+   "STT", "Biển số xe/Số khung", "Số IMEI Thiết bị", "Tên Thiết bị", "Mã sản phẩm",
    "Tên Đại lý", "Tên Khách hàng", "SĐT Khách hàng", "Nhân viên bán hàng",
    "Trạng thái thiết bị", "Ngày kích hoạt", "Ngày hết hạn", "Số ngày còn hạn",
    "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn", "Giá gia hạn (VND)"
@@ -601,7 +601,7 @@
   var list = FilteredRenewals.ToList();
   var headers = new[]
   {
-   "STT", "Số IMEI", "Tên thiết bị", "Mã SKU", "Khách hàng / Đại lý", "Biển số xe",
+   "STT", "Số IMEI", "Tên thiết bị", "Mã sản phẩm", "Khách hàng / Đại lý", "Biển số xe",
    "Nhân viên bán hàng gia hạn", "Nguồn gia hạn", "Ngày gia hạn", "Hạn cũ", "Hạn mới",
    "Số tiền gia hạn (VND)", "Hình thức thanh toán", "Trạng thái Kế toán"
   };
@@ -614,7 +614,7 @@
    x.CustomerName,
    x.PlateNo,
    x.SellerName,
-   x.Source,
+   VnLabels.RenewalSource(x.Source),
    x.StartDate,
    x.PreviousExpiry,
    x.EndDate,

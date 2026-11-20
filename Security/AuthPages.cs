@@ -59,7 +59,7 @@ button.primary:hover{background:var(--coral-dark);border-color:var(--coral-dark)
 <span class="brand-name">TNM<em>.</em>Management</span>
 </header>
 <section>{{{content}}}</section>
-<footer class="meta"><strong>TNM Workspace</strong> · Quản trị vận hành</footer>
+<footer class="meta"><strong>Hệ thống TNM</strong> · Quản trị vận hành thiết bị</footer>
 </div>
 <script>
 document.querySelectorAll('[data-toggle-password]').forEach(function(btn){btn.addEventListener('click',function(){var el=document.getElementById(btn.getAttribute('data-target'));if(!el)return;var visible=el.type==='password';el.type=visible?'text':'password';btn.setAttribute('aria-label',visible?'Ẩn mật khẩu':'Hiện mật khẩu');btn.setAttribute('aria-pressed',visible?'true':'false');});});

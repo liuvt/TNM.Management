@@ -3,8 +3,8 @@
 @inject V6Ops Ops
 @inject PermissionGate Gate
 @inject IJSRuntime JS
-<PageTitle>Kiểm kê · TNM v6</PageTitle>
-<div class="page-head"><div><div class="eyebrow">STOCK TAKE / APPROVAL</div><h1>Kiểm kê, duyệt chênh lệch</h1><p>Chốt tồn tại thời điểm đếm, sau đó quản lý duyệt một lần để tạo giao dịch điều chỉnh.</p></div></div>
+<PageTitle>Kiểm kê tồn kho · TNM.Management</PageTitle>
+<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / KIỂM KÊ TỒN KHO</div><h1>Kiểm kê, duyệt chênh lệch</h1><p>Chốt tồn tại thời điểm đếm, sau đó quản lý duyệt một lần để tạo giao dịch điều chỉnh.</p></div></div>
 <div class="crud-actionbar">@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Mở kiểm kê":"+ Mở kiểm kê")</button>}@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showLine))">@(showLine?"Đóng · + Ghi thực kiểm":"+ Ghi thực kiểm")</button>}</div>
 
 
@@ -15,7 +15,7 @@
 <label>Ghi chú<input @bind="note" /></label></div>
 <div class="form-actions"><button class="btn" @onclick="Create">+ Mở phiên kiểm</button><span class="feedback">@createMessage</span></div></section>}
 @if(canCreate){<section class="panel edit-panel" hidden="@(!showLine)"><div class="panel-head"><h2>Ghi thực tế kiểm đếm</h2></div>
-<div class="form-grid one"><label>Phiên DRAFT<select @bind="countId">@foreach(var x in counts.Where(x=>x.Status=="DRAFT")){<option value="@x.Id">@x.Code — @x.Warehouse / @x.Location</option>}</select></label>
+<div class="form-grid one"><label>Phiên đang kiểm đếm<select @bind="countId">@foreach(var x in counts.Where(x=>x.Status=="DRAFT")){<option value="@x.Id">@x.Code — @x.Warehouse / @x.Location</option>}</select></label>
 <label>Sản phẩm<select @bind="productId">@foreach(var p in products){<option value="@p.Id">@p.Name</option>}</select></label>
 <label>Số lượng kiểm thực tế<input type="number" min="0" @bind="counted" /></label></div>
 <div class="form-actions"><button class="btn" @onclick="SetLine">Lưu số kiểm</button><span class="feedback">@lineMessage</span></div></section>}
@@ -29,15 +29,15 @@
     </div>
 </div>
 @{ var pagedCounts = countPager.Slice(FilteredCounts, out var totalCounts); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>Mã</th><th>Kho</th><th>Vị trí</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
-@foreach(var (stt, x) in pagedCounts){<tr><td><strong>@stt</strong></td><td>@x.Code</td><td>@x.Warehouse</td><td>@x.Location</td><td>@x.Created</td><td>@x.Status</td><td><button class="btn btn-sm" @onclick="()=>SelectCount(x.Id)">Chi tiết</button>
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>Mã phiên</th><th>Kho</th><th>Vị trí</th><th>Ngày tạo</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
+@foreach(var (stt, x) in pagedCounts){<tr><td><strong>@stt</strong></td><td>@x.Code</td><td>@x.Warehouse</td><td>@x.Location</td><td>@VnDateTimeHelper.FormatDisplay(x.Created)</td><td><span class="chip @(x.Status == "APPROVED" ? "green-chip" : "orange-chip")">@VnLabels.StockCountStatus(x.Status)</span></td><td><button class="btn btn-sm" @onclick="()=>SelectCount(x.Id)">Chi tiết</button>
 @if(x.Status=="DRAFT"&&canApprove){<button class="btn btn-sm" @onclick="()=>Approve(x.Id)">Duyệt điều chỉnh</button>}</td></tr>}
 </tbody></table></div>
 <TablePager Pager="countPager" TotalCount="totalCounts" />
 <p class="feedback">@approveMessage</p></section>
 @if(selectedCount>0){<section class="panel"><div class="panel-head"><h2>Chi tiết phiên #@selectedCount</h2><button type="button" class="btn secondary" data-confirm="none" @onclick="ExportCountLinesExcel">📥 Xuất Excel (@countLines.Count)</button></div>
 @{ var pagedLines = linePager.Slice(countLines, out var totalLines); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>SKU</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>Mã hàng</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
 @foreach(var (stt, line) in pagedLines){<tr><td><strong>@stt</strong></td><td>@line.Sku</td><td class="wrap-cell">@line.Product</td><td>@line.Book</td><td>@line.Counted</td><td>@(line.Counted-line.Book)</td></tr>}
 </tbody></table></div>
 <TablePager Pager="linePager" TotalCount="totalLines" />
@@ -58,17 +58,17 @@
  private string countSearch = "";
  private List<QuantityCount> FilteredCounts => counts.Where(x =>
      string.IsNullOrWhiteSpace(countSearch) ||
-     ($"{x.Code} {x.Warehouse} {x.Location} {x.Status} {x.Note} {x.Created}").Contains(countSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+     ($"{x.Code} {x.Warehouse} {x.Location} {VnLabels.StockCountStatus(x.Status)} {x.Note} {x.Created}").Contains(countSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
  private async Task ExportCountsExcel()
  {
      var list = FilteredCounts;
      var headers = new[] { "STT", "Mã phiên", "Kho", "Vị trí", "Ngày tạo", "Trạng thái", "Ghi chú" };
-     var rows = list.Select((x, idx) => new object?[] { idx + 1, x.Code, x.Warehouse, x.Location, x.Created, x.Status, x.Note });
+     var rows = list.Select((x, idx) => new object?[] { idx + 1, x.Code, x.Warehouse, x.Location, VnDateTimeHelper.FormatDisplay(x.Created), VnLabels.StockCountStatus(x.Status), x.Note });
      await ExcelExporter.DownloadAsync(JS, "phien-kiem-ke", "Phiên kiểm kê", headers, rows);
  }
  private async Task ExportCountLinesExcel()
  {
-     var headers = new[] { "STT", "Mã SKU", "Tên sản phẩm", "Tồn sổ lúc kiểm", "Thực tế kiểm đếm", "Chênh lệch" };
+     var headers = new[] { "STT", "Mã hàng", "Tên sản phẩm", "Tồn sổ lúc kiểm", "Thực tế kiểm đếm", "Chênh lệch" };
      var rows = countLines.Select((l, idx) => new object?[] { idx + 1, l.Sku, l.Product, l.Book, l.Counted, l.Counted - l.Book });
      await ExcelExporter.DownloadAsync(JS, $"chi-tiet-kiem-ke-{selectedCount}", $"Phiên #{selectedCount}", headers, rows);
  }

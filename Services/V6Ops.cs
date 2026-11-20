@@ -18,7 +18,7 @@ public record WarrantyCandidateVm(long StockUnitId, string Imei, string Sku, str
     public string DisplayLabel =>
         $"{(string.IsNullOrWhiteSpace(PlateNo) ? "Chưa biển số" : PlateNo)} — IMEI: {Imei} · {ProductName}" +
         $"{(string.IsNullOrWhiteSpace(CustomerName) ? "" : $" · ĐL/KH: {CustomerName}")}" +
-        $"{(string.IsNullOrWhiteSpace(OwnerPhone) ? "" : $" ({OwnerPhone})")} [{UnitStatus}]";
+        $"{(string.IsNullOrWhiteSpace(OwnerPhone) ? "" : $" ({OwnerPhone})")} [{VnLabels.StockStatus(UnitStatus)}]";
 }
 public record UserWarehouseRow(long Id, string Username, string Name, string Scope);
 
@@ -570,8 +570,8 @@ public sealed class V6Ops(IWebHostEnvironment environment)
     {
         var set = warehouses.Distinct().ToList(); if (!all && set.Count == 0) throw new InvalidOperationException("Chế độ giới hạn phải chọn ít nhất một kho.");
         Transact(actor, c => {
-            if (IsAdmin(c, subject)) throw new InvalidOperationException("Không giới hạn kho cho tài khoản ADMIN.");
-            if (Scalar(c, "SELECT count(*) FROM app_users WHERE id=$id AND deleted_at IS NULL", ("$id", subject)) == 0) throw new InvalidOperationException("Không tìm thấy User.");
+            if (IsAdmin(c, subject)) throw new InvalidOperationException("Không giới hạn kho cho tài khoản Quản trị viên.");
+            if (Scalar(c, "SELECT count(*) FROM app_users WHERE id=$id AND deleted_at IS NULL", ("$id", subject)) == 0) throw new InvalidOperationException("Không tìm thấy tài khoản người dùng.");
             foreach (var id in set) if (Scalar(c, "SELECT count(*) FROM warehouses WHERE id=$id AND deleted_at IS NULL", ("$id", id)) == 0) throw new InvalidOperationException("Kho không tồn tại.");
             Execute(c, "INSERT INTO user_scope_settings(user_id,warehouse_mode) VALUES($u,$m) ON CONFLICT(user_id) DO UPDATE SET warehouse_mode=excluded.warehouse_mode",
                 ("$u", subject), ("$m", all ? "ALL" : "SELECTED"));
