@@ -211,7 +211,10 @@ public sealed class DemoDb
 
     private void UnlockImportedLockedDevices(SqliteConnection c, SqliteTransaction? t)
     {
-        var lockedImportedCount = N(c, t, "SELECT COUNT(*) FROM activations WHERE status='DISABLED' AND deleted_at IS NULL AND updated_by IS NULL");
+        var lockedImportedCount = N(c, t, @"
+            SELECT COUNT(*) FROM activations
+            WHERE status='DISABLED' AND deleted_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM audit_logs al WHERE al.action='LOCK_DEVICE' AND al.entity_id=activations.id)");
         if (lockedImportedCount <= 0)
             return;
 
@@ -226,7 +229,7 @@ public sealed class DemoDb
                     updated_at = datetime('now')
                 WHERE status = 'DISABLED'
                   AND deleted_at IS NULL
-                  AND updated_by IS NULL");
+                  AND NOT EXISTS (SELECT 1 FROM audit_logs al WHERE al.action='LOCK_DEVICE' AND al.entity_id=activations.id)");
         }
         finally
         {
