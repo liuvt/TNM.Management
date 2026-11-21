@@ -461,8 +461,14 @@ window.tnmOpenDateTimePicker = function (inputId) {
         if (!rootEl) return '';
         const textClone = rootEl.cloneNode(true);
         textClone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+        textClone.querySelectorAll('tr').forEach(tr => {
+            Array.from(tr.cells || []).forEach((cell, idx) => {
+                if (idx > 0) cell.prepend(' | ');
+            });
+            tr.prepend('\n');
+        });
         textClone.querySelectorAll('div, p, li, .tnm-rd-line-entry').forEach(block => {
-            block.prepend('\n');
+            if (!block.closest('table')) block.prepend('\n');
         });
         return (textClone.textContent || '')
             .replace(/[ \t]+/g, ' ')
@@ -595,6 +601,282 @@ window.tnmOpenDateTimePicker = function (inputId) {
             targetTr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             openRowDetailModal(targetTr);
         }
+    }
+
+    const STORAGE_MT_MODE_KEY = 'tnm_mt_view_mode_v1';
+    const STORAGE_MT_HIDDEN_COLS_KEY = 'tnm_mt_hidden_cols_v1';
+
+    function enhanceMiniTablesInModal(bodyEl) {
+        if (!bodyEl) return;
+        const hosts = bodyEl.querySelectorAll('.tnm-mini-table-host');
+        hosts.forEach(host => {
+            const table = host.querySelector('table.tnm-mini-table');
+            if (!table || !table.tHead || !table.tBodies.length) return;
+
+            const ths = Array.from(table.tHead.rows[0]?.cells || []);
+            const cols = ths.map((th, idx) => ({
+                index: idx,
+                key: th.dataset.col || `col_${idx}`,
+                label: th.dataset.colLabel || (th.textContent || '').trim(),
+                isFixed: (th.dataset.col || '') === 'stt'
+            }));
+
+            const bodyRows = Array.from(table.tBodies[0].rows || []);
+            const rowData = bodyRows.map((tr, rIdx) => {
+                const map = {};
+                let searchText = '';
+                Array.from(tr.cells).forEach((td, cIdx) => {
+                    const key = td.dataset.col || (cols[cIdx] ? cols[cIdx].key : `col_${cIdx}`);
+                    const txt = (td.textContent || '').replace(/\s+/g, ' ').trim();
+                    map[key] = { html: td.innerHTML, text: txt };
+                    searchText += ' ' + txt;
+                });
+                return { tr, rIdx, map, searchText: searchText.toLowerCase() };
+            });
+
+            // Wrap table inside scrollable container
+            const scrollWrap = document.createElement('div');
+            scrollWrap.className = 'tnm-mt-scroll-wrap';
+            table.parentNode.insertBefore(scrollWrap, table);
+            scrollWrap.appendChild(table);
+
+            // Create parallel row-cards container (for "Theo dòng" mode)
+            const cardsWrap = document.createElement('div');
+            cardsWrap.className = 'tnm-mt-cards';
+            cardsWrap.hidden = true;
+            host.appendChild(cardsWrap);
+
+            // Load persisted preferences
+            let viewMode = localStorage.getItem(STORAGE_MT_MODE_KEY) === 'rows' ? 'rows' : 'table';
+            let hiddenCols = new Set(loadJson(STORAGE_MT_HIDDEN_COLS_KEY, []));
+            // Never allow hiding ALL data columns
+            const toggleableCols = cols.filter(c => !c.isFixed);
+            if (toggleableCols.length > 0 && toggleableCols.every(c => hiddenCols.has(c.key))) {
+                hiddenCols.clear();
+            }
+
+            let filterQuery = '';
+
+            // Build Toolbar
+            const toolbar = document.createElement('div');
+            toolbar.className = 'tnm-mt-toolbar';
+
+            const topRow = document.createElement('div');
+            topRow.className = 'tnm-mt-top-row';
+
+            const modeBox = document.createElement('div');
+            modeBox.className = 'tnm-mt-modes';
+
+            const btnTable = document.createElement('button');
+            btnTable.type = 'button';
+            btnTable.dataset.confirm = 'none';
+            btnTable.className = 'tnm-mt-mode-btn';
+            btnTable.textContent = '▦ Bảng mini';
+
+            const btnRows = document.createElement('button');
+            btnRows.type = 'button';
+            btnRows.dataset.confirm = 'none';
+            btnRows.className = 'tnm-mt-mode-btn';
+            btnRows.textContent = '☰ Theo dòng';
+
+            modeBox.appendChild(btnTable);
+            modeBox.appendChild(btnRows);
+            topRow.appendChild(modeBox);
+
+            let searchInput = null;
+            if (rowData.length >= 3) {
+                searchInput = document.createElement('input');
+                searchInput.type = 'text';
+                searchInput.className = 'tnm-mt-search';
+                searchInput.placeholder = '🔍 Lọc nhanh mã SP, tên hàng, mã phiếu, biển số...';
+                topRow.appendChild(searchInput);
+            }
+
+            const countBadge = document.createElement('span');
+            countBadge.className = 'tnm-mt-count';
+            topRow.appendChild(countBadge);
+            toolbar.appendChild(topRow);
+
+            // Column Mapping Bar ("Map tay cột hiển thị")
+            const colMapRow = document.createElement('div');
+            colMapRow.className = 'tnm-mt-colmap';
+            const colMapTitle = document.createElement('span');
+            colMapTitle.className = 'tnm-mt-colmap-title';
+            colMapTitle.textContent = 'Map cột hiển thị:';
+            colMapRow.appendChild(colMapTitle);
+
+            const pillMap = new Map();
+            toggleableCols.forEach(col => {
+                const pill = document.createElement('button');
+                pill.type = 'button';
+                pill.dataset.confirm = 'none';
+                pill.className = 'tnm-mt-col-pill';
+                pill.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    if (hiddenCols.has(col.key)) {
+                        hiddenCols.delete(col.key);
+                    } else {
+                        // Keep at least 1 visible data column
+                        const visibleLeft = toggleableCols.filter(c => !hiddenCols.has(c.key));
+                        if (visibleLeft.length <= 1) return;
+                        hiddenCols.add(col.key);
+                    }
+                    saveJson(STORAGE_MT_HIDDEN_COLS_KEY, Array.from(hiddenCols));
+                    applyState();
+                });
+                pillMap.set(col.key, pill);
+                colMapRow.appendChild(pill);
+            });
+
+            const resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.dataset.confirm = 'none';
+            resetBtn.className = 'tnm-mt-reset-btn';
+            resetBtn.textContent = 'Hiện tất cả cột';
+            resetBtn.hidden = true;
+            resetBtn.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                hiddenCols.clear();
+                saveJson(STORAGE_MT_HIDDEN_COLS_KEY, []);
+                applyState();
+            });
+            colMapRow.appendChild(resetBtn);
+            toolbar.appendChild(colMapRow);
+
+            host.insertBefore(toolbar, scrollWrap);
+
+            function renderCards(matchedRows) {
+                cardsWrap.innerHTML = '';
+                matchedRows.forEach((rd, idx) => {
+                    const card = document.createElement('div');
+                    card.className = 'tnm-mt-card';
+
+                    const main = document.createElement('div');
+                    main.className = 'tnm-mt-card-main';
+
+                    const top = document.createElement('div');
+                    top.className = 'tnm-mt-card-top';
+                    const idxSpan = document.createElement('span');
+                    idxSpan.className = 'tnm-mt-card-idx';
+                    idxSpan.textContent = `#${idx + 1}`;
+                    top.appendChild(idxSpan);
+
+                    if (!hiddenCols.has('sku') && rd.map.sku && rd.map.sku.text && rd.map.sku.text !== '—') {
+                        const s = document.createElement('span');
+                        s.innerHTML = rd.map.sku.html;
+                        top.appendChild(s);
+                    }
+                    if (!hiddenCols.has('ref') && rd.map.ref && rd.map.ref.text && rd.map.ref.text !== '—') {
+                        const r = document.createElement('span');
+                        r.innerHTML = rd.map.ref.html;
+                        top.appendChild(r);
+                    }
+                    main.appendChild(top);
+
+                    if (!hiddenCols.has('name') && rd.map.name) {
+                        const nm = document.createElement('div');
+                        nm.innerHTML = rd.map.name.html;
+                        main.appendChild(nm);
+                    }
+                    if (!hiddenCols.has('note') && rd.map.note && rd.map.note.text && rd.map.note.text !== '—') {
+                        const nt = document.createElement('div');
+                        nt.style.fontSize = '11.5px';
+                        nt.style.color = '#475569';
+                        nt.innerHTML = rd.map.note.html;
+                        main.appendChild(nt);
+                    }
+
+                    const right = document.createElement('div');
+                    right.className = 'tnm-mt-card-right';
+                    const qtyPart = !hiddenCols.has('qty') && rd.map.qty ? `SL: <strong>${rd.map.qty.text}</strong>` : '';
+                    const pricePart = !hiddenCols.has('price') && rd.map.price ? rd.map.price.text : '';
+                    if (qtyPart || pricePart) {
+                        const qp = document.createElement('div');
+                        qp.style.fontSize = '11.5px';
+                        qp.style.color = '#475569';
+                        qp.innerHTML = [qtyPart, pricePart].filter(Boolean).join(' × ');
+                        right.appendChild(qp);
+                    }
+                    if (!hiddenCols.has('total') && rd.map.total) {
+                        const tot = document.createElement('div');
+                        tot.innerHTML = rd.map.total.html;
+                        right.appendChild(tot);
+                    }
+
+                    card.appendChild(main);
+                    if (right.childNodes.length > 0) card.appendChild(right);
+                    cardsWrap.appendChild(card);
+                });
+            }
+
+            function applyState() {
+                btnTable.classList.toggle('active', viewMode === 'table');
+                btnRows.classList.toggle('active', viewMode === 'rows');
+                scrollWrap.hidden = viewMode !== 'table';
+                cardsWrap.hidden = viewMode !== 'rows';
+
+                // Update column pills & table column visibility
+                toggleableCols.forEach(col => {
+                    const isOff = hiddenCols.has(col.key);
+                    const pill = pillMap.get(col.key);
+                    if (pill) {
+                        pill.classList.toggle('off', isOff);
+                        pill.textContent = `${isOff ? '+ ' : '✓ '}${col.label}`;
+                    }
+                });
+                resetBtn.hidden = hiddenCols.size === 0;
+
+                table.querySelectorAll('[data-col]').forEach(cell => {
+                    const k = cell.dataset.col;
+                    cell.classList.toggle('tnm-mt-col-hidden', hiddenCols.has(k));
+                });
+
+                const q = filterQuery.trim().toLowerCase();
+                const matched = [];
+                rowData.forEach(rd => {
+                    const ok = !q || rd.searchText.includes(q);
+                    rd.tr.hidden = !ok;
+                    if (ok) matched.push(rd);
+                });
+
+                // Re-number visible STT in table
+                matched.forEach((rd, visIdx) => {
+                    const sttCell = rd.tr.querySelector('td[data-col="stt"]');
+                    if (sttCell) sttCell.innerHTML = `<strong>${visIdx + 1}</strong>`;
+                });
+
+                countBadge.textContent = q
+                    ? `Hiển thị ${matched.length} / ${rowData.length} mặt hàng`
+                    : `Tổng: ${rowData.length} mặt hàng`;
+
+                if (viewMode === 'rows') {
+                    renderCards(matched);
+                }
+            }
+
+            btnTable.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                viewMode = 'table';
+                try { localStorage.setItem(STORAGE_MT_MODE_KEY, 'table'); } catch { }
+                applyState();
+            });
+
+            btnRows.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                viewMode = 'rows';
+                try { localStorage.setItem(STORAGE_MT_MODE_KEY, 'rows'); } catch { }
+                applyState();
+            });
+
+            if (searchInput) {
+                searchInput.addEventListener('input', function () {
+                    filterQuery = searchInput.value || '';
+                    applyState();
+                });
+            }
+
+            applyState();
+        });
     }
 
     function openRowDetailModal(tr) {
@@ -736,6 +1018,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
             gridEl.appendChild(item);
         });
         bodyEl.appendChild(gridEl);
+        enhanceMiniTablesInModal(bodyEl);
 
         // Capture adjacent expanded detail row if currently open in table (e.g. Activity Before/After JSON or Purchase lines)
         const nextSibling = tr.nextElementSibling;

@@ -30,9 +30,81 @@ public record DeletedDeviceVm(
     string DeletedByName,
     string DeletedSummary);
 public record DeviceImportResultVm(int TotalRows, int UpdatedExisting, int InsertedNew, int SkippedInvalid, string SummaryMessage);
+public record OrderSnapshotLineVm(
+    string Sku,
+    string SubDocOrTime,
+    string ItemName,
+    string DetailNote,
+    long Quantity,
+    long UnitPriceVnd)
+{
+    public long LineTotalVnd => Quantity * UnitPriceVnd;
+
+    public static OrderSnapshotLineVm FromDescription(string? rawSku, string? rawDescription, long quantity, long unitPrice)
+    {
+        var sku = (rawSku ?? "").Trim();
+        if (sku == "—") sku = "";
+        var desc = (rawDescription ?? "").Trim();
+        var subDocOrTime = "";
+
+        if (desc.StartsWith('['))
+        {
+            var closeIdx = desc.IndexOf(']');
+            if (closeIdx > 1)
+            {
+                subDocOrTime = desc[1..closeIdx].Trim();
+                desc = desc[(closeIdx + 1)..].Trim();
+            }
+        }
+
+        string itemName;
+        string detailNote = "";
+
+        var dashIdx = desc.IndexOf(" — ", StringComparison.Ordinal);
+        if (dashIdx > 0)
+        {
+            itemName = desc[..dashIdx].Trim();
+            detailNote = desc[(dashIdx + 3)..].Trim();
+        }
+        else if (desc.StartsWith("Gia hạn ", StringComparison.OrdinalIgnoreCase) && desc.Contains("(IMEI:", StringComparison.OrdinalIgnoreCase))
+        {
+            var parenIdx = desc.IndexOf("(IMEI:", StringComparison.OrdinalIgnoreCase);
+            itemName = desc[..parenIdx].Trim().TrimEnd('·', ' ');
+            detailNote = desc[parenIdx..].Trim();
+        }
+        else
+        {
+            itemName = desc;
+        }
+
+        // Bóc mã SKU ở cuối tên mặt hàng nếu trùng hoặc nếu cột SKU đang trống: VD "Sim 5G79 (30 ngày) (SP000062)"
+        if (itemName.EndsWith(')'))
+        {
+            var lastOpen = itemName.LastIndexOf('(');
+            if (lastOpen > 0)
+            {
+                var trailingCode = itemName[(lastOpen + 1)..^1].Trim();
+                if (!string.IsNullOrWhiteSpace(trailingCode) && trailingCode.Length <= 22 && !trailingCode.Contains(' '))
+                {
+                    if (string.IsNullOrWhiteSpace(sku))
+                        sku = trailingCode;
+                    if (string.Equals(sku, trailingCode, StringComparison.OrdinalIgnoreCase))
+                        itemName = itemName[..lastOpen].Trim();
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(itemName))
+            itemName = string.IsNullOrWhiteSpace(sku) ? "Mặt hàng / Dịch vụ" : sku;
+
+        return new OrderSnapshotLineVm(sku, subDocOrTime, itemName, detailNote, quantity, unitPrice);
+    }
+}
+
 public record InvoiceLineVm(long Id, long InvoiceId, string Description, string ProductSku, long Quantity, long UnitPrice)
 {
     public long LineTotal => Quantity * UnitPrice;
+    public OrderSnapshotLineVm Parsed => OrderSnapshotLineVm.FromDescription(ProductSku, Description, Quantity, UnitPrice);
 }
 public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0)
 {
@@ -132,7 +204,8 @@ public record CompletedOrderSnapshotVm(
     bool DeductStock,
     string InvoiceNo,
     string InvoiceStatus,
-    string OrderStatus = "COMPLETED")
+    string OrderStatus = "COMPLETED",
+    List<OrderSnapshotLineVm>? Lines = null)
 {
     public long GrossProfitSnapshotVnd => RevenueSnapshotVnd - CostSnapshotVnd - InstallerFeeSnapshotVnd;
     public bool IsLocked => OrderStatus is "COMPLETED" or "ACTIVATION_BATCH";

@@ -542,13 +542,29 @@ else
                                 <td class="col-detail-only">
                                     @if(inst?.RateChips is { Count: > 0 } chips)
                                     {
-                                        <div class="tnm-rd-lines-scroll">
-                                            @foreach(var c in chips)
-                                            {
-                                                <div class="tnm-rd-line-entry">
-                                                    <strong>[@c.Sku] @c.ProductName</strong> — <strong style="color:#15803d">@c.Rate.ToString("N0") ₫</strong>
-                                                </div>
-                                            }
+                                        <div class="tnm-mini-table-host">
+                                            <table class="tnm-mini-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th data-col="stt" style="width:42px">STT</th>
+                                                        <th data-col="sku" data-col-label="Mã SP">MÃ SP</th>
+                                                        <th data-col="name" data-col-label="Tên sản phẩm">TÊN SẢN PHẨM</th>
+                                                        <th data-col="price" data-col-label="Đơn giá công lắp" class="num">ĐƠN GIÁ CÔNG LẮP</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @for (var ci = 0; ci < chips.Count; ci++)
+                                                    {
+                                                        var c = chips[ci];
+                                                        <tr>
+                                                            <td data-col="stt"><strong>@(ci + 1)</strong></td>
+                                                            <td data-col="sku"><span class="chip blue-chip">@c.Sku</span></td>
+                                                            <td data-col="name" class="wrap-cell"><strong>@c.ProductName</strong></td>
+                                                            <td data-col="price" class="num"><strong style="color:#15803d">@c.Rate.ToString("N0") ₫</strong></td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
                                         </div>
                                     }
                                     else

@@ -437,18 +437,55 @@
                         <td class="col-detail-only">
                             @if (o.Lines is { Count: > 0 })
                             {
-                                <div class="tnm-rd-lines-scroll">
-                                    @foreach (var ln in o.Lines)
-                                    {
-                                        <div class="tnm-rd-line-entry">
-                                            <strong>[@ln.ProductSku] @ln.ProductName</strong>
-                                            <span> — SL: <strong>@ln.Quantity</strong> · Đơn giá: <strong>@ln.UnitPrice.ToString("N0") ₫</strong></span>
-                                            @if (!string.IsNullOrWhiteSpace(ln.Imei))
+                                var hasOrdImei = o.Lines.Any(l => !string.IsNullOrWhiteSpace(l.Imei) || !string.IsNullOrWhiteSpace(l.PlateNo));
+                                <div class="tnm-mini-table-host">
+                                    <table class="tnm-mini-table">
+                                        <thead>
+                                            <tr>
+                                                <th data-col="stt" style="width:42px">STT</th>
+                                                <th data-col="sku" data-col-label="Mã SP">MÃ SP</th>
+                                                <th data-col="name" data-col-label="Tên sản phẩm">TÊN SẢN PHẨM</th>
+                                                @if (hasOrdImei)
+                                                {
+                                                    <th data-col="note" data-col-label="Số IMEI &amp; Biển số">SỐ IMEI &amp; BIỂN SỐ</th>
+                                                }
+                                                <th data-col="qty" data-col-label="Số lượng" class="num">SL</th>
+                                                <th data-col="price" data-col-label="Đơn giá" class="num">ĐƠN GIÁ</th>
+                                                <th data-col="total" data-col-label="Thành tiền" class="num">THÀNH TIỀN</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @for (var li = 0; li < o.Lines.Count; li++)
                                             {
-                                                <small style="color:#0f766e;font-weight:600">IMEI: @ln.Imei @(string.IsNullOrWhiteSpace(ln.PlateNo) ? "" : $"· Biển số: {ln.PlateNo}")</small>
+                                                var ln = o.Lines[li];
+                                                <tr>
+                                                    <td data-col="stt"><strong>@(li + 1)</strong></td>
+                                                    <td data-col="sku"><span class="chip blue-chip">@ln.ProductSku</span></td>
+                                                    <td data-col="name" class="wrap-cell"><strong>@ln.ProductName</strong></td>
+                                                    @if (hasOrdImei)
+                                                    {
+                                                        <td data-col="note" class="wrap-cell">
+                                                            @if (!string.IsNullOrWhiteSpace(ln.Imei))
+                                                            {
+                                                                <strong style="color:#0f766e">@ln.Imei</strong>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span style="color:#94a3b8">Chưa nhập IMEI</span>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(ln.PlateNo))
+                                                            {
+                                                                <span> · BS: <strong>@ln.PlateNo</strong></span>
+                                                            }
+                                                        </td>
+                                                    }
+                                                    <td data-col="qty" class="num"><strong>@ln.Quantity</strong></td>
+                                                    <td data-col="price" class="num">@ln.UnitPrice.ToString("N0") ₫</td>
+                                                    <td data-col="total" class="num"><strong style="color:#0284c7">@((ln.Quantity * ln.UnitPrice).ToString("N0")) ₫</strong></td>
+                                                </tr>
                                             }
-                                        </div>
-                                    }
+                                        </tbody>
+                                    </table>
                                 </div>
                             }
                             else

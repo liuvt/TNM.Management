@@ -1098,11 +1098,68 @@ else if (activeTab == "SNAPSHOT_STATS")
               </td>
               <td><span class="chip blue-chip">@o.SellerDisplay</span></td>
               <td class="col-detail-only">
-                <div class="tnm-rd-lines-scroll">
-                  @foreach (var seg in (o.ProductSummary ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                  {
-                    <div class="tnm-rd-line-entry">• @seg</div>
-                  }
+                @{
+                  var snapLines = o.Lines is { Count: > 0 }
+                    ? o.Lines
+                    : (o.ProductSummary ?? "")
+                        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(seg => OrderSnapshotLineVm.FromDescription("", seg, 1, 0))
+                        .ToList();
+                  var hasSnapRef = snapLines.Any(ln => !string.IsNullOrWhiteSpace(ln.SubDocOrTime));
+                  var hasSnapNote = snapLines.Any(ln => !string.IsNullOrWhiteSpace(ln.DetailNote));
+                }
+                <div class="tnm-mini-table-host">
+                  <table class="tnm-mini-table">
+                    <thead>
+                      <tr>
+                        <th data-col="stt" style="width:42px">STT</th>
+                        <th data-col="sku" data-col-label="Mã SP">MÃ SP</th>
+                        @if (hasSnapRef)
+                        {
+                          <th data-col="ref" data-col-label="Thời gian / Mã phiếu">THỜI GIAN / MÃ PHIẾU</th>
+                        }
+                        <th data-col="name" data-col-label="Tên sản phẩm / Dịch vụ">TÊN SẢN PHẨM / DỊCH VỤ</th>
+                        @if (hasSnapNote)
+                        {
+                          <th data-col="note" data-col-label="Biển số / IMEI / Ghi chú">BIỂN SỐ / IMEI / GHI CHÚ</th>
+                        }
+                        <th data-col="qty" data-col-label="Số lượng" class="num">SL</th>
+                        <th data-col="price" data-col-label="Đơn giá" class="num">ĐƠN GIÁ</th>
+                        <th data-col="total" data-col-label="Thành tiền" class="num">THÀNH TIỀN</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (var li = 0; li < snapLines.Count; li++)
+                      {
+                        var ln = snapLines[li];
+                        <tr>
+                          <td data-col="stt"><strong>@(li + 1)</strong></td>
+                          <td data-col="sku">
+                            @if (!string.IsNullOrWhiteSpace(ln.Sku))
+                            {
+                              <span class="chip blue-chip">@ln.Sku</span>
+                            }
+                            else
+                            {
+                              <span style="color:#94a3b8">—</span>
+                            }
+                          </td>
+                          @if (hasSnapRef)
+                          {
+                            <td data-col="ref"><span class="tnm-mt-ref">@(string.IsNullOrWhiteSpace(ln.SubDocOrTime) ? "—" : ln.SubDocOrTime)</span></td>
+                          }
+                          <td data-col="name" class="wrap-cell"><strong>@ln.ItemName</strong></td>
+                          @if (hasSnapNote)
+                          {
+                            <td data-col="note" class="wrap-cell"><span style="color:#475569">@(string.IsNullOrWhiteSpace(ln.DetailNote) ? "—" : ln.DetailNote)</span></td>
+                          }
+                          <td data-col="qty" class="num"><strong>@ln.Quantity</strong></td>
+                          <td data-col="price" class="num">@Money(ln.UnitPriceVnd)</td>
+                          <td data-col="total" class="num"><strong style="color:#0284c7">@Money(ln.LineTotalVnd)</strong></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
                 </div>
               </td>
               <td><strong>@o.TotalQty SP</strong></td>
@@ -1328,24 +1385,80 @@ else
               </td>
               <td class="wrap-cell" style="max-width:260px;white-space:normal;word-break:break-word;overflow-wrap:anywhere;overflow:hidden"><strong>@x.Customer</strong></td>
               <td class="col-detail-only">
-                @if (!string.IsNullOrWhiteSpace(x.RefCode))
+                @if (!string.IsNullOrWhiteSpace(x.RefCode) || !string.IsNullOrWhiteSpace(x.Notes))
                 {
-                  <div style="margin-bottom:4px"><strong>Mã tham chiếu gốc:</strong> <code>@x.RefCode</code></div>
-                }
-                @if (!string.IsNullOrWhiteSpace(x.Notes))
-                {
-                  <div style="margin-bottom:6px">@x.Notes</div>
+                  <div style="margin-bottom:8px;padding:6px 10px;background:#fff;border:1px solid #e2ece6;border-radius:7px;font-size:12px">
+                    @if (!string.IsNullOrWhiteSpace(x.RefCode))
+                    {
+                      <span><strong>Mã tham chiếu gốc:</strong> <code>@x.RefCode</code></span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(x.RefCode) && !string.IsNullOrWhiteSpace(x.Notes))
+                    {
+                      <span> · </span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(x.Notes))
+                    {
+                      <span>@x.Notes</span>
+                    }
+                  </div>
                 }
                 @if (x.Lines is { Count: > 0 })
                 {
-                  <div class="tnm-rd-lines-scroll">
-                    @foreach (var l in x.Lines)
-                    {
-                      <div class="tnm-rd-line-entry">
-                        <strong>@(string.IsNullOrWhiteSpace(l.ProductSku) ? "" : $"[{l.ProductSku}] ")@l.Description</strong>
-                        <span style="color:#475569"> — SL: <strong>@l.Quantity</strong> × @Money(l.UnitPrice) = <strong style="color:#0284c7">@Money(l.LineTotal)</strong></span>
-                      </div>
-                    }
+                  var parsedInvLines = x.Lines.Select(l => l.Parsed).ToList();
+                  var hasInvRef = parsedInvLines.Any(ln => !string.IsNullOrWhiteSpace(ln.SubDocOrTime));
+                  var hasInvNote = parsedInvLines.Any(ln => !string.IsNullOrWhiteSpace(ln.DetailNote));
+                  <div class="tnm-mini-table-host">
+                    <table class="tnm-mini-table">
+                      <thead>
+                        <tr>
+                          <th data-col="stt" style="width:42px">STT</th>
+                          <th data-col="sku" data-col-label="Mã SP">MÃ SP</th>
+                          @if (hasInvRef)
+                          {
+                            <th data-col="ref" data-col-label="Thời gian / Mã phiếu">THỜI GIAN / MÃ PHIẾU</th>
+                          }
+                          <th data-col="name" data-col-label="Tên mặt hàng / Dịch vụ">TÊN MẶT HÀNG / DỊCH VỤ</th>
+                          @if (hasInvNote)
+                          {
+                            <th data-col="note" data-col-label="Biển số / IMEI / Ghi chú">BIỂN SỐ / IMEI / GHI CHÚ</th>
+                          }
+                          <th data-col="qty" data-col-label="Số lượng" class="num">SL</th>
+                          <th data-col="price" data-col-label="Đơn giá" class="num">ĐƠN GIÁ</th>
+                          <th data-col="total" data-col-label="Thành tiền" class="num">THÀNH TIỀN</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (var li = 0; li < parsedInvLines.Count; li++)
+                        {
+                          var ln = parsedInvLines[li];
+                          <tr>
+                            <td data-col="stt"><strong>@(li + 1)</strong></td>
+                            <td data-col="sku">
+                              @if (!string.IsNullOrWhiteSpace(ln.Sku))
+                              {
+                                <span class="chip blue-chip">@ln.Sku</span>
+                              }
+                              else
+                              {
+                                <span style="color:#94a3b8">—</span>
+                              }
+                            </td>
+                            @if (hasInvRef)
+                            {
+                              <td data-col="ref"><span class="tnm-mt-ref">@(string.IsNullOrWhiteSpace(ln.SubDocOrTime) ? "—" : ln.SubDocOrTime)</span></td>
+                            }
+                            <td data-col="name" class="wrap-cell"><strong>@ln.ItemName</strong></td>
+                            @if (hasInvNote)
+                            {
+                              <td data-col="note" class="wrap-cell"><span style="color:#475569">@(string.IsNullOrWhiteSpace(ln.DetailNote) ? "—" : ln.DetailNote)</span></td>
+                            }
+                            <td data-col="qty" class="num"><strong>@ln.Quantity</strong></td>
+                            <td data-col="price" class="num">@Money(ln.UnitPriceVnd)</td>
+                            <td data-col="total" class="num"><strong style="color:#0284c7">@Money(ln.LineTotalVnd)</strong></td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
                   </div>
                 }
               </td>

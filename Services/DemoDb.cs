@@ -2948,6 +2948,31 @@ public sealed class DemoDb
     public List<CompletedOrderSnapshotVm> CompletedOrderSnapshots()
     {
         using var c = Open();
+        var orderLinesMap = new Dictionary<long, List<OrderSnapshotLineVm>>();
+        var rawOrderLines = Query(c, @"
+            SELECT l.order_id, COALESCE(p.sku,''), COALESCE(p.name,''), l.quantity, l.unit_price_vnd,
+                   COALESCE(l.imei,''), COALESCE(l.plate_no,''), COALESCE(l.vin_no,'')
+            FROM v7_order_lines l
+            JOIN products p ON p.id=l.product_id
+            JOIN v7_orders o ON o.id=l.order_id
+            WHERE l.deleted_at IS NULL AND o.deleted_at IS NULL AND o.status<>'CANCELLED'
+            ORDER BY l.order_id, l.id",
+            r => (OrderId: L(r, 0), Sku: S(r, 1), Name: S(r, 2), Qty: L(r, 3), Price: L(r, 4), Imei: S(r, 5), Plate: S(r, 6), Vin: S(r, 7)));
+
+        foreach (var rl in rawOrderLines)
+        {
+            if (!orderLinesMap.TryGetValue(rl.OrderId, out var list))
+            {
+                list = [];
+                orderLinesMap[rl.OrderId] = list;
+            }
+            var notes = new List<string>();
+            if (!string.IsNullOrWhiteSpace(rl.Imei)) notes.Add($"IMEI: {rl.Imei}");
+            if (!string.IsNullOrWhiteSpace(rl.Plate)) notes.Add($"BS: {rl.Plate}");
+            if (!string.IsNullOrWhiteSpace(rl.Vin) && !string.Equals(rl.Vin, rl.Imei, StringComparison.OrdinalIgnoreCase)) notes.Add(rl.Vin);
+            list.Add(new OrderSnapshotLineVm(rl.Sku, "", rl.Name, string.Join(" · ", notes), rl.Qty, rl.Price));
+        }
+
         var orders = Query(c, @"
             SELECT o.id, o.code,
                    CASE
@@ -2982,17 +3007,49 @@ public sealed class DemoDb
                    COALESCE(o.deduct_stock, 1),
                    COALESCE((SELECT i.invoice_no FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), '—'),
                    COALESCE((SELECT i.status FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), 'OPEN'),
-                   o.status
+                   o.status,
+                   COALESCE(p.sku,''),
+                   COALESCE(p.name,'')
             FROM v7_orders o
             JOIN customers cu ON cu.id = o.customer_id
             JOIN products p ON p.id = o.product_id
             LEFT JOIN v7_sellers sl ON sl.id = COALESCE(o.seller_record_id, cu.seller_id)
             WHERE o.status <> 'CANCELLED' AND o.deleted_at IS NULL
             ORDER BY CASE WHEN o.status='COMPLETED' THEN 0 ELSE 1 END, resolved_completed_at DESC, o.id DESC",
-            r => new CompletedOrderSnapshotVm(
-                L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
-                r.IsDBNull(7) ? null : L(r,7),
-                S(r,8), S(r,9), L(r,10), L(r,11), L(r,12), L(r,13), S(r,14), L(r,15) == 1, S(r,16), S(r,17), S(r,18)));
+            r =>
+            {
+                var ordId = L(r, 0);
+                var qty = L(r, 10);
+                var totalRev = L(r, 11);
+                var lines = orderLinesMap.TryGetValue(ordId, out var mapped) && mapped.Count > 0
+                    ? mapped
+                    : [new OrderSnapshotLineVm(S(r, 19), "", S(r, 20), "", qty > 0 ? qty : 1, qty > 0 ? totalRev / qty : totalRev)];
+                return new CompletedOrderSnapshotVm(
+                    ordId, S(r, 1), S(r, 2), S(r, 3), S(r, 4), S(r, 5), S(r, 6),
+                    r.IsDBNull(7) ? null : L(r, 7),
+                    S(r, 8), S(r, 9), qty, totalRev, L(r, 12), L(r, 13), S(r, 14), L(r, 15) == 1, S(r, 16), S(r, 17), S(r, 18), lines);
+            });
+
+        var batchLinesMap = new Dictionary<long, List<OrderSnapshotLineVm>>();
+        var rawBatchLines = Query(c, @"
+            SELECT il.invoice_id, COALESCE(p.sku,''), il.description, il.quantity, il.unit_price_vnd
+            FROM invoice_lines il
+            JOIN invoices i ON i.id=il.invoice_id
+            LEFT JOIN products p ON p.id=il.product_id
+            WHERE il.deleted_at IS NULL AND i.deleted_at IS NULL
+              AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID'
+            ORDER BY il.invoice_id, il.id",
+            r => (InvId: L(r, 0), Sku: S(r, 1), Desc: S(r, 2), Qty: L(r, 3), Price: L(r, 4)));
+
+        foreach (var bl in rawBatchLines)
+        {
+            if (!batchLinesMap.TryGetValue(bl.InvId, out var list))
+            {
+                list = [];
+                batchLinesMap[bl.InvId] = list;
+            }
+            list.Add(OrderSnapshotLineVm.FromDescription(bl.Sku, bl.Desc, bl.Qty, bl.Price));
+        }
 
         // Bổ sung các chứng từ SALE thiết bị đang hoạt động của Khách hàng/HTX (không qua v7_orders) để Kế toán thống kê đầy đủ Snapshot
         var actBatches = Query(c, @"
@@ -3023,16 +3080,26 @@ public sealed class DemoDb
                    CASE WHEN i.invoice_no LIKE 'HD-KH%' THEN 'Bảng kê công nợ kỳ trước' ELSE 'Chứng từ bán hàng' END,
                    1,
                    i.invoice_no,
-                   i.status
+                   i.status,
+                   COALESCE(i.notes,'')
             FROM invoices i
             JOIN customers cu ON cu.id = i.customer_id
             LEFT JOIN v7_sellers sl ON sl.id = cu.seller_id
             WHERE i.invoice_type = 'SALE' AND i.v7_order_id IS NULL AND i.status <> 'VOID' AND i.deleted_at IS NULL
             ORDER BY resolved_issued_at DESC, i.id DESC",
-            r => new CompletedOrderSnapshotVm(
-                -L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), S(r,6),
-                r.IsDBNull(7) ? null : L(r,7),
-                S(r,8), S(r,9), L(r,10), L(r,11), L(r,12), L(r,13), S(r,14), L(r,15) == 1, S(r,16), S(r,17), "ACTIVATION_BATCH"));
+            r =>
+            {
+                var invId = L(r, 0);
+                var qty = L(r, 10);
+                var amt = L(r, 11);
+                var lines = batchLinesMap.TryGetValue(invId, out var mapped) && mapped.Count > 0
+                    ? mapped
+                    : [OrderSnapshotLineVm.FromDescription("", S(r, 18), qty > 0 ? qty : 1, amt)];
+                return new CompletedOrderSnapshotVm(
+                    -invId, S(r, 1), S(r, 2), S(r, 3), S(r, 4), S(r, 5), S(r, 6),
+                    r.IsDBNull(7) ? null : L(r, 7),
+                    S(r, 8), S(r, 9), qty, amt, L(r, 12), L(r, 13), S(r, 14), L(r, 15) == 1, S(r, 16), S(r, 17), "ACTIVATION_BATCH", lines);
+            });
 
         orders.AddRange(actBatches);
         return orders;
