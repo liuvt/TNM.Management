@@ -163,6 +163,26 @@ public sealed class DemoDb
         if (!actCols.Any(x => string.Equals(x, "renewal_count", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE activations ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0");
 
+        var prodCols = Query(c, "PRAGMA table_info(products)", r => S(r, 1));
+        if (!prodCols.Any(x => string.Equals(x, "standard_price_vnd", StringComparison.OrdinalIgnoreCase)))
+        {
+            Exec(c, null, "ALTER TABLE products ADD COLUMN standard_price_vnd INTEGER NOT NULL DEFAULT 0");
+            // Khởi tạo một lần giá bán khai báo mặc định từ nhóm Khách lẻ (RETAIL) nếu có
+            Exec(c, null, @"
+                UPDATE products
+                SET standard_price_vnd = COALESCE((
+                    SELECT CASE WHEN gp.installed_price_vnd > 0 THEN gp.installed_price_vnd ELSE gp.standard_price_vnd END
+                    FROM v7_group_prices gp
+                    JOIN customer_groups cg ON cg.id = gp.group_id
+                    WHERE gp.product_id = products.id
+                      AND gp.deleted_at IS NULL
+                      AND UPPER(COALESCE(cg.code,'')) = 'RETAIL'
+                    ORDER BY gp.effective_from DESC, gp.id DESC
+                    LIMIT 1
+                ), 0)
+                WHERE standard_price_vnd = 0");
+        }
+
         var sgCols = Query(c, "PRAGMA table_info(supplier_groups)", r => S(r, 1));
         if (sgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)))
         {
@@ -184,15 +204,11 @@ public sealed class DemoDb
                     ("$c", supCode), ("$n", grp.Name), ("$g", grp.Id));
             }
 
-            // Đồng bộ giá vốn & giá gia hạn từ bảng giá V7 về bảng products
+            // Đồng bộ giá vốn mặc định từ bảng giá nhóm NCC về bảng products khi chưa khai báo
             Exec(c, null, @"UPDATE products SET base_cost_vnd = COALESCE(
                 (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
                 base_cost_vnd)
                 WHERE base_cost_vnd = 0 AND EXISTS (SELECT 1 FROM v7_supplier_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0)");
-            Exec(c, null, @"UPDATE products SET renewal_fee_vnd = COALESCE(
-                (SELECT gp.renewal_price_vnd FROM v7_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0 ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
-                renewal_fee_vnd)
-                WHERE renewal_fee_vnd = 0 AND EXISTS (SELECT 1 FROM v7_group_prices gp WHERE gp.product_id=products.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0)");
 
             // Dọn các chứng từ công nợ PURCHASE phát sinh nhầm từ nguồn "Thiết bị hoàn trả - đã kích hoạt" (HOANTRA)
             CleanupReturnedDevicePurchaseInvoices(c, null);
@@ -206,6 +222,60 @@ public sealed class DemoDb
             SupplierDebtReconcileNov2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
             // Mở khóa toàn bộ các thiết bị khách hàng bị gắn trạng thái DISABLED (Khoá do quá hạn từ file import gốc) để cho phép gia hạn bình thường
             UnlockImportedLockedDevices(c, null);
+            // Đồng bộ lại các đợt gia hạn chưa chốt số bị áp nhầm giá Khách lẻ/Doanh nghiệp (960k) về đúng giá Nhóm con HTX (740k / 540k)
+            ReconcileUnlockedSubgroupRenewals(c, null);
+        }
+    }
+
+    private void ReconcileUnlockedSubgroupRenewals(SqliteConnection c, SqliteTransaction? t)
+    {
+        var candidates = QueryAny(c, t, @"
+            SELECT r.id, r.amount_vnd, a.customer_id, a.product_id, r.renewed_at
+            FROM renewals r
+            JOIN activations a ON a.id = r.activation_id
+            JOIN customers cu ON cu.id = a.customer_id
+            WHERE r.deleted_at IS NULL
+              AND r.is_locked = 0
+              AND cu.sub_group_id IS NOT NULL
+              AND r.renewed_at = '2026-11-21'
+              AND r.amount_vnd = 960000
+              AND NOT EXISTS (
+                  SELECT 1 FROM invoices i
+                  WHERE i.renewal_id = r.id
+                    AND i.deleted_at IS NULL
+                    AND (COALESCE(i.is_locked,0) = 1 OR EXISTS (
+                        SELECT 1 FROM payment_allocations pa WHERE pa.invoice_id = i.id AND pa.deleted_at IS NULL
+                    ))
+              )",
+            r => (Id: L(r, 0), CurAmt: L(r, 1), CustId: L(r, 2), ProdId: L(r, 3), RenAt: S(r, 4)));
+
+        if (candidates.Count == 0)
+            return;
+
+        var prevActor = ActorId;
+        var devId = N(c, t, "SELECT COALESCE((SELECT id FROM app_users WHERE LOWER(username)='vanlt_it' LIMIT 1), 0)");
+        try
+        {
+            if (devId > 0) ActorId = devId;
+            foreach (var item in candidates)
+            {
+                DateTime? atDt = DateTime.TryParse(item.RenAt, out var parsed) ? parsed : null;
+                var expected = GroupPriceResolver.ResolveRenewalPrice(c, t, item.CustId, item.ProdId, atDt);
+                if (expected <= 0 || expected == item.CurAmt)
+                    continue;
+
+                Exec(c, t, "UPDATE renewals SET amount_vnd = $amt WHERE id = $id", ("$amt", expected), ("$id", item.Id));
+                var invIds = QueryAny(c, t, "SELECT id FROM invoices WHERE renewal_id = $r AND deleted_at IS NULL", r => L(r, 0), ("$r", item.Id));
+                foreach (var invId in invIds)
+                {
+                    Exec(c, t, "UPDATE invoices SET amount_vnd = $amt WHERE id = $id", ("$amt", expected), ("$id", invId));
+                    Exec(c, t, "UPDATE invoice_lines SET unit_price_vnd = $amt WHERE invoice_id = $id AND deleted_at IS NULL", ("$amt", expected), ("$id", invId));
+                }
+            }
+        }
+        finally
+        {
+            ActorId = prevActor;
         }
     }
 
@@ -543,8 +613,8 @@ public sealed class DemoDb
         using var c = Open();
         return Query(c, @"SELECT p.id,p.sku,p.name,g.name,
             COALESCE(NULLIF(p.base_cost_vnd,0),(SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
-            COALESCE(NULLIF(p.renewal_fee_vnd,0),(SELECT gp.renewal_price_vnd FROM v7_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
-            COALESCE(NULLIF(p.install_fee_vnd,0),(SELECT CASE WHEN gp.installed_price_vnd>gp.standard_price_vnd AND gp.standard_price_vnd>0 THEN gp.installed_price_vnd-gp.standard_price_vnd ELSE gp.installed_price_vnd END FROM v7_group_prices gp WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.installed_price_vnd>0 ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),0),
+            COALESCE(p.renewal_fee_vnd, 0),
+            COALESCE(p.install_fee_vnd, 0),
             p.warranty_months,p.is_serialized,
             CASE
               WHEN COALESCE(m.product_kind,'GOODS') <> 'GOODS' THEN 0
@@ -833,7 +903,19 @@ public sealed class DemoDb
     public List<DeviceVm> Devices()
     {
         using var c = Open();
-        return Query(c, @"SELECT a.id,u.imei,p.sku,c.name,a.plate_no,a.activated_at,a.expires_at,c.id,p.id,
+        var priceCache = new Dictionary<(long CustId, long ProdId), long>();
+        long LookupRenewal(long custId, long prodId)
+        {
+            var key = (custId, prodId);
+            if (!priceCache.TryGetValue(key, out var val))
+            {
+                val = GroupPriceResolver.ResolveRenewalPrice(c, null, custId, prodId);
+                priceCache[key] = val;
+            }
+            return val;
+        }
+
+        var rawRows = Query(c, @"SELECT a.id,u.imei,p.sku,c.name,a.plate_no,a.activated_at,a.expires_at,c.id,p.id,
           COALESCE(a.vin_no,''),COALESCE(o.code,''),COALESCE(o.contact_name,''),
           COALESCE(o.seller_record_id, c.seller_id),
           COALESCE(sl.code||' — '||sl.full_name, NULLIF(o.sale_source,''), NULLIF(c.source_name,''), ''),
@@ -849,28 +931,7 @@ public sealed class DemoDb
           COALESCE(a.owner_phone,''),
           COALESCE(a.status,'ACTIVE'),
           COALESCE(NULLIF(a.last_renewed_at,''), (SELECT MAX(r2.renewed_at) FROM renewals r2 WHERE r2.activation_id=a.id AND r2.deleted_at IS NULL), ''),
-          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL)),
-          COALESCE(
-            NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-                    WHERE gp.group_id=c.sub_group_id
-                      AND gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
-                      AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
-                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
-            NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-                    WHERE gp.group_id=c.group_id
-                      AND gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
-                      AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
-                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
-            NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-                    WHERE gp.group_id=(SELECT cg.parent_id FROM customer_groups cg WHERE cg.id=c.group_id)
-                      AND gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
-                      AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
-                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
-            NULLIF(p.renewal_fee_vnd, 0),
-            (SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-             WHERE gp.product_id=p.id AND gp.deleted_at IS NULL AND gp.renewal_price_vnd>0
-             ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
-            0)
+          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL))
           FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
@@ -878,10 +939,24 @@ public sealed class DemoDb
           LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
           WHERE a.deleted_at IS NULL
           ORDER BY a.expires_at",
-          r => new DeviceVm(
-              L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),L(r,8),
-              S(r,9),S(r,10),S(r,11),r.IsDBNull(12) ? null : L(r,12),S(r,13),
-              S(r,14),S(r,15),S(r,16),S(r,17),S(r,18),S(r,19),L(r,20),L(r,21)));
+          r => (
+              ActId: L(r,0), Imei: S(r,1), Sku: S(r,2), CustName: S(r,3), Plate: S(r,4),
+              ActAt: S(r,5), ExpAt: S(r,6), CustId: L(r,7), ProdId: L(r,8),
+              Vin: S(r,9), OrdCode: S(r,10), Contact: S(r,11),
+              SellerId: r.IsDBNull(12) ? (long?)null : L(r,12), SellerName: S(r,13),
+              DevLabel: S(r,14), Agency: S(r,15), Owner: S(r,16), Phone: S(r,17),
+              Status: S(r,18), LastRen: S(r,19), RenCnt: L(r,20)));
+
+        var result = new List<DeviceVm>(rawRows.Count);
+        foreach (var x in rawRows)
+        {
+            result.Add(new DeviceVm(
+                x.ActId, x.Imei, x.Sku, x.CustName, x.Plate, x.ActAt, x.ExpAt, x.CustId, x.ProdId,
+                x.Vin, x.OrdCode, x.Contact, x.SellerId, x.SellerName,
+                x.DevLabel, x.Agency, x.Owner, x.Phone, x.Status, x.LastRen, x.RenCnt,
+                LookupRenewal(x.CustId, x.ProdId)));
+        }
+        return result;
     }
 
     public void UpdateDeviceActivation(long activationId, string activatedAt, int durationMonths = 12, string? plateNo = null, string? vinNo = null, string? customExpiresAt = null, long? sellerId = null, string? status = null, string? ownerName = null, string? ownerPhone = null)
@@ -1508,30 +1583,14 @@ public sealed class DemoDb
                 resolvedSellerName = device.FallbackSellerName;
             }
 
-            // Lấy giá gia hạn cố định theo phân cấp: Nhóm con Đại lý (sub_group_id) -> Nhóm khách hàng chính (group_id) -> Nhóm cha -> Giá mặc định SP
-            var price = customPriceVnd is >= 0 ? customPriceVnd.Value : N(c,t,@"
-               SELECT COALESCE(
-                   NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-                           WHERE gp.group_id=(SELECT sub_group_id FROM customers WHERE id=$c)
-                             AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
-                             AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
-                           ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
-                   NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-                           WHERE gp.group_id=(SELECT group_id FROM customers WHERE id=$c)
-                             AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
-                             AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
-                           ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
-                   NULLIF((SELECT gp.renewal_price_vnd FROM v7_group_prices gp
-                           WHERE gp.group_id=(SELECT cg.parent_id FROM customers cu JOIN customer_groups cg ON cg.id=cu.group_id WHERE cu.id=$c)
-                             AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
-                             AND (gp.effective_to IS NULL OR gp.effective_to>=date('now'))
-                           ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
-                   0)",("$c",device.CustomerId),("$p",device.ProductId));
-            if(customPriceVnd is null && price == 0) price = device.DefaultPrice;
-
-            var renDate = DateTime.Today;
+            var renDate = VnDateTimeHelper.TodayVn;
             if (!string.IsNullOrWhiteSpace(customRenewedAt) && DateTime.TryParseExact(customRenewedAt.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedRen))
                 renDate = parsedRen.Date;
+
+            // Lấy giá gia hạn cố định theo phân cấp chuẩn: Nhóm con HTX -> Nhóm cha -> Giá sản phẩm khai báo gốc
+            var price = customPriceVnd is >= 0
+                ? customPriceVnd.Value
+                : GroupPriceResolver.ResolveRenewalPrice(c, t, device.CustomerId, device.ProductId, renDate);
 
             var old = DateTime.ParseExact(device.Expires,"yyyy-MM-dd",CultureInfo.InvariantCulture);
             var next = (old.Date > renDate ? old.Date : renDate).AddYears(1);

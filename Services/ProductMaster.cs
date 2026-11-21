@@ -8,9 +8,11 @@ namespace TNM.Management.Services;
 public sealed class ProductMaster(IWebHostEnvironment environment)
 {
     public sealed record ProductRow(long Id, string Sku, string Name, long GroupId, string GroupName,
-        string Kind, string Unit, bool UsesImei, int WarrantyMonths, bool IsActive, long StockInHand = 0);
+        string Kind, string Unit, bool UsesImei, int WarrantyMonths, bool IsActive, long StockInHand = 0,
+        long StandardPriceVnd = 0, long RenewalPriceVnd = 0);
     public sealed record GroupRow(long Id, string Code, string Name);
-    public sealed record ProductDraft(long? Id, long GroupId, string Name, string Kind, string Unit, bool UsesImei, int WarrantyMonths, string? CustomSku = null);
+    public sealed record ProductDraft(long? Id, long GroupId, string Name, string Kind, string Unit, bool UsesImei, int WarrantyMonths, string? CustomSku = null,
+        long StandardPriceVnd = 0, long RenewalPriceVnd = 0);
     private readonly string path = Path.Combine(environment.ContentRootPath, "App_Data", "tnm-local.db");
 
     private SqliteConnection Open()
@@ -44,7 +46,22 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
 
     public void Initialize()
     {
-        // Schema and triggers are created centrally in Data/schema.sql.
+        using var c = Open();
+        var hasStd = false;
+        using (var q = Sql(c, "PRAGMA table_info(products)"))
+        using (var r = q.ExecuteReader())
+        {
+            while (r.Read())
+            {
+                if (string.Equals(r.GetString(1), "standard_price_vnd", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasStd = true;
+                    break;
+                }
+            }
+        }
+        if (!hasStd)
+            Execute(c, "ALTER TABLE products ADD COLUMN standard_price_vnd INTEGER NOT NULL DEFAULT 0");
     }
 
     public List<GroupRow> Groups()
@@ -57,23 +74,42 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
 
     public List<ProductRow> Products(bool includeInactive = false)
     {
-        using var c = Open(); using var q = Sql(c, """
-            SELECT id,sku,name,group_id,group_name,product_kind,unit,is_serialized,warranty_months,is_active,
+        using var c = Open();
+        var hasStd = false;
+        using (var ti = Sql(c, "PRAGMA table_info(products)"))
+        using (var tr = ti.ExecuteReader())
+        {
+            while (tr.Read())
+            {
+                if (string.Equals(tr.GetString(1), "standard_price_vnd", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasStd = true;
+                    break;
+                }
+            }
+        }
+        var stdExpr = hasStd ? "COALESCE(p.standard_price_vnd,0)" : "0";
+        using var q = Sql(c, $"""
+            SELECT m.id,m.sku,m.name,m.group_id,m.group_name,m.product_kind,m.unit,m.is_serialized,m.warranty_months,m.is_active,
                    CASE
-                     WHEN product_kind <> 'GOODS' THEN 0
-                     WHEN is_serialized = 1 THEN
-                       (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=v7_product_master.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL)
-                       + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=v7_product_master.id), 0)
+                     WHEN m.product_kind <> 'GOODS' THEN 0
+                     WHEN m.is_serialized = 1 THEN
+                       (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=m.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL)
+                       + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=m.id), 0)
                      ELSE
-                       COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=v7_product_master.id), 0)
-                   END AS stock_in_hand
-            FROM v7_product_master
-            WHERE ($all=1 OR is_active=1)
-            ORDER BY id DESC;
+                       COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=m.id), 0)
+                   END AS stock_in_hand,
+                   {stdExpr},
+                   COALESCE(p.renewal_fee_vnd,0)
+            FROM v7_product_master m
+            JOIN products p ON p.id=m.id
+            WHERE ($all=1 OR m.is_active=1)
+            ORDER BY m.id DESC;
             """, ("$all", includeInactive ? 1 : 0));
         using var r = q.ExecuteReader(); var rows = new List<ProductRow>();
         while (r.Read()) rows.Add(new ProductRow(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(3),
-            r.GetString(4), r.GetString(5), r.GetString(6), r.GetInt64(7) == 1, (int)r.GetInt64(8), r.GetInt64(9) == 1, r.GetInt64(10)));
+            r.GetString(4), r.GetString(5), r.GetString(6), r.GetInt64(7) == 1, (int)r.GetInt64(8), r.GetInt64(9) == 1, r.GetInt64(10),
+            r.GetInt64(11), r.GetInt64(12)));
         return rows;
     }
 
@@ -82,8 +118,9 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
         if (d.GroupId <= 0 || string.IsNullOrWhiteSpace(d.Name) || d.Name.Trim().Length > 180 ||
            d.Kind is not ("GOODS" or "SERVICE" or "BUNDLE") ||
            string.IsNullOrWhiteSpace(d.Unit) || d.Unit.Trim().Length > 30 ||
-           d.WarrantyMonths < 0 || d.WarrantyMonths > 240 || (d.Kind != "GOODS" && d.UsesImei))
-            throw new InvalidOperationException("Nhóm, tên, loại, đơn vị tính hoặc bảo hành không hợp lệ.");
+           d.WarrantyMonths < 0 || d.WarrantyMonths > 240 || (d.Kind != "GOODS" && d.UsesImei) ||
+           d.StandardPriceVnd < 0 || d.RenewalPriceVnd < 0)
+            throw new InvalidOperationException("Nhóm, tên, loại, đơn vị tính, giá khai báo hoặc bảo hành không hợp lệ.");
     }
 
     public string Save(long actor, ProductDraft d)
@@ -91,6 +128,22 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
         Validate(d);
         return Write(actor, c =>
         {
+            var hasStd = false;
+            using (var ti = Sql(c, "PRAGMA table_info(products)"))
+            using (var tr = ti.ExecuteReader())
+            {
+                while (tr.Read())
+                {
+                    if (string.Equals(tr.GetString(1), "standard_price_vnd", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasStd = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasStd)
+                Execute(c, "ALTER TABLE products ADD COLUMN standard_price_vnd INTEGER NOT NULL DEFAULT 0");
+
             if (Count(c, "SELECT COUNT(*) FROM product_groups WHERE id=$id AND deleted_at IS NULL", ("$id", d.GroupId)) != 1)
                 throw new InvalidOperationException("Nhóm sản phẩm không tồn tại.");
             var newProduct = !d.Id.HasValue;
@@ -101,9 +154,10 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
                 if (Count(c, "SELECT COUNT(*) FROM products WHERE sku=$sku AND deleted_at IS NULL", ("$sku", sku)) > 0)
                     throw new InvalidOperationException($"Mã sản phẩm '{sku}' đã tồn tại.");
                 Execute(c, """
-                    INSERT INTO products(group_id,sku,name,warranty_months,is_serialized,is_active)
-                    VALUES($group,$sku,$name,$warranty,$imei,1)
+                    INSERT INTO products(group_id,sku,name,standard_price_vnd,renewal_fee_vnd,warranty_months,is_serialized,is_active)
+                    VALUES($group,$sku,$name,$std,$ren,$warranty,$imei,1)
                     """, ("$group", d.GroupId), ("$sku", sku), ("$name", d.Name.Trim()),
+                    ("$std", d.StandardPriceVnd), ("$ren", d.RenewalPriceVnd),
                     ("$warranty", d.WarrantyMonths), ("$imei", d.UsesImei ? 1 : 0));
                 id = Count(c, "SELECT last_insert_rowid()");
             }
@@ -133,10 +187,11 @@ public sealed class ProductMaster(IWebHostEnvironment environment)
                     if (inUse > 0) throw new InvalidOperationException("Sản phẩm đã phát sinh giao dịch; không thể đổi loại hàng hoặc IMEI.");
                 }
                 Execute(c, """
-                    UPDATE products SET sku=$sku,group_id=$group,name=$name,warranty_months=$warranty,is_serialized=$imei
+                    UPDATE products SET sku=$sku,group_id=$group,name=$name,standard_price_vnd=$std,renewal_fee_vnd=$ren,warranty_months=$warranty,is_serialized=$imei
                     WHERE id=$id
-                    """, ("$sku", sku), ("$group", d.GroupId), ("$name", d.Name.Trim()), ("$warranty", d.WarrantyMonths),
-                    ("$imei", d.UsesImei ? 1 : 0), ("$id", id));
+                    """, ("$sku", sku), ("$group", d.GroupId), ("$name", d.Name.Trim()),
+                    ("$std", d.StandardPriceVnd), ("$ren", d.RenewalPriceVnd),
+                    ("$warranty", d.WarrantyMonths), ("$imei", d.UsesImei ? 1 : 0), ("$id", id));
             }
             Execute(c, """
                 INSERT INTO product_catalog_metadata(product_id,product_kind,unit,source_tag)

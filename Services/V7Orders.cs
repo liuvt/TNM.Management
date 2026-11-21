@@ -220,57 +220,15 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
     private static (long Price, long Cost) QuoteOrderPrice(SqliteConnection c, long customerId, long productId)
     {
+        var dayVn = VnDateTimeHelper.TodayVn.ToString("yyyy-MM-dd");
         var cost = Scalar(c, @"SELECT COALESCE(
-            (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
+            (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0 AND gp.effective_from<=$d ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1),
             NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
-            0)", ("$p", productId));
-        var basePrice = Scalar(c, @"SELECT COALESCE(
-            NULLIF((SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd WHEN standard_price_vnd>0 THEN standard_price_vnd ELSE renewal_price_vnd END
-                    FROM v7_group_prices
-                    WHERE group_id=(SELECT sub_group_id FROM customers WHERE id=$c) AND product_id=$p
-                      AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
-                    ORDER BY effective_from DESC,id DESC LIMIT 1), 0),
-            NULLIF((SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd WHEN standard_price_vnd>0 THEN standard_price_vnd ELSE renewal_price_vnd END
-                    FROM v7_group_prices
-                    WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND product_id=$p
-                      AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
-                    ORDER BY effective_from DESC,id DESC LIMIT 1), 0),
-            NULLIF((SELECT CASE WHEN installed_price_vnd>0 THEN installed_price_vnd WHEN standard_price_vnd>0 THEN standard_price_vnd ELSE renewal_price_vnd END
-                    FROM v7_group_prices
-                    WHERE group_id=(SELECT cg.parent_id FROM customers cu JOIN customer_groups cg ON cg.id=cu.group_id WHERE cu.id=$c) AND product_id=$p
-                      AND deleted_at IS NULL AND effective_from<=date('now') AND (effective_to IS NULL OR effective_to>=date('now'))
-                    ORDER BY effective_from DESC,id DESC LIMIT 1), 0),
-            0)", ("$c", customerId), ("$p", productId));
-        if (basePrice <= 0)
-        {
-            basePrice = Scalar(c, @"SELECT CASE
-                WHEN installed_price_vnd>0 THEN installed_price_vnd
-                WHEN standard_price_vnd>0 THEN standard_price_vnd
-                ELSE renewal_price_vnd END
-                FROM v7_group_prices
-                WHERE product_id=$p AND deleted_at IS NULL
-                  AND (installed_price_vnd>0 OR standard_price_vnd>0 OR renewal_price_vnd>0)
-                ORDER BY effective_from DESC,id DESC LIMIT 1", ("$p", productId));
-        }
-        if (basePrice <= 0)
-        {
-            basePrice = Scalar(c, @"SELECT COALESCE(MAX(install_rate_vnd),0) FROM v7_installer_product_rates WHERE product_id=$p AND deleted_at IS NULL", ("$p", productId));
-        }
-        if (basePrice <= 0)
-            basePrice = cost + Scalar(c, "SELECT install_fee_vnd FROM products WHERE id=$p", ("$p", productId));
-        var discount = Scalar(c, @"SELECT COALESCE(
-            NULLIF((SELECT MAX(discount_percent) FROM v7_group_campaigns
-                    WHERE group_id=(SELECT sub_group_id FROM customers WHERE id=$c) AND is_active=1 AND deleted_at IS NULL
-                      AND start_date<=date('now') AND end_date>=date('now')), 0),
-            NULLIF((SELECT MAX(discount_percent) FROM v7_group_campaigns
-                    WHERE group_id=(SELECT group_id FROM customers WHERE id=$c) AND is_active=1 AND deleted_at IS NULL
-                      AND start_date<=date('now') AND end_date>=date('now')), 0),
-            NULLIF((SELECT MAX(discount_percent) FROM v7_group_campaigns
-                    WHERE group_id=(SELECT cg.parent_id FROM customers cu JOIN customer_groups cg ON cg.id=cu.group_id WHERE cu.id=$c) AND is_active=1 AND deleted_at IS NULL
-                      AND start_date<=date('now') AND end_date>=date('now')), 0),
-            0)", ("$c", customerId));
-        var finalPrice = (long)((decimal)basePrice * (100 - discount) / 100m);
-        return (finalPrice, cost);
+            0)", ("$p", productId), ("$d", dayVn));
+
+        // Luồng chuẩn: Nhóm con HTX (sub_group_id) -> Nhóm cha (parent_id / group_id) -> Giá sản phẩm khai báo gốc
+        var resolved = GroupPriceResolver.ResolveOrderPrice(c, null, customerId, productId, "INSTALLED");
+        return (resolved.FinalPriceVnd, cost);
     }
 
     public long PreviewUnitPrice(long customerId, long productId)

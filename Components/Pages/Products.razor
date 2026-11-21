@@ -46,10 +46,12 @@
                 <select @bind="kind"><option value="GOODS">Hàng hóa / Thiết bị</option><option value="SERVICE">Dịch vụ / Gia hạn</option><option value="BUNDLE">Bộ sản phẩm trọn gói</option></select>
             </label>
             <label>Đơn vị tính * <input @bind="unit" placeholder="Cái / Bộ / Lần" maxlength="30" /></label>
+            <label>Giá bán khai báo mặc định (VND) <input type="number" min="0" step="10000" @bind="standardPriceVnd" placeholder="Áp dụng khi Nhóm KH & Nhóm cha chưa có giá" /></label>
+            <label>Giá gia hạn khai báo mặc định (VND) <input type="number" min="0" step="10000" @bind="renewalPriceVnd" placeholder="Áp dụng khi Nhóm KH & Nhóm cha chưa có giá GH" /></label>
             <label>Thời hạn bảo hành (tháng) <input type="number" min="0" max="240" @bind="warrantyMonths" /></label>
             <label class="checkbox-row"><input type="checkbox" @bind="imei" disabled="@(kind!="GOODS")" /> Quản lý theo IMEI / số sê-ri</label>
         </div>
-        <p class="panel-note">Giá nhập quản lý theo nhóm NCC, giá bán theo nhóm khách hàng. Tồn kho được sinh tự động từ đơn mua hàng, đơn lắp đặt hoặc phiếu điều chỉnh kho; không nhập tồn trực tiếp trong danh mục sản phẩm.</p>
+        <p class="panel-note">Quy tắc tra giá tự động: <strong>Nhóm con HTX → Nhóm cha → Giá sản phẩm khai báo mặc định tại đây</strong>. Tồn kho được sinh tự động từ đơn mua hàng, đơn lắp đặt hoặc phiếu điều chỉnh kho.</p>
         <div class="form-actions">
             <button type="button" class="btn" data-confirm="@(editingId.HasValue ? "edit" : "add")" data-confirm-msg="@(editingId.HasValue ? "Bạn có chắc chắn muốn lưu thay đổi thông tin sản phẩm này không?" : "Bạn có chắc chắn muốn tạo sản phẩm mới này không?")" @onclick="Save">@(editingId.HasValue?"Lưu thay đổi":"Tạo sản phẩm")</button>
             <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Hủy</button>
@@ -73,7 +75,7 @@
     <p class="catalog-table-summary">@(selected.Count>0?$"Đã chọn {selected.Count} sản phẩm để xuất":"Chưa chọn dòng: xuất toàn bộ sản phẩm theo bộ lọc")</p>
     @{ var pagedProducts = prodPager.Slice(Filtered, out var totalFiltered); }
     <div class="table-wrap"><table>
-        <thead><tr><th>STT</th><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>IMEI</th><th>TỒN KHO</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
+        <thead><tr><th>STT</th><th><input type="checkbox" aria-label="Chọn tất cả sản phẩm trang này" checked="@PageAllSelected" @onchange="TogglePage" /></th><th>MÃ SP</th><th>TÊN SẢN PHẨM</th><th>NHÓM</th><th>PHÂN LOẠI</th><th>ĐVT</th><th>GIÁ BÁN KHAI BÁO</th><th>GIÁ GH KHAI BÁO</th><th>IMEI</th><th>TỒN KHO</th><th>BẢO HÀNH</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
         <tbody>
             @foreach(var (stt, p) in pagedProducts)
             {
@@ -81,7 +83,10 @@
                     <td><strong>@stt</strong></td>
                     <td><input type="checkbox" aria-label="@($"Chọn {p.Sku}")" checked="@selected.Contains(p.Id)" @onchange="e => ToggleRow(p.Id,e.Value is bool b && b)" /></td>
                     <td><strong>@p.Sku</strong></td><td class="name-cell">@p.Name</td><td>@p.GroupName</td>
-                    <td>@KindName(p.Kind)</td><td>@p.Unit</td><td>@(p.UsesImei?"Có":"Không")</td>
+                    <td>@KindName(p.Kind)</td><td>@p.Unit</td>
+                    <td>@(p.StandardPriceVnd > 0 ? $"{p.StandardPriceVnd:N0} ₫" : "—")</td>
+                    <td>@(p.RenewalPriceVnd > 0 ? $"{p.RenewalPriceVnd:N0} ₫" : "—")</td>
+                    <td>@(p.UsesImei?"Có":"Không")</td>
                     <td>
                         @if(p.Kind == "GOODS")
                         {
@@ -120,7 +125,7 @@
     private readonly HashSet<long> selected=[];
     private readonly PagerState prodPager = new();
     private string query="",search="",statusFilter="ACTIVE",message="",name="",kind="GOODS",unit="Cái",editingSku="";
-    private long groupFilter,groupId;
+    private long groupFilter,groupId,standardPriceVnd,renewalPriceVnd;
     private int warrantyMonths=12;
     private bool imei;
     private long? editingId,pendingDisableId,pendingDeleteId;
@@ -174,9 +179,9 @@
         Reload();
     }
     private void Reload(){groups=Master.Groups();products=Master.Products(includeInactive:true);}
-    private void Create(){editingId=null;editingSku="";groupId=0;name="";kind="GOODS";unit="Cái";warrantyMonths=12;imei=false;message="";showEditor=true;scrollEditorPending=true;}
+    private void Create(){editingId=null;editingSku="";groupId=0;name="";kind="GOODS";unit="Cái";warrantyMonths=12;standardPriceVnd=0;renewalPriceVnd=0;imei=false;message="";showEditor=true;scrollEditorPending=true;}
     private void Edit(ProductMaster.ProductRow p)
-    {editingId=p.Id;editingSku=p.Sku;groupId=p.GroupId;name=p.Name;kind=p.Kind;unit=p.Unit;warrantyMonths=p.WarrantyMonths;imei=p.UsesImei;message="";showEditor=true;scrollEditorPending=true;}
+    {editingId=p.Id;editingSku=p.Sku;groupId=p.GroupId;name=p.Name;kind=p.Kind;unit=p.Unit;warrantyMonths=p.WarrantyMonths;standardPriceVnd=p.StandardPriceVnd;renewalPriceVnd=p.RenewalPriceVnd;imei=p.UsesImei;message="";showEditor=true;scrollEditorPending=true;}
     private async Task DeleteProduct(ProductMaster.ProductRow p)
     {
         try
@@ -195,7 +200,7 @@
         try
         {
             var actor=await Gate.RequireAsync(editingId.HasValue?Permissions.ProductsUpdate:Permissions.ProductsCreate);
-            var sku=Master.Save(actor,new ProductMaster.ProductDraft(editingId,groupId,name,kind,unit,imei&&kind=="GOODS",warrantyMonths,editingSku));
+            var sku=Master.Save(actor,new ProductMaster.ProductDraft(editingId,groupId,name,kind,unit,imei&&kind=="GOODS",warrantyMonths,editingSku,standardPriceVnd,renewalPriceVnd));
             showEditor=false;Reload();selected.Clear();message="Đã lưu sản phẩm "+sku+". Những nghiệp vụ phía sau dùng chung ID sản phẩm.";
         }
         catch(Exception ex){message="Lỗi: "+ex.Message;}

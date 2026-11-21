@@ -953,46 +953,35 @@ public sealed class InputCatalog(IWebHostEnvironment env)
     public PriceQuote QuoteSale(long customerId, long productId, string priceType = "STANDARD", DateTime? at = null)
     {
         if (priceType is not ("STANDARD" or "INSTALLED" or "RENEWAL")) throw new InvalidOperationException("Loại giá không hợp lệ.");
-        using var c = Open(); var day = (at ?? DateTime.Today).ToString("yyyy-MM-dd");
-        using var q = Cmd(c, """
-            SELECT gp.group_id, p.sku, gp.standard_price_vnd, gp.installed_price_vnd, gp.renewal_price_vnd,
-                   c.group_id, c.sub_group_id, cg.parent_id
+        using var c = Open();
+        var effectiveAt = at ?? VnDateTimeHelper.TodayVn;
+        var day = effectiveAt.ToString("yyyy-MM-dd");
+
+        string sku;
+        long mainGroup;
+        using (var q = Cmd(c, """
+            SELECT p.sku, c.group_id
             FROM customers c
             JOIN products p ON p.id=$p
-            LEFT JOIN customer_groups cg ON cg.id=c.group_id
-            JOIN v7_group_prices gp ON gp.product_id=p.id
-              AND (gp.group_id=c.sub_group_id OR gp.group_id=c.group_id OR gp.group_id=cg.parent_id)
-            WHERE c.id=$c AND c.is_active=1 AND c.deleted_at IS NULL AND p.is_active=1 AND p.deleted_at IS NULL AND gp.deleted_at IS NULL
-              AND gp.effective_from<=$d AND (gp.effective_to IS NULL OR gp.effective_to>=$d)
-            ORDER BY CASE
-                WHEN c.sub_group_id IS NOT NULL AND gp.group_id=c.sub_group_id THEN 1
-                WHEN gp.group_id=c.group_id THEN 2
-                ELSE 3
-            END ASC, gp.effective_from DESC, gp.id DESC LIMIT 1
-            """, ("$c", customerId), ("$p", productId), ("$d", day));
-        long group, mainGroup, basePrice; long? subGroup, parentGroup; string sku;
+            WHERE c.id=$c AND c.is_active=1 AND c.deleted_at IS NULL AND p.is_active=1 AND p.deleted_at IS NULL
+            """, ("$c", customerId), ("$p", productId)))
         using (var r = q.ExecuteReader())
         {
-            if (!r.Read()) throw new InvalidOperationException("Khách hàng chưa có bảng giá hiệu lực theo nhóm và sản phẩm.");
-            group = r.GetInt64(0);
-            sku = r.GetString(1);
-            basePrice = priceType == "STANDARD" ? r.GetInt64(2) : priceType == "INSTALLED" ? r.GetInt64(3) : r.GetInt64(4);
-            mainGroup = r.GetInt64(5);
-            subGroup = r.IsDBNull(6) ? null : r.GetInt64(6);
-            parentGroup = r.IsDBNull(7) ? null : r.GetInt64(7);
+            if (!r.Read()) throw new InvalidOperationException("Khách hàng hoặc sản phẩm không tồn tại / đã ngừng hoạt động.");
+            sku = r.GetString(0);
+            mainGroup = r.GetInt64(1);
         }
-        using var cp = Cmd(c, """
-            SELECT id,name,discount_percent FROM v7_group_campaigns
-            WHERE (group_id=$sg OR group_id=$g OR group_id=$pg) AND is_active=1 AND deleted_at IS NULL AND start_date<=$d AND end_date>=$d
-            ORDER BY CASE
-                WHEN $sg IS NOT NULL AND group_id=$sg THEN 1
-                WHEN group_id=$g THEN 2
-                ELSE 3
-            END ASC, discount_percent DESC, id ASC LIMIT 1
-            """, ("$sg", subGroup), ("$g", mainGroup), ("$pg", parentGroup), ("$d", day));
-        using var cr = cp.ExecuteReader(); long? campaignId = null; string? campaignName = null; int discount = 0;
-        if (cr.Read()) { campaignId = cr.GetInt64(0); campaignName = cr.GetString(1); discount = cr.GetInt32(2); }
-        var final = (long)((decimal)basePrice * (100 - discount) / 100m);
-        return new PriceQuote(group, productId, sku, basePrice, final, discount, campaignId, campaignName, day);
+
+        if (priceType == "RENEWAL")
+        {
+            var renPrice = GroupPriceResolver.ResolveRenewalPrice(c, null, customerId, productId, effectiveAt);
+            if (renPrice <= 0) throw new InvalidOperationException("Chưa có giá gia hạn hiệu lực theo nhóm hoặc khai báo trên sản phẩm.");
+            return new PriceQuote(mainGroup, productId, sku, renPrice, renPrice, 0, null, null, day);
+        }
+
+        var resolved = GroupPriceResolver.ResolveOrderPrice(c, null, customerId, productId, priceType, effectiveAt);
+        if (resolved.BasePriceVnd <= 0)
+            throw new InvalidOperationException("Khách hàng chưa có bảng giá hiệu lực theo nhóm và sản phẩm chưa khai báo giá bán gốc.");
+        return new PriceQuote(resolved.MatchedGroupId ?? mainGroup, productId, sku, resolved.BasePriceVnd, resolved.FinalPriceVnd, resolved.DiscountPercent, resolved.CampaignId, resolved.CampaignName, day);
     }
 }
