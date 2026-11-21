@@ -510,8 +510,9 @@ else
                         <th>Họ tên Người lắp đặt</th>
                         <th>Số điện thoại</th>
                         <th>Phân loại / Bộ phận</th>
-                        <th>Định mức công lắp theo sản phẩm</th>
-                        @if(canUpdate || canAudit){<th>Thao tác</th>}
+                        <th>Số SP cấu hình giá</th>
+                        <th class="col-detail-only">Định mức công lắp theo sản phẩm</th>
+                        <th>Thao tác</th>
                     </tr></thead>
                     <tbody>
                         @foreach(var (stt, row) in pagedCatalogRows)
@@ -533,13 +534,20 @@ else
                                     }
                                 </td>
                                 <td><span class="chip blue-chip">@row.Group</span></td>
-                                <td style="white-space:normal;max-width:480px">
+                                <td>
+                                    <span class="chip @(inst?.RateChips is { Count: > 0 } ? "green-chip" : "")">
+                                        @(inst?.RateChips?.Count ?? 0) sản phẩm
+                                    </span>
+                                </td>
+                                <td class="col-detail-only">
                                     @if(inst?.RateChips is { Count: > 0 } chips)
                                     {
-                                        <div style="display:flex;flex-wrap:wrap;gap:4px">
+                                        <div class="tnm-rd-lines-scroll">
                                             @foreach(var c in chips)
                                             {
-                                                <span class="chip green-chip" title="@c.ProductName">@c.Sku: @c.Rate.ToString("N0") ₫</span>
+                                                <div class="tnm-rd-line-entry">
+                                                    <strong>[@c.Sku] @c.ProductName</strong> — <strong style="color:#15803d">@c.Rate.ToString("N0") ₫</strong>
+                                                </div>
                                             }
                                         </div>
                                     }
@@ -548,22 +556,20 @@ else
                                         <span class="chip">Chưa đặt đơn giá SP</span>
                                     }
                                 </td>
-                                @if(canUpdate || canAudit)
-                                {
-                                    <td class="catalog-row-actions">
-                                        @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/{ActivityTable}/{row.Id}")">Lịch sử</a>}
-                                        @if(canUpdate)
-                                        {
-                                            <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Cấu hình &amp; Sửa</button>
-                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa \"{row.Name}\" ({row.Code}) không?")" @onclick="() => DeleteRow(row)">Xóa</button>
-                                        }
-                                    </td>
-                                }
+                                <td class="catalog-row-actions">
+                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" onclick="window.tnmOpenRowDetail(this)">Xem chi tiết</button>
+                                    @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/{ActivityTable}/{row.Id}")">Lịch sử</a>}
+                                    @if(canUpdate)
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Cấu hình &amp; Sửa</button>
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa \"{row.Name}\" ({row.Code}) không?")" @onclick="() => DeleteRow(row)">Xóa</button>
+                                    }
+                                </td>
                             </tr>
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?8:7)">Chưa có người lắp đặt nào. Bấm <strong>“+ Khai báo người lắp đặt”</strong> ở góc phải để thêm kỹ thuật viên hoặc đối tác lắp đặt.</td></tr>
+                            <tr><td colspan="8">Chưa có người lắp đặt nào. Bấm <strong>“+ Khai báo người lắp đặt”</strong> ở góc phải để thêm kỹ thuật viên hoặc đối tác lắp đặt.</td></tr>
                         }
                     </tbody>
                 </table>

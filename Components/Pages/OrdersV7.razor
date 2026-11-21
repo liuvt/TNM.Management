@@ -383,7 +383,8 @@
                     <th>Mã đơn</th>
                     <th>Đơn vị (HTX/ĐL) &amp; Khách lắp</th>
                     <th>Nhân viên bán hàng</th>
-                    <th>Sản phẩm &amp; Thời hạn</th>
+                    <th>SL &amp; Thời hạn</th>
+                    <th class="col-detail-only">Chi tiết mặt hàng &amp; Danh sách IMEI</th>
                     <th>Giá bán</th>
                     <th>Thời gian &amp; Địa chỉ lắp</th>
                     <th>Trạng thái</th>
@@ -429,9 +430,31 @@
                                 <span>—</span>
                             }
                         </td>
-                        <td class="wrap-cell">
-                            <div><strong>@o.Product</strong></div>
+                        <td>
+                            <div><strong>@(o.Lines is { Count: > 0 } ? o.Lines.Sum(l => l.Quantity) : 1) SP</strong></div>
                             <span class="chip">Thời hạn: @o.DurationDisplay</span>
+                        </td>
+                        <td class="col-detail-only">
+                            @if (o.Lines is { Count: > 0 })
+                            {
+                                <div class="tnm-rd-lines-scroll">
+                                    @foreach (var ln in o.Lines)
+                                    {
+                                        <div class="tnm-rd-line-entry">
+                                            <strong>[@ln.ProductSku] @ln.ProductName</strong>
+                                            <span> — SL: <strong>@ln.Quantity</strong> · Đơn giá: <strong>@ln.UnitPrice.ToString("N0") ₫</strong></span>
+                                            @if (!string.IsNullOrWhiteSpace(ln.Imei))
+                                            {
+                                                <small style="color:#0f766e;font-weight:600">IMEI: @ln.Imei @(string.IsNullOrWhiteSpace(ln.PlateNo) ? "" : $"· Biển số: {ln.PlateNo}")</small>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div>@o.Product</div>
+                            }
                         </td>
                         <td>
                             <div><strong>@o.Price.ToString("N0") ₫</strong></div>
@@ -450,13 +473,21 @@
                         </td>
                         <td class="wrap-cell">
                             <span class="chip @(o.Status == "COMPLETED" ? (o.HasMissingImei ? "orange-chip" : "green-chip") : o.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@o.StatusDisplay</span>
-                            @if(!string.IsNullOrWhiteSpace(o.Imei) && o.Imei != "CHỜ-NHẬP-IMEI" && o.Imei != "KHÔNG-IMEI")
+                            @{
+                                var serializedCnt = o.Lines.Count(l => l.IsSerialized);
+                                var filledImeiCnt = o.Lines.Count(l => l.IsSerialized && !string.IsNullOrWhiteSpace(l.Imei));
+                            }
+                            @if (serializedCnt > 1)
+                            {
+                                <div style="margin-top:4px"><small style="color:#0f766e;font-weight:600">IMEI: @filledImeiCnt/@serializedCnt thiết bị</small></div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(o.Imei) && o.Imei != "CHỜ-NHẬP-IMEI" && o.Imei != "KHÔNG-IMEI")
                             {
                                 <div style="margin-top:4px"><small style="color:#0f766e;font-weight:600">IMEI: @o.Imei</small></div>
-                            }
-                            @if(!string.IsNullOrWhiteSpace(o.PlateNo))
-                            {
-                                <div><small style="color:#475569">BS: @o.PlateNo</small></div>
+                                @if(!string.IsNullOrWhiteSpace(o.PlateNo))
+                                {
+                                    <div><small style="color:#475569">BS: @o.PlateNo</small></div>
+                                }
                             }
                         </td>
                         <td>

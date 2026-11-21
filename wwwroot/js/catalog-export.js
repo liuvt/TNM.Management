@@ -169,6 +169,8 @@ window.tnmOpenDateTimePicker = function (inputId) {
             lower === 'xóa lọc sp' ||
             lower === 'trước / sau' ||
             lower === 'chi tiết' ||
+            lower === 'xem chi tiết' ||
+            lower.startsWith('bảng kê') ||
             lower === '👁 xem' ||
             lower === '👁 xem chi tiết' ||
             lower === '👁 xem / sửa imei' ||
@@ -444,25 +446,41 @@ window.tnmOpenDateTimePicker = function (inputId) {
             const hRow = thead.rows[thead.rows.length - 1];
             Array.from(hRow.cells).forEach(th => {
                 const span = Math.max(1, th.colSpan || 1);
-                const hasOnlyCheckbox = !!th.querySelector('input[type="checkbox"]') && !(th.innerText || th.textContent || '').trim();
-                const label = (th.innerText || th.textContent || '').replace(/\s+/g, ' ').trim();
+                const rawLabel = (th.textContent || '').replace(/\s+/g, ' ').trim();
+                const hasOnlyCheckbox = !!th.querySelector('input[type="checkbox"]') && !rawLabel;
+                const isDetailOnly = th.classList.contains('col-detail-only');
                 for (let i = 0; i < span; i++) {
-                    headers.push({ label, isCheckboxCol: hasOnlyCheckbox });
+                    headers.push({ label: rawLabel, isCheckboxCol: hasOnlyCheckbox, isDetailOnly });
                 }
             });
         }
         return headers;
     }
 
+    function extractStructuredPlainText(rootEl) {
+        if (!rootEl) return '';
+        const textClone = rootEl.cloneNode(true);
+        textClone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+        textClone.querySelectorAll('div, p, li, .tnm-rd-line-entry').forEach(block => {
+            block.prepend('\n');
+        });
+        return (textClone.textContent || '')
+            .replace(/[ \t]+/g, ' ')
+            .replace(/\n\s+/g, '\n')
+            .replace(/\n{2,}/g, '\n')
+            .trim();
+    }
+
     function isActionColumnOrCell(headerLabel, td) {
+        if (td.classList.contains('col-detail-only')) return false;
         const h = (headerLabel || '').toLowerCase();
-        if (/^(thao tác|hành động|tác vụ|xử lý|chức năng)$/i.test(h)) return true;
+        if (/^(thao tác|thao tác nhanh|thao tác kế toán|hành động|tác vụ|xử lý|chức năng|nhận hàng)$/i.test(h)) return true;
         if (td.classList.contains('catalog-row-actions')) return true;
         const btns = td.querySelectorAll('button, a.btn');
         if (btns.length > 0) {
             const clone = td.cloneNode(true);
             clone.querySelectorAll('button, a.btn').forEach(b => b.remove());
-            const leftover = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+            const leftover = (clone.textContent || '').replace(/\s+/g, ' ').trim();
             if (!leftover) return true;
         }
         return false;
@@ -486,7 +504,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
             el.style.textOverflow = '';
             el.style.whiteSpace = '';
         });
-        const plainText = (clone.innerText || clone.textContent || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+        const plainText = extractStructuredPlainText(clone);
         const html = plainText ? clone.innerHTML.trim() : '<span style="color:#94a3b8">—</span>';
         return { html, plainText };
     }
@@ -646,9 +664,11 @@ window.tnmOpenDateTimePicker = function (inputId) {
 
             const { html, plainText } = sanitizeCellForDetail(td);
             const label = hMeta.label || `Trường ${fields.length + 1}`;
-            const isLong = plainText.length > 68
+            const isDetailOnlyCell = !!hMeta.isDetailOnly || td.classList.contains('col-detail-only');
+            const isLong = isDetailOnlyCell
+                || plainText.length > 68
                 || (plainText.match(/\n/g) || []).length >= 2
-                || /(ghi chú|nội dung|diễn giải|chi tiết|địa chỉ|luồng kế toán|mô tả|danh sách|lịch sử)/i.test(label);
+                || /(ghi chú|nội dung|diễn giải|chi tiết|địa chỉ|luồng kế toán|mô tả|danh sách|lịch sử|sản phẩm|định mức)/i.test(label);
 
             fields.push({ label, html, plainText, isLong });
         });
@@ -757,6 +777,8 @@ window.tnmOpenDateTimePicker = function (inputId) {
 
         const seenLabels = new Set();
         rowActionElements.forEach(origEl => {
+            const onclickAttr = origEl.getAttribute('onclick') || '';
+            if (onclickAttr.includes('tnmOpenRowDetail')) return;
             const text = (origEl.innerText || origEl.textContent || '').replace(/\s+/g, ' ').trim();
             if (!text || seenLabels.has(text)) return;
             seenLabels.add(text);
@@ -811,6 +833,12 @@ window.tnmOpenDateTimePicker = function (inputId) {
 
         openRowDetailModal(tr);
     });
+
+    window.tnmOpenRowDetail = function (el) {
+        if (!el || typeof el.closest !== 'function') return;
+        const tr = el.closest('tbody > tr') || el.closest('tr');
+        if (tr) openRowDetailModal(tr);
+    };
 
     function loadJson(key, fallback) {
         try {

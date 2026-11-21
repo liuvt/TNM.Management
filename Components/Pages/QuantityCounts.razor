@@ -35,13 +35,28 @@
 </tbody></table></div>
 <TablePager Pager="countPager" TotalCount="totalCounts" OnChange="StateHasChanged" />
 <p class="feedback">@approveMessage</p></section>
-@if(selectedCount>0){<section class="panel"><div class="panel-head"><h2>Chi tiết phiên #@selectedCount</h2><button type="button" class="btn secondary" data-confirm="none" @onclick="ExportCountLinesExcel">📥 Xuất Excel (@countLines.Count)</button></div>
-@{ var pagedLines = linePager.Slice(countLines, out var totalLines); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>Mã hàng</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
-@foreach(var (stt, line) in pagedLines){<tr><td><strong>@stt</strong></td><td>@line.Sku</td><td class="wrap-cell">@line.Product</td><td>@line.Book</td><td>@line.Counted</td><td>@(line.Counted-line.Book)</td></tr>}
-</tbody></table></div>
-<TablePager Pager="linePager" TotalCount="totalLines" OnChange="StateHasChanged" />
-</section>}
+@if(selectedCount>0){
+<div class="so-modal-overlay" @onclick="() => selectedCount = 0">
+  <div class="so-modal-dialog" style="max-width:860px" @onclick:stopPropagation="true">
+    <div class="so-modal-header">
+      <div>
+        <div class="eyebrow">CHI TIẾT KIỂM KÊ KHO</div>
+        <h2>Chi tiết phiên #@selectedCount</h2>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportCountLinesExcel">📥 Xuất Excel (@countLines.Count)</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => selectedCount = 0">✕ Đóng</button>
+      </div>
+    </div>
+    <div class="so-modal-body">
+      @{ var pagedLines = linePager.Slice(countLines, out var totalLines); }
+      <div class="table-wrap"><table><thead><tr><th>STT</th><th>Mã hàng</th><th>Sản phẩm</th><th>Tồn sổ lúc kiểm</th><th>Thực tế</th><th>Chênh lệch</th></tr></thead><tbody>
+      @foreach(var (stt, line) in pagedLines){<tr><td><strong>@stt</strong></td><td>@line.Sku</td><td class="wrap-cell">@line.Product</td><td>@line.Book</td><td>@line.Counted</td><td>@(line.Counted-line.Book)</td></tr>}
+      </tbody></table></div>
+      <TablePager Pager="linePager" TotalCount="totalLines" OnChange="StateHasChanged" />
+    </div>
+  </div>
+</div>}
 @code {
  private bool showCreate, showLine;
  private readonly PagerState countPager = new();
