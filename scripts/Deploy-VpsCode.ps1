@@ -25,7 +25,7 @@ if (![string]::IsNullOrWhiteSpace($VpsPass)) {
 
 try {
     Write-Host "[2/4] Uploading tnm-linux-publish.zip to $VpsHost`:$VpsPort..." -ForegroundColor Cyan
-    & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 $ArchivePath "$VpsUser@${VpsHost}:/tmp/tnm-linux-publish.zip"
+    & scp.exe -P $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25 $ArchivePath "$VpsUser@${VpsHost}:/tmp/tnm-linux-publish.zip"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to upload package to VPS (exit code $LASTEXITCODE). Check if SSH port $VpsPort is open."
     }
@@ -52,7 +52,7 @@ sleep 2
 systemctl is-active tnm
 "@ -replace "`r", ""
 
-    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 "$VpsUser@$VpsHost" $remoteCmd
+    & ssh.exe -p $VpsPort -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25 "$VpsUser@$VpsHost" $remoteCmd
     if ($LASTEXITCODE -ne 0) {
         throw "Remote deployment command failed (exit code $LASTEXITCODE)."
     }

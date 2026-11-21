@@ -447,7 +447,7 @@
     .ToList();
   var pagedInvLines = invLinePager.Slice(filteredInvLines, out var totalInvLines);
 
-  <section class="panel" style="border:2px solid #0284c7;background:#f8fafc;margin-bottom:16px">
+  <section id="finance-invoice-detail-panel" class="panel" style="border:2px solid #0284c7;background:#f8fafc;margin-bottom:16px">
     <div class="panel-head">
       <div>
         <div class="eyebrow">BIỂU MẪU CHI TIẾT CHỨNG TỪ CÔNG NỢ · KỲ @selectedInvoice.PeriodLabel.ToUpperInvariant()</div>

@@ -130,7 +130,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
 
     function classifyButtonForConfirm(btn) {
         if (!btn || btn.disabled) return null;
-        if (btn.closest('#tnm-confirm-overlay')) return null;
+        if (btn.closest('#tnm-confirm-overlay, #tnm-row-detail-overlay')) return null;
         if (btn.dataset.confirm === 'none') return null;
 
         const rawText = (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim();
@@ -371,9 +371,16 @@ window.tnmOpenDateTimePicker = function (inputId) {
             rawText === 'hoàn tất / trả' ||
             rawText === 'thu khách' ||
             rawText === 'chi nhập hàng' ||
-            rawText === 'chi trả'
+            rawText === 'chi trả' ||
+            rawText === 'chi tiết' ||
+            rawText.startsWith('👁 xem')
         ) {
             setTimeout(() => {
+                const invDetail = document.getElementById('finance-invoice-detail-panel');
+                if (invDetail && (rawText === 'chi tiết' || rawText.startsWith('👁 xem'))) {
+                    invDetail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    return;
+                }
                 const panels = Array.from(document.querySelectorAll('.edit-panel:not([hidden])'));
                 const targetPanel = panels[panels.length - 1];
                 if (targetPanel) {
@@ -382,6 +389,428 @@ window.tnmOpenDateTimePicker = function (inputId) {
             }, 120);
         }
     }, true);
+
+    // ==================== GLOBAL DOUBLE-CLICK TABLE ROW DETAIL MODAL (SYSTEM-WIDE) ====================
+    let rowDetailOverlayEl = null;
+    let currentDetailRow = null;
+    let currentDataRows = [];
+    let currentRowIndex = -1;
+
+    function copyTextToClipboard(text) {
+        const val = String(text || '').trim();
+        if (!val) return Promise.resolve(false);
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            return navigator.clipboard.writeText(val).then(() => true).catch(() => fallbackCopyText(val));
+        }
+        return Promise.resolve(fallbackCopyText(val));
+    }
+
+    function fallbackCopyText(val) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = val;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function isDataTableRow(tr) {
+        if (!tr || tr.tagName !== 'TR') return false;
+        const parent = tr.parentElement;
+        if (!parent || parent.tagName !== 'TBODY') return false;
+        if (tr.hidden || tr.style.display === 'none') return false;
+        if (tr.closest('#tnm-row-detail-overlay, #tnm-confirm-overlay, .erp-picker-popover')) return false;
+        const cells = tr.cells;
+        if (!cells || cells.length <= 1) return false;
+        if (cells.length === 1 && (cells[0].colSpan || 1) > 1) return false;
+        // Skip inline multi-input form rows so typing/double-clicking inside form grids is never interrupted
+        const editableInputs = tr.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([readonly]), select:not(:disabled), textarea:not([readonly])');
+        if (editableInputs.length >= 2) return false;
+        return true;
+    }
+
+    function extractTableHeaders(table) {
+        const headers = [];
+        if (!table) return headers;
+        const thead = table.tHead;
+        if (thead && thead.rows && thead.rows.length > 0) {
+            const hRow = thead.rows[thead.rows.length - 1];
+            Array.from(hRow.cells).forEach(th => {
+                const span = Math.max(1, th.colSpan || 1);
+                const hasOnlyCheckbox = !!th.querySelector('input[type="checkbox"]') && !(th.innerText || th.textContent || '').trim();
+                const label = (th.innerText || th.textContent || '').replace(/\s+/g, ' ').trim();
+                for (let i = 0; i < span; i++) {
+                    headers.push({ label, isCheckboxCol: hasOnlyCheckbox });
+                }
+            });
+        }
+        return headers;
+    }
+
+    function isActionColumnOrCell(headerLabel, td) {
+        const h = (headerLabel || '').toLowerCase();
+        if (/^(thao tác|hành động|tác vụ|xử lý|chức năng)$/i.test(h)) return true;
+        if (td.classList.contains('catalog-row-actions')) return true;
+        const btns = td.querySelectorAll('button, a.btn');
+        if (btns.length > 0) {
+            const clone = td.cloneNode(true);
+            clone.querySelectorAll('button, a.btn').forEach(b => b.remove());
+            const leftover = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!leftover) return true;
+        }
+        return false;
+    }
+
+    function sanitizeCellForDetail(td) {
+        const clone = td.cloneNode(true);
+        clone.querySelectorAll('button, input, textarea').forEach(el => el.remove());
+        // Convert <select> (e.g. permission state dropdown) into readable badge text
+        clone.querySelectorAll('select').forEach(sel => {
+            const origSel = td.querySelector('select');
+            const selectedOpt = origSel && origSel.selectedIndex >= 0 ? origSel.options[origSel.selectedIndex] : null;
+            const span = document.createElement('span');
+            span.className = 'chip blue-chip';
+            span.textContent = selectedOpt ? selectedOpt.text.trim() : (origSel ? origSel.value : '—');
+            sel.replaceWith(span);
+        });
+        clone.querySelectorAll('[style]').forEach(el => {
+            el.style.maxWidth = '';
+            el.style.overflow = '';
+            el.style.textOverflow = '';
+            el.style.whiteSpace = '';
+        });
+        const plainText = (clone.innerText || clone.textContent || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+        const html = plainText ? clone.innerHTML.trim() : '<span style="color:#94a3b8">—</span>';
+        return { html, plainText };
+    }
+
+    function ensureRowDetailModal() {
+        if (rowDetailOverlayEl && document.body.contains(rowDetailOverlayEl)) return rowDetailOverlayEl;
+        const overlay = document.createElement('div');
+        overlay.id = 'tnm-row-detail-overlay';
+        overlay.className = 'tnm-rd-overlay';
+        overlay.hidden = true;
+        overlay.innerHTML = `
+            <div class="tnm-rd-dialog" role="dialog" aria-modal="true" aria-labelledby="tnm-rd-title">
+                <div class="tnm-rd-header">
+                    <div class="tnm-rd-head-left">
+                        <div id="tnm-rd-eyebrow" class="tnm-rd-eyebrow">CHI TIẾT BẢN GHI</div>
+                        <div class="tnm-rd-title-row">
+                            <h3 id="tnm-rd-title" class="tnm-rd-title">Chi tiết dòng dữ liệu</h3>
+                            <span id="tnm-rd-status-slot"></span>
+                        </div>
+                    </div>
+                    <div class="tnm-rd-head-right">
+                        <div class="tnm-rd-nav">
+                            <button type="button" id="tnm-rd-prev" class="tnm-rd-nav-btn" data-confirm="none" title="Xem dòng phía trên (Phím ↑)">‹ Trước</button>
+                            <span id="tnm-rd-pos" class="tnm-rd-pos">1 / 1</span>
+                            <button type="button" id="tnm-rd-next" class="tnm-rd-nav-btn" data-confirm="none" title="Xem dòng tiếp theo (Phím ↓)">Sau ›</button>
+                        </div>
+                        <button type="button" id="tnm-rd-close-top" class="tnm-rd-close" data-confirm="none" title="Đóng (ESC)">✕</button>
+                    </div>
+                </div>
+                <div id="tnm-rd-body" class="tnm-rd-body"></div>
+                <div class="tnm-rd-footer">
+                    <div class="tnm-rd-foot-left">
+                        <button type="button" id="tnm-rd-copy-all" class="btn secondary btn-sm" data-confirm="none">📋 Sao chép toàn bộ</button>
+                        <span class="tnm-rd-hint">Phím ↑ / ↓ để chuyển dòng · ESC để đóng</span>
+                    </div>
+                    <div id="tnm-rd-actions" class="tnm-rd-actions"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', function (ev) {
+            if (ev.target === overlay) closeRowDetailModal();
+        });
+        overlay.querySelector('#tnm-rd-close-top').addEventListener('click', closeRowDetailModal);
+        overlay.querySelector('#tnm-rd-prev').addEventListener('click', function () { stepDetailRow(-1); });
+        overlay.querySelector('#tnm-rd-next').addEventListener('click', function () { stepDetailRow(1); });
+
+        window.addEventListener('keydown', function (ev) {
+            if (!rowDetailOverlayEl || rowDetailOverlayEl.hidden) return;
+            if (confirmOverlayEl && !confirmOverlayEl.hidden) return;
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                closeRowDetailModal();
+            } else if (ev.key === 'ArrowUp') {
+                ev.preventDefault();
+                stepDetailRow(-1);
+            } else if (ev.key === 'ArrowDown') {
+                ev.preventDefault();
+                stepDetailRow(1);
+            }
+        });
+
+        rowDetailOverlayEl = overlay;
+        return overlay;
+    }
+
+    function clearActiveDetailRowHighlight() {
+        document.querySelectorAll('tr.tnm-rd-active-row').forEach(r => r.classList.remove('tnm-rd-active-row'));
+    }
+
+    function closeRowDetailModal() {
+        if (rowDetailOverlayEl) {
+            rowDetailOverlayEl.hidden = true;
+        }
+        clearActiveDetailRowHighlight();
+        currentDetailRow = null;
+        currentDataRows = [];
+        currentRowIndex = -1;
+    }
+
+    function stepDetailRow(delta) {
+        if (!currentDataRows.length) return;
+        const nextIdx = currentRowIndex + delta;
+        if (nextIdx < 0 || nextIdx >= currentDataRows.length) return;
+        const targetTr = currentDataRows[nextIdx];
+        if (targetTr && document.body.contains(targetTr)) {
+            targetTr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            openRowDetailModal(targetTr);
+        }
+    }
+
+    function openRowDetailModal(tr) {
+        if (!isDataTableRow(tr)) return;
+        const overlay = ensureRowDetailModal();
+
+        clearActiveDetailRowHighlight();
+        tr.classList.add('tnm-rd-active-row');
+        currentDetailRow = tr;
+
+        const tbody = tr.parentElement;
+        const table = tr.closest('table');
+        currentDataRows = Array.from(tbody.children).filter(isDataTableRow);
+        currentRowIndex = currentDataRows.indexOf(tr);
+
+        // Update Prev / Next state
+        const prevBtn = overlay.querySelector('#tnm-rd-prev');
+        const nextBtn = overlay.querySelector('#tnm-rd-next');
+        const posEl = overlay.querySelector('#tnm-rd-pos');
+        prevBtn.disabled = currentRowIndex <= 0;
+        nextBtn.disabled = currentRowIndex < 0 || currentRowIndex >= currentDataRows.length - 1;
+        posEl.textContent = currentRowIndex >= 0 ? `Dòng ${currentRowIndex + 1} / ${currentDataRows.length}` : '1 / 1';
+
+        // Section / Panel Title
+        const container = tr.closest('.so-modal-dialog, .panel, section');
+        const headingEl = (container && container.querySelector('.so-modal-header h2, .panel-head h2, h2, h3'))
+            || document.querySelector('.page-head h1, h1');
+        const sectionTitle = headingEl
+            ? (headingEl.innerText || headingEl.textContent || '').replace(/\s+/g, ' ').trim()
+            : 'Dữ liệu bảng';
+        overlay.querySelector('#tnm-rd-eyebrow').textContent = `CHI TIẾT DÒNG DỮ LIỆU · ${sectionTitle}`;
+
+        // Extract headers & cells
+        const headers = extractTableHeaders(table);
+        const fields = [];
+        const rowActionElements = [];
+        let statusChipHtml = '';
+        let colCursor = 0;
+
+        Array.from(tr.cells).forEach((td, cellIdx) => {
+            const span = Math.max(1, td.colSpan || 1);
+            const hMeta = headers[colCursor] || { label: `Cột ${cellIdx + 1}`, isCheckboxCol: false };
+            colCursor += span;
+
+            const hasOnlyCheckbox = !!td.querySelector('input[type="checkbox"]') && !(td.innerText || td.textContent || '').trim();
+            if (hMeta.isCheckboxCol || hasOnlyCheckbox) return;
+
+            if (isActionColumnOrCell(hMeta.label, td)) {
+                td.querySelectorAll('button:not(:disabled), a[href]').forEach(actEl => {
+                    if (actEl.offsetParent !== null || !actEl.hidden) {
+                        rowActionElements.push(actEl);
+                    }
+                });
+                return;
+            }
+
+            // Also capture any inline action button inside a normal cell before sanitizing
+            td.querySelectorAll('button:not(:disabled)').forEach(actEl => {
+                const txt = (actEl.innerText || actEl.textContent || '').trim();
+                if (txt && txt.length <= 36) rowActionElements.push(actEl);
+            });
+
+            if (!statusChipHtml && /(trạng thái|tình trạng)/i.test(hMeta.label)) {
+                const chip = td.querySelector('.chip');
+                if (chip) statusChipHtml = chip.outerHTML;
+            }
+
+            const { html, plainText } = sanitizeCellForDetail(td);
+            const label = hMeta.label || `Trường ${fields.length + 1}`;
+            const isLong = plainText.length > 68
+                || (plainText.match(/\n/g) || []).length >= 2
+                || /(ghi chú|nội dung|diễn giải|chi tiết|địa chỉ|luồng kế toán|mô tả|danh sách|lịch sử)/i.test(label);
+
+            fields.push({ label, html, plainText, isLong });
+        });
+
+        // Determine Primary Headline
+        let primaryField = fields.find(f =>
+            f.plainText &&
+            !/^(stt|#|\d+)$/i.test(f.label) &&
+            /(imei|mã|số phiếu|chứng từ|biển số|số po|đơn hàng|tên|đối tác|khách hàng|tài khoản|nhân viên)/i.test(f.label)
+        );
+        if (!primaryField) {
+            primaryField = fields.find(f => f.plainText && !/^(stt|#)$/i.test(f.label)) || fields[0];
+        }
+        const firstLineTitle = primaryField && primaryField.plainText
+            ? primaryField.plainText.split('\n')[0].trim()
+            : `Bản ghi #${currentRowIndex + 1}`;
+        overlay.querySelector('#tnm-rd-title').textContent = firstLineTitle.length > 90 ? firstLineTitle.slice(0, 90) + '…' : firstLineTitle;
+        overlay.querySelector('#tnm-rd-status-slot').innerHTML = statusChipHtml;
+
+        // Render structured field grid
+        const bodyEl = overlay.querySelector('#tnm-rd-body');
+        bodyEl.innerHTML = '';
+        const gridEl = document.createElement('div');
+        gridEl.className = 'tnm-rd-grid';
+
+        fields.forEach(f => {
+            const item = document.createElement('div');
+            item.className = 'tnm-rd-item' + (f.isLong ? ' full-span' : '');
+
+            const labelRow = document.createElement('div');
+            labelRow.className = 'tnm-rd-label-row';
+
+            const lbl = document.createElement('span');
+            lbl.className = 'tnm-rd-label';
+            lbl.textContent = f.label;
+            labelRow.appendChild(lbl);
+
+            if (f.plainText) {
+                const copyBtn = document.createElement('button');
+                copyBtn.type = 'button';
+                copyBtn.className = 'tnm-rd-copy-btn';
+                copyBtn.dataset.confirm = 'none';
+                copyBtn.textContent = '📋 Sao chép';
+                copyBtn.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    copyTextToClipboard(f.plainText).then(ok => {
+                        if (!ok) return;
+                        copyBtn.textContent = '✓ Đã chép';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.textContent = '📋 Sao chép';
+                            copyBtn.classList.remove('copied');
+                        }, 1300);
+                    });
+                });
+                labelRow.appendChild(copyBtn);
+            }
+
+            const valDiv = document.createElement('div');
+            valDiv.className = 'tnm-rd-value';
+            valDiv.innerHTML = f.html;
+
+            item.appendChild(labelRow);
+            item.appendChild(valDiv);
+            gridEl.appendChild(item);
+        });
+        bodyEl.appendChild(gridEl);
+
+        // Capture adjacent expanded detail row if currently open in table (e.g. Activity Before/After JSON or Purchase lines)
+        const nextSibling = tr.nextElementSibling;
+        if (
+            nextSibling &&
+            nextSibling.tagName === 'TR' &&
+            nextSibling.cells.length === 1 &&
+            (nextSibling.cells[0].colSpan || 1) > 1
+        ) {
+            const sibText = (nextSibling.innerText || nextSibling.textContent || '').trim();
+            if (sibText && !sibText.includes('KỲ CÔNG NỢ ')) {
+                const extraDiv = document.createElement('div');
+                extraDiv.className = 'tnm-rd-extra';
+                const extraClone = nextSibling.cells[0].cloneNode(true);
+                extraClone.querySelectorAll('button').forEach(b => b.remove());
+                extraDiv.innerHTML = `<div class="tnm-rd-extra-title">Thông tin mở rộng đi kèm</div>` + extraClone.innerHTML;
+                bodyEl.appendChild(extraDiv);
+            }
+        }
+
+        // Bind Copy All button
+        const copyAllBtn = overlay.querySelector('#tnm-rd-copy-all');
+        copyAllBtn.textContent = '📋 Sao chép toàn bộ';
+        copyAllBtn.onclick = function () {
+            const summaryText = fields
+                .filter(f => f.plainText)
+                .map(f => `${f.label}: ${f.plainText.replace(/\n+/g, ' | ')}`)
+                .join('\n');
+            copyTextToClipboard(summaryText).then(ok => {
+                if (!ok) return;
+                copyAllBtn.textContent = '✓ Đã sao chép dòng!';
+                setTimeout(() => { copyAllBtn.textContent = '📋 Sao chép toàn bộ'; }, 1500);
+            });
+        };
+
+        // Render row action buttons in Footer
+        const actionsContainer = overlay.querySelector('#tnm-rd-actions');
+        actionsContainer.innerHTML = '';
+
+        const seenLabels = new Set();
+        rowActionElements.forEach(origEl => {
+            const text = (origEl.innerText || origEl.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!text || seenLabels.has(text)) return;
+            seenLabels.add(text);
+
+            const proxyBtn = document.createElement('button');
+            proxyBtn.type = 'button';
+            proxyBtn.dataset.confirm = 'none';
+            proxyBtn.className = origEl.className && origEl.className.includes('btn') ? origEl.className : 'btn secondary btn-sm';
+            if (origEl.getAttribute('style')) {
+                proxyBtn.setAttribute('style', origEl.getAttribute('style'));
+                proxyBtn.style.flex = '';
+            }
+            proxyBtn.textContent = text;
+            proxyBtn.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                closeRowDetailModal();
+                if (document.body.contains(origEl) && !origEl.disabled) {
+                    origEl.click();
+                }
+            });
+            actionsContainer.appendChild(proxyBtn);
+        });
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn secondary btn-sm';
+        closeBtn.dataset.confirm = 'none';
+        closeBtn.textContent = 'Đóng';
+        closeBtn.addEventListener('click', closeRowDetailModal);
+        actionsContainer.appendChild(closeBtn);
+
+        overlay.hidden = false;
+    }
+
+    // Listen to double-click on any table row across the entire application
+    document.addEventListener('dblclick', function (e) {
+        if (e.defaultPrevented) return;
+        const target = e.target;
+        if (!target || typeof target.closest !== 'function') return;
+        // Do not hijack double-clicks directly on buttons, links, inputs, selects, or labels
+        if (target.closest('button, a, input, select, textarea, label')) return;
+
+        const tr = target.closest('tbody > tr');
+        if (!tr || !isDataTableRow(tr)) return;
+
+        try {
+            const sel = window.getSelection && window.getSelection();
+            if (sel && sel.removeAllRanges) sel.removeAllRanges();
+        } catch {
+            // ignore selection cleanup errors
+        }
+
+        openRowDetailModal(tr);
+    });
 
     function loadJson(key, fallback) {
         try {
@@ -596,6 +1025,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
             return;
         }
         if (targetUrl.origin !== window.location.origin) return;
+        closeRowDetailModal();
 
         // If circuit is currently disconnected, bypass Blazor's pushState interception and do a clean browser navigation
         if (!window.__tnmConnected) {
@@ -612,6 +1042,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
     }, true);
 
     window.addEventListener('popstate', function () {
+        closeRowDetailModal();
         if (!window.__tnmConnected) {
             window.location.replace(window.location.href);
             return;
