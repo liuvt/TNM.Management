@@ -387,21 +387,15 @@
                     {
                         <button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button>
                     }
-                    @if(canSoftDeleteDevice)
+                    @if(canSoftDeleteDevice || isMainRole)
                     {
-                        <button type="button" class="btn secondary btn-sm" style="color:#b45309;border-color:#fcd34d;background:#fffbeb"
+                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5"
                             data-confirm="delete"
-                            data-confirm-title="Xác nhận Xóa mềm thiết bị &amp; Loại bỏ công nợ liên quan"
-                            data-confirm-msg="@($"Bạn có chắc chắn muốn XÓA MỀM thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận lưu vết bên dưới phần Lịch sử.")"
-                            @onclick="() => SoftDeleteDevice(x)">Xóa mềm</button>
-                    }
-                    @if(isMainRole)
-                    {
-                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5;background:#fef2f2;font-weight:700"
-                            data-confirm="delete"
-                            data-confirm-title="Xác nhận XÓA CỨNG vĩnh viễn thiết bị &amp; Toàn bộ luồng kế toán"
-                            data-confirm-msg="@($"CẢNH BÁO XÓA CỨNG: Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)}) cùng toàn bộ lịch sử gia hạn, đơn hàng và chứng từ kế toán công nợ liên quan phía sau khỏi CSDL không? Thao tác này không thể hoàn tác.")"
-                            @onclick="() => HardDeleteDevice(x.ActivationId)">🗑 Xóa cứng</button>
+                            data-confirm-title="@(isMainRole ? "Xác nhận xóa vĩnh viễn thiết bị & toàn bộ luồng liên quan" : "Xác nhận xóa thiết bị & loại bỏ công nợ liên quan")"
+                            data-confirm-msg="@(isMainRole
+                                ? $"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)}) cùng toàn bộ lịch sử gia hạn, đơn hàng và chứng từ kế toán công nợ liên quan phía sau khỏi hệ thống không?"
+                                : $"Bạn có chắc chắn muốn xóa thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận lưu vết bên dưới phần Lịch sử.")"
+                            @onclick="() => DeleteDevice(x)">Xóa</button>
                     }
                 </div>
             }
@@ -636,11 +630,11 @@
                                 @if(isMainRole)
                                 {
                                     <td>
-                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5;background:#fef2f2;font-weight:700"
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5"
                                             data-confirm="delete"
-                                            data-confirm-title="Xác nhận XÓA CỨNG vĩnh viễn bản ghi lưu vết"
-                                            data-confirm-msg="@($"Bạn có chắc chắn muốn XÓA CỨNG vĩnh viễn thiết bị IMEI {dx.Imei} ({(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)}) cùng toàn bộ dữ liệu liên quan khỏi CSDL không?")"
-                                            @onclick="() => HardDeleteDevice(dx.ActivationId, fromDeletedList: true)">🗑 Xóa cứng</button>
+                                            data-confirm-title="Xác nhận xóa vĩnh viễn bản ghi lưu vết"
+                                            data-confirm-msg="@($"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {dx.Imei} ({(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)}) cùng toàn bộ dữ liệu liên quan khỏi hệ thống không?")"
+                                            @onclick="() => HardDeleteFromHistory(dx.ActivationId)">Xóa</button>
                                     </td>
                                 }
                             </tr>
@@ -922,37 +916,31 @@
    createMessage = "Lỗi: " + ex.Message;
   }
  }
- private async Task SoftDeleteDevice(DeviceVm x){
+ private async Task DeleteDevice(DeviceVm x){
   try
   {
    var actor = await Gate.RequireAsync(Permissions.DevicesView);
-   var msg = Db.SoftDeleteDeviceActivation(x.ActivationId, actor);
+   var msg = Db.DeleteDeviceActivation(x.ActivationId, actor);
    Reload();
    listMessage = msg;
-   deletedHistoryMessage = msg;
+   if (!isMainRole) deletedHistoryMessage = msg;
   }
   catch (Exception ex)
   {
-   listMessage = "Lỗi xóa mềm: " + ex.Message;
+   listMessage = "Lỗi xóa thiết bị: " + ex.Message;
   }
  }
- private async Task HardDeleteDevice(long targetActivationId, bool fromDeletedList = false){
+ private async Task HardDeleteFromHistory(long targetActivationId){
   try
   {
    var actor = await Gate.RequireAsync(Permissions.DevicesView);
    var msg = Db.HardDeleteDeviceActivation(targetActivationId, actor);
    Reload();
-   if (fromDeletedList)
-    deletedHistoryMessage = msg;
-   else
-    listMessage = msg;
+   deletedHistoryMessage = msg;
   }
   catch (Exception ex)
   {
-   if (fromDeletedList)
-    deletedHistoryMessage = "Lỗi xóa cứng: " + ex.Message;
-   else
-    listMessage = "Lỗi xóa cứng: " + ex.Message;
+   deletedHistoryMessage = "Lỗi xóa thiết bị: " + ex.Message;
   }
  }
  private void OnRenewDeviceSelected(){

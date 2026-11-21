@@ -1273,6 +1273,14 @@ public sealed class DemoDb
         return idx >= 0 ? rawImei[..idx] : rawImei;
     }
 
+    public string DeleteDeviceActivation(long activationId, long actorId = 0)
+    {
+        var effActor = actorId > 0 ? actorId : ActorId;
+        if (IsMainDeveloperUser(effActor))
+            return HardDeleteDeviceActivation(activationId, effActor);
+        return SoftDeleteDeviceActivation(activationId, effActor);
+    }
+
     public string SoftDeleteDeviceActivation(long activationId, long actorId = 0)
     {
         var effActor = actorId > 0 ? actorId : ActorId;
