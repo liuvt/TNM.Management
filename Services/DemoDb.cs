@@ -204,6 +204,33 @@ public sealed class DemoDb
             SupplierDebtNasaOct2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
             // Đối soát tồn kho cũ đầu kỳ (= 0 ₫), bổ sung CN T10 (TDC 51.5tr, Xanh GPS 84.05tr) & khôi phục các đơn nhập kho T11 (Nasa 60 ĐV + TDC 4 phiếu)
             SupplierDebtReconcileNov2026Seeder.EnsureSeeded(c, null, v => ActorId = v, () => ActorId);
+            // Mở khóa toàn bộ các thiết bị khách hàng bị gắn trạng thái DISABLED (Khoá do quá hạn từ file import gốc) để cho phép gia hạn bình thường
+            UnlockImportedLockedDevices(c, null);
+        }
+    }
+
+    private void UnlockImportedLockedDevices(SqliteConnection c, SqliteTransaction? t)
+    {
+        var lockedImportedCount = N(c, t, "SELECT COUNT(*) FROM activations WHERE status='DISABLED' AND deleted_at IS NULL AND updated_by IS NULL");
+        if (lockedImportedCount <= 0)
+            return;
+
+        var prevActor = ActorId;
+        var devId = N(c, t, "SELECT COALESCE((SELECT id FROM app_users WHERE LOWER(username)='vanlt_it' LIMIT 1), 0)");
+        try
+        {
+            if (devId > 0) ActorId = devId;
+            Exec(c, t, @"
+                UPDATE activations
+                SET status = 'ACTIVE',
+                    updated_at = datetime('now')
+                WHERE status = 'DISABLED'
+                  AND deleted_at IS NULL
+                  AND updated_by IS NULL");
+        }
+        finally
+        {
+            ActorId = prevActor;
         }
     }
 
@@ -925,10 +952,54 @@ public sealed class DemoDb
                 }
             }
 
-            Log(c,t,"UPDATE_ACTIVATION","ACTIVATION",activationId,$"Kích hoạt: {actStr} -> Hết hạn: {expStr}");
+            Log(c,t,"UPDATE_ACTIVATION","ACTIVATION",activationId,$"Kích hoạt: {actStr} -> Hết hạn: {expStr}" + (normStatus is not null ? $" · Trạng thái: {(normStatus == "DISABLED" ? "Đã khóa" : "Hoạt động")}" : ""));
             return 0;
         });
         NotifyDevicesChanged();
+    }
+
+    public void SetDeviceLock(long activationId, bool locked)
+    {
+        Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, @"SELECT a.id, u.imei, COALESCE(a.plate_no,'')
+                FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
+                WHERE a.id=$id AND a.deleted_at IS NULL",
+                r => (Id: L(r, 0), Imei: S(r, 1), Plate: S(r, 2)), ("$id", activationId)).SingleOrDefault();
+            if (cur.Id == 0)
+                throw new InvalidOperationException("Không tìm thấy thiết bị kích hoạt.");
+
+            var nextStatus = locked ? "DISABLED" : "ACTIVE";
+            Exec(c, t, @"UPDATE activations
+                SET status=$st, updated_at=datetime('now'), updated_by=$actor
+                WHERE id=$id",
+                ("$st", nextStatus), ("$actor", ActorId > 0 ? ActorId : null), ("$id", activationId));
+
+            var label = string.IsNullOrWhiteSpace(cur.Plate) ? cur.Imei : $"{cur.Imei} ({cur.Plate})";
+            Log(c, t, locked ? "LOCK_DEVICE" : "UNLOCK_DEVICE", "ACTIVATION", activationId,
+                locked ? $"Khóa thiết bị {label}" : $"Mở khóa thiết bị {label} để cho phép hoạt động / gia hạn");
+            return 0;
+        });
+        NotifyDevicesChanged();
+    }
+
+    public int UnlockAllLockedDevices()
+    {
+        var unlocked = Tx((c, t) =>
+        {
+            var cnt = (int)N(c, t, "SELECT COUNT(*) FROM activations WHERE status='DISABLED' AND deleted_at IS NULL");
+            if (cnt > 0)
+            {
+                Exec(c, t, @"UPDATE activations
+                    SET status='ACTIVE', updated_at=datetime('now'), updated_by=$actor
+                    WHERE status='DISABLED' AND deleted_at IS NULL",
+                    ("$actor", ActorId > 0 ? ActorId : null));
+                Log(c, t, "UNLOCK_ALL_DEVICES", "ACTIVATION", 0, $"Mở khóa đồng loạt {cnt} thiết bị để cho phép gia hạn");
+            }
+            return cnt;
+        });
+        if (unlocked > 0) NotifyDevicesChanged();
+        return unlocked;
     }
 
     public string ExportDevicesStandardCsv()
@@ -1408,9 +1479,9 @@ public sealed class DemoDb
              JOIN customers c ON c.id=a.customer_id
              LEFT JOIN v7_orders o ON o.id=a.v7_order_id
              LEFT JOIN v7_sellers sl ON sl.id=COALESCE(o.seller_record_id, c.seller_id)
-             WHERE a.id=$id AND a.status='ACTIVE' AND a.deleted_at IS NULL",
+             WHERE a.id=$id AND a.deleted_at IS NULL",
              r => (Expires:S(r,0),CustomerId:L(r,1),ProductId:L(r,2),DefaultPrice:L(r,3),FallbackSellerId:L(r,4),FallbackSellerName:S(r,5),Imei:S(r,6),PlateNo:S(r,7),DeviceName:S(r,8)),("$id",activationId)).SingleOrDefault();
-            if(device.CustomerId == 0) throw new InvalidOperationException("Thiết bị chưa kích hoạt hoặc đã khóa.");
+            if(device.CustomerId == 0) throw new InvalidOperationException("Không tìm thấy thiết bị kích hoạt hợp lệ để gia hạn.");
 
             long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : (device.FallbackSellerId > 0 ? device.FallbackSellerId : null);
             string resolvedSellerName = (sellerName ?? "").Trim();
@@ -1472,7 +1543,14 @@ public sealed class DemoDb
                VALUES($a,$seller,$sellerName,$s,$renAt,$old,$next,$price,$pay)",
                ("$a",activationId),("$seller",resolvedSellerId),("$sellerName",resolvedSellerName),("$s",source),("$renAt",renStr),("$old",device.Expires),("$next",nextStr),("$price",price),("$pay",paymentMethod));
             var renewalId = N(c,t,"SELECT last_insert_rowid()");
-            Exec(c,t,"UPDATE activations SET expires_at=$new WHERE id=$id",("$new",nextStr),("$id",activationId));
+            Exec(c,t,@"UPDATE activations
+               SET expires_at=$new,
+                   status='ACTIVE',
+                   last_renewed_at=$renAt,
+                   renewal_count=COALESCE(renewal_count,0)+1,
+                   updated_at=datetime('now')
+               WHERE id=$id",
+               ("$new",nextStr),("$renAt",renStr),("$id",activationId));
             var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
             var plateSegment = !string.IsNullOrWhiteSpace(device.PlateNo) ? $" · Biển số: {device.PlateNo}" : "";
             var sellerSegment = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $" · NV bán hàng: {resolvedSellerName}" : "";

@@ -65,7 +65,8 @@
         @foreach(var x in devices)
         {
             var devLabel = string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel;
-            <option value="@x.ActivationId">@x.Imei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hết hạn: @x.ExpiresAt</option>
+            var lockHint = IsLocked(x) ? " · [Đang khóa — Tự mở khóa khi GH]" : "";
+            <option value="@x.ActivationId">@x.Imei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hết hạn: @x.ExpiresAt@lockHint</option>
         }
     </select>
 </label>
@@ -144,6 +145,12 @@
 </label>
 <label>Biển số xe<input @bind="editPlate" placeholder="VD: 51H-123.45" /></label>
 <label>Thông tin phụ / Số khung<input @bind="editVin" placeholder="Thông tin phụ, số khung, chủ xe..." /></label>
+<label>Trạng thái thiết bị *
+    <select @bind="editDeviceStatus">
+        <option value="ACTIVE">Hoạt động (Mở khóa — Cho phép gia hạn)</option>
+        <option value="DISABLED">Tạm khóa thiết bị</option>
+    </select>
+</label>
 </div>
 <div class="form-actions"><button class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật thông tin thiết bị" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Ngày hết hạn ({editExpiresDate:yyyy-MM-dd}) và thông tin thiết bị {(selectedEditDevice is null ? "" : $"{selectedEditDevice.Imei} ({selectedEditDeviceName})")} không?")" @onclick="SaveActivationUpdate">Lưu Thời gian gia hạn &amp; Thông tin thiết bị</button><span class="feedback">@editMessage</span></div>
 </div>}
@@ -227,8 +234,19 @@
 @if(canOverdue){<button class="@(filter=="OVERDUE"?"selected":"")" @onclick='() => SetFilter("OVERDUE")'>Quá hạn (@countOverdue)</button>}
 <button class="@(filter=="LOCKED"?"selected":"")" @onclick='() => SetFilter("LOCKED")'>Khoá (@countLocked)</button>
 </div>
+@if (countLocked > 0 && (canRenew || canUpdateDevice))
+{
+    <button type="button" class="btn btn-sm" data-confirm="edit" data-confirm-title="Mở khóa toàn bộ thiết bị" data-confirm-msg="@($"Bạn có chắc chắn muốn mở khóa toàn bộ {countLocked} thiết bị đang khóa để cho phép gia hạn bình thường không?")" @onclick="UnlockAllDevices">🔓 Mở khóa tất cả (@countLocked)</button>
+}
 <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel (@totalDevices)</button>
 </div></div>
+
+@if (!string.IsNullOrWhiteSpace(listMessage))
+{
+    <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+        @listMessage
+    </div>
+}
 
 <div class="device-summary-bar">
     <button type="button" class="device-summary-item total @(filter == "ALL" ? "active" : "")" @onclick='() => SetFilter("ALL")'>
@@ -331,7 +349,22 @@
                 <span class="chip green-chip">Hoạt động (@d ngày)</span>
             }
         </td>
-        <td>@if(canRenew || canUpdateDevice){<div style="display:flex;gap:4px;flex-wrap:wrap">@if(canRenew){<button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button>}<button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button></div>}</td>
+        <td>
+            @if(canRenew || canUpdateDevice)
+            {
+                <div style="display:flex;gap:4px;flex-wrap:wrap">
+                    @if(locked)
+                    {
+                        <button type="button" class="btn btn-sm" style="background:#15803d;border-color:#15803d" data-confirm="none" @onclick="() => ToggleDeviceLock(x)">🔓 Mở khóa</button>
+                    }
+                    @if(canRenew)
+                    {
+                        <button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button>
+                    }
+                    <button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button>
+                </div>
+            }
+        </td>
     </tr>
 }
 </tbody></table></div>
@@ -544,7 +577,7 @@
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
- private string source="TNM",method="DEBT",message="",editMessage="",historyMessage="",editPlate="",editVin="",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
+ private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",editPlate="",editVin="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
  private bool canRenew,canUpdateDevice,canFinanceLock,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60;
 
  // State chỉnh sửa / xóa lịch sử gia hạn
@@ -674,6 +707,7 @@
    editDeviceSellerId = d.SellerId ?? 0;
    editPlate = d.Plate ?? "";
    editVin = d.VinNo ?? "";
+   editDeviceStatus = IsLocked(d) ? "DISABLED" : "ACTIVE";
   }
  }
  private void OnEditActivatedOrDurationChanged(){
@@ -783,11 +817,35 @@
  private async Task Renew(){
   try{
    Db.ActorId=await Gate.RequireAsync(Permissions.DevicesRenew);
+   var currentDev = devices.FirstOrDefault(x => x.ActivationId == activationId);
+   var wasLocked = currentDev is not null && IsLocked(currentDev);
    var pickedSeller = sellerChoices.FirstOrDefault(s => s.Id == renewSellerId);
    Db.Renew(activationId, source, method, pickedSeller?.Id, pickedSeller?.Name);
    Reload();
-   message = $"Đã gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
+   message = wasLocked
+    ? $"Đã tự động mở khóa thiết bị, gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}."
+    : $"Đã gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
   }catch(Exception ex){message="Lỗi: "+ex.Message;}
+ }
+ private async Task ToggleDeviceLock(DeviceVm x){
+  try{
+   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   var nextLock = !IsLocked(x);
+   Db.SetDeviceLock(x.ActivationId, nextLock);
+   Reload();
+   listMessage = nextLock
+    ? $"Đã tạm khóa thiết bị {x.Imei} {(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") }."
+    : $"Đã mở khóa thiết bị {x.Imei} {(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") } — có thể thực hiện gia hạn ngay.";
+  }catch(Exception ex){listMessage="Lỗi: "+ex.Message;}
+ }
+ private async Task UnlockAllDevices(){
+  try{
+   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   var unlocked = Db.UnlockAllLockedDevices();
+   if (filter == "LOCKED") filter = "ALL";
+   Reload();
+   listMessage = $"Đã mở khóa đồng loạt {unlocked:N0} thiết bị để cho phép gia hạn.";
+  }catch(Exception ex){listMessage="Lỗi: "+ex.Message;}
  }
  private async Task SaveActivationUpdate(){
   try{
@@ -799,9 +857,10 @@
     editPlate,
     editVin,
     editExpiresDate.ToString("yyyy-MM-dd"),
-    editDeviceSellerId > 0 ? editDeviceSellerId : null);
+    editDeviceSellerId > 0 ? editDeviceSellerId : null,
+    editDeviceStatus);
    Reload();
-   editMessage=$"Đã cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Thời gian gia hạn / Hết hạn ({editExpiresDate:yyyy-MM-dd}) & thông tin thiết bị.";
+   editMessage=$"Đã cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Thời gian gia hạn / Hết hạn ({editExpiresDate:yyyy-MM-dd}), Trạng thái ({(editDeviceStatus == "DISABLED" ? "Đã khóa" : "Hoạt động")}) & thông tin thiết bị.";
   }catch(Exception ex){editMessage="Lỗi: "+ex.Message;}
  }
 }
