@@ -164,62 +164,7 @@
     var countDue60 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !IsLocked(x) && d >= 0 && d <= 60; });
     var countOverdue = searchedDevices.Count(x => DaysToExpiry(x) < 0);
     var countLocked = searchedDevices.Count(IsLocked);
-
-    var due10WarningDevices = devices.Where(x => { var d = DaysToExpiry(x); return !IsLocked(x) && d >= 0 && d <= 10; }).OrderBy(DaysToExpiry).ToList();
-    var due0AllCount = due10WarningDevices.Count(x => DaysToExpiry(x) == 0);
-    var due1To10AllCount = due10WarningDevices.Count - due0AllCount;
-    var overdueAllCount = devices.Count(x => DaysToExpiry(x) < 0);
     var pagedDevices = devicePager.Slice(searchedDevices.Where(MatchFilter), out var totalDevices);
-}
-
-@if (canDue10)
-{
-    <div class="device-due10-note @(due10WarningDevices.Count > 0 ? "has-warning" : "no-warning")">
-        <div class="device-due10-note-head">
-            <div class="device-due10-note-title">
-                <span class="device-due10-badge-icon">🔔</span>
-                <div>
-                    <strong>Cảnh báo gia hạn ưu tiên (Còn hạn 10 ngày trở xuống): <span>@due10WarningDevices.Count thiết bị</span></strong>
-                    <p>
-                        @if (due10WarningDevices.Count > 0)
-                        {
-                            <span>Có <strong>@due10WarningDevices.Count thiết bị</strong> còn hạn từ 0 đến 10 ngày cần ưu tiên gia hạn (trong đó <strong>@due0AllCount</strong> thiết bị hết hạn hôm nay, <strong>@due1To10AllCount</strong> thiết bị còn 1–10 ngày). <em>Đã tự động loại bỏ @overdueAllCount thiết bị đã hết hạn ra khỏi danh sách cảnh báo này.</em></span>
-                        }
-                        else
-                        {
-                            <span>Hiện không có thiết bị nào còn hạn từ 10 ngày trở xuống. <em>(Đã loại bỏ @overdueAllCount thiết bị đã hết hạn).</em></span>
-                        }
-                    </p>
-                </div>
-            </div>
-            @if (due10WarningDevices.Count > 0)
-            {
-                <button type="button" class="btn btn-sm @(filter == "DUE10" ? "secondary" : "")" @onclick='() => SetFilter("DUE10")'>
-                    @(filter == "DUE10" ? $"Đang xem cảnh báo ≤ 10 ngày ({countDue10})" : $"Xem ngay DS cảnh báo ≤ 10 ngày ({due10WarningDevices.Count})")
-                </button>
-            }
-        </div>
-        @if (due10WarningDevices.Count > 0)
-        {
-            <div class="device-due10-preview-list">
-                @foreach (var w in due10WarningDevices.Take(6))
-                {
-                    var wd = DaysToExpiry(w);
-                    <button type="button" class="device-due10-pill" title="Bấm để gia hạn nhanh thiết bị @w.Imei" @onclick="() => OpenRenewFor(w)">
-                        <strong>@w.Imei</strong>
-                        <span>@(string.IsNullOrWhiteSpace(w.Plate) ? w.Customer : $"{w.Plate} · {w.Customer}")</span>
-                        <b class="@(wd == 0 ? "urgent" : "")">@(wd == 0 ? "Còn 0 ngày (Hôm nay)" : $"Còn {wd} ngày")</b>
-                    </button>
-                }
-                @if (due10WarningDevices.Count > 6)
-                {
-                    <button type="button" class="device-due10-pill more" @onclick='() => SetFilter("DUE10")'>
-                        +@((due10WarningDevices.Count - 6)) thiết bị khác →
-                    </button>
-                }
-            </div>
-        }
-    </div>
 }
 
 <section class="panel"><div class="panel-head"><div><h2>Danh sách kích hoạt</h2><p>Đặt hạn thực tế sau cùng, không ghi đè lịch sử gia hạn.</p></div>
