@@ -26,7 +26,7 @@
 <td><span class="chip @(u.IsActive?"green-chip":"orange-chip")">@(u.IsActive?"Hoạt động":"Đã khóa")</span></td>
 <td>@if(!u.IsOwner && u.Id!=myId && (canManageUsers || canUserPermissions)){<button class="btn secondary" data-confirm="none" @onclick="()=>EditUser(u)">Phân quyền / Sửa</button>}</td></tr>}
 </tbody></table></div>
-<TablePager Pager="userPager" TotalCount="totalUsers" />
+<TablePager Pager="userPager" TotalCount="totalUsers" OnChange="StateHasChanged" />
 </section>
 @if(canManageUsers || canUserPermissions){
 <section class="panel edit-panel" id="user-editor" hidden="@(!showUserEditor)"><div class="form-actions"><button type="button" class="btn secondary" data-confirm="none" @onclick="()=>showUserEditor=false">Đóng biểu mẫu</button></div>
@@ -62,7 +62,7 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
  </select></td>
  <td><span class="chip @(HasEffective(perm.Key)?"green-chip":"orange-chip")">@(HasEffective(perm.Key)?"Được truy cập":perm.Implemented?"Không truy cập":"Chưa có chức năng")</span></td></tr>}
 </tbody></table></div>
-<TablePager Pager="userPermPager" TotalCount="totalUserPerms" />
+<TablePager Pager="userPermPager" TotalCount="totalUserPerms" OnChange="StateHasChanged" />
 } else if(!canUserPermissions){<div class="panel-note">Tài khoản này không có quyền chỉnh quyền trực tiếp cho người dùng.</div>}
 <div class="form-actions">
 @if(canManageUsers){<button class="btn" @onclick="SaveUser">@(editUserId.HasValue ? "Lưu tài khoản và phân quyền" : "Tạo tài khoản và cấp quyền")</button>}
@@ -77,7 +77,7 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>PHÂN HỆ</th><th>QUYỀN HẠN</th><th>CHO PHÉP</th></tr></thead><tbody>
 @foreach(var (stt, perm) in pagedRolePerms){<tr><td><strong>@stt</strong></td><td>@perm.Area / @perm.Feature</td><td>@perm.Label <small class="permission-key">Hạng mục #@perm.ExcelRow</small>@if(!perm.Implemented){<span class="chip orange-chip">Chưa triển khai</span>}</td><td><input type="checkbox" checked="@rolePermissionKeys.Contains(perm.Key)" disabled="@(IsAdminRole || !perm.Implemented)" @onchange="e => ToggleRolePermission(perm.Key,e.Value is bool b && b)" /></td></tr>}
 </tbody></table></div>
-<TablePager Pager="rolePermPager" TotalCount="totalRolePerms" />
+<TablePager Pager="rolePermPager" TotalCount="totalRolePerms" OnChange="StateHasChanged" />
 <div class="form-actions"><button class="btn" disabled="@IsAdminRole" @onclick="SaveRoleMatrix">Lưu quyền vai trò</button><span class="feedback">@roleMessage</span></div>
 </section>}
 @code {

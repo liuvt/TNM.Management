@@ -115,7 +115,7 @@
         </tbody>
     </table></div>
     @if(!Filtered.Any()) { <p class="panel-note">Chưa có sản phẩm phù hợp. Hãy tạo sản phẩm mới và chọn nhóm tương ứng.</p> }
-    <TablePager Pager="prodPager" TotalCount="totalFiltered" />
+    <TablePager Pager="prodPager" TotalCount="totalFiltered" OnChange="StateHasChanged" />
 </section>
 
 @code {

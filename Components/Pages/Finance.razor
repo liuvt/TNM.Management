@@ -535,7 +535,7 @@
         </tbody>
       </table>
     </div>
-    <TablePager Pager="invLinePager" TotalCount="totalInvLines" />
+    <TablePager Pager="invLinePager" TotalCount="totalInvLines" OnChange="StateHasChanged" />
   </section>
 }
 
@@ -696,7 +696,7 @@
         </tbody>
       </table>
     </div>
-    <TablePager Pager="partnerDebtPager" TotalCount="totalPartnerDebts" />
+    <TablePager Pager="partnerDebtPager" TotalCount="totalPartnerDebts" OnChange="StateHasChanged" />
   </section>
 }
 else if (activeTab == "PAYMENTS")
@@ -764,7 +764,7 @@ else if (activeTab == "PAYMENTS")
         </tbody>
       </table>
     </div>
-    <TablePager Pager="cashFundPager" TotalCount="2" />
+    <TablePager Pager="cashFundPager" TotalCount="2" OnChange="StateHasChanged" />
   </section>
 
   <section class="panel" style="margin-bottom:16px">
@@ -886,7 +886,7 @@ else if (activeTab == "PAYMENTS")
         </tbody>
       </table>
     </div>
-    <TablePager Pager="paymentPager" TotalCount="totalPayments" />
+    <TablePager Pager="paymentPager" TotalCount="totalPayments" OnChange="StateHasChanged" />
   </section>
 }
 else if (activeTab == "SNAPSHOT_STATS")
@@ -1004,7 +1004,7 @@ else if (activeTab == "SNAPSHOT_STATS")
         </tbody>
       </table>
     </div>
-    <TablePager Pager="sellerStatPager" TotalCount="totalSellerStats" />
+    <TablePager Pager="sellerStatPager" TotalCount="totalSellerStats" OnChange="StateHasChanged" />
   </section>
 
   <section class="panel">
@@ -1110,7 +1110,7 @@ else if (activeTab == "SNAPSHOT_STATS")
         </tbody>
       </table>
     </div>
-    <TablePager Pager="snapshotPager" TotalCount="totalSnapshots" />
+    <TablePager Pager="snapshotPager" TotalCount="totalSnapshots" OnChange="StateHasChanged" />
   </section>
 }
 else
@@ -1191,7 +1191,7 @@ else
           </tbody>
         </table>
       </div>
-      <TablePager Pager="otherSellerPager" TotalCount="totalOtherSellers" />
+      <TablePager Pager="otherSellerPager" TotalCount="totalOtherSellers" OnChange="StateHasChanged" />
     </section>
   }
 
@@ -1394,7 +1394,7 @@ else
         </tbody>
       </table>
     </div>
-    <TablePager Pager="invoicePager" TotalCount="totalInvoices" />
+    <TablePager Pager="invoicePager" TotalCount="totalInvoices" OnChange="StateHasChanged" />
   </section>
 }
 

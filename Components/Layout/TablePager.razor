@@ -13,8 +13,8 @@
         </label>
     </div>
     <div class="button-group" style="gap:4px">
-        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage <= 1)" @onclick="() => GoTo(1)">« Đầu</button>
-        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage <= 1)" @onclick="() => GoTo(CurPage - 1)">‹ Trước</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" disabled="@(CurPage <= 1)" @onclick="() => GoTo(1)">« Đầu</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" disabled="@(CurPage <= 1)" @onclick="() => GoTo(CurPage - 1)">‹ Trước</button>
         @foreach (var p in VisiblePages())
         {
             if (p < 0)
@@ -24,11 +24,11 @@
             else
             {
                 var targetPage = p;
-                <button type="button" class="btn @(targetPage == CurPage ? "" : "secondary") btn-sm" style="min-width:30px;padding:4px 8px" @onclick="() => GoTo(targetPage)">@targetPage</button>
+                <button type="button" class="btn @(targetPage == CurPage ? "" : "secondary") btn-sm" data-confirm="none" style="min-width:30px;padding:4px 8px" @onclick="() => GoTo(targetPage)">@targetPage</button>
             }
         }
-        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage >= TotalPages)" @onclick="() => GoTo(CurPage + 1)">Sau ›</button>
-        <button type="button" class="btn secondary btn-sm" disabled="@(CurPage >= TotalPages)" @onclick="() => GoTo(TotalPages)">Cuối »</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" disabled="@(CurPage >= TotalPages)" @onclick="() => GoTo(CurPage + 1)">Sau ›</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" disabled="@(CurPage >= TotalPages)" @onclick="() => GoTo(TotalPages)">Cuối »</button>
     </div>
 </div>
 
@@ -47,14 +47,16 @@
         {
             Pager.PageSize = sz;
             Pager.Page = 1;
-            await OnChange.InvokeAsync();
+            if (OnChange.HasDelegate)
+                await OnChange.InvokeAsync();
         }
     }
 
     private async Task GoTo(int target)
     {
         Pager.Page = Math.Clamp(target, 1, TotalPages);
-        await OnChange.InvokeAsync();
+        if (OnChange.HasDelegate)
+            await OnChange.InvokeAsync();
     }
 
     private IEnumerable<int> VisiblePages()

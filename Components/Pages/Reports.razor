@@ -61,7 +61,7 @@
                 </tbody>
             </table>
         </div>
-        <TablePager Pager="debtSummaryPager" TotalCount="3" />
+        <TablePager Pager="debtSummaryPager" TotalCount="3" OnChange="StateHasChanged" />
     </section>
 
     <section class="panel" style="margin-bottom:0">
@@ -99,7 +99,7 @@
                 </tbody>
             </table>
         </div>
-        <TablePager Pager="cashSummaryPager" TotalCount="2" />
+        <TablePager Pager="cashSummaryPager" TotalCount="2" OnChange="StateHasChanged" />
     </section>
 </div>
 }
@@ -113,7 +113,7 @@
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>MÃ GIAO DỊCH</th><th>THỜI GIAN</th><th>NGHIỆP VỤ KHO</th><th>MÃ HÀNG</th><th>SỐ IMEI</th><th>ĐỐI TƯỢNG NHẬN</th><th>NGƯỜI THỰC HIỆN</th></tr></thead><tbody>
 @foreach(var (stt, r) in pagedLedger){<tr><td><strong>@stt</strong></td><td>#@r.Id</td><td>@VnDateTimeHelper.FormatDisplay(r.At)</td><td><span class="chip">@VnLabels.ImeiMovementType(r.Type)</span></td><td>@r.Sku</td><td><strong>@r.Imei</strong></td><td class="wrap-cell">@r.Target</td><td>@r.Actor</td></tr>}
 </tbody></table></div>
-<TablePager Pager="ledgerPager" TotalCount="totalLedger" />
+<TablePager Pager="ledgerPager" TotalCount="totalLedger" OnChange="StateHasChanged" />
 </section>}
 @if(canAudit){<section class="panel"><div class="panel-head"><div><h2>Nhật ký kiểm toán hệ thống</h2><p>Ghi nhận thao tác nghiệp vụ, phân hệ dữ liệu bị ảnh hưởng và nội dung thay đổi.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -124,7 +124,7 @@
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>MÃ SỐ</th><th>THỜI GIAN</th><th>NGƯỜI THỰC HIỆN</th><th>THAO TÁC NGHIỆP VỤ</th><th>PHÂN HỆ</th><th>NỘI DUNG CHI TIẾT</th></tr></thead><tbody>
 @foreach(var (stt, a) in pagedAudit){<tr><td><strong>@stt</strong></td><td>#@a.Id</td><td>@VnDateTimeHelper.FormatDisplay(a.At)</td><td>@a.Actor</td><td><span class="chip">@VnLabels.AuditAction(a.Action)</span></td><td>@VnLabels.AuditEntity(a.Entity)</td><td class="wrap-cell">@VnLabels.LocalizeText(a.Details)</td></tr>}
 </tbody></table></div>
-<TablePager Pager="auditPager" TotalCount="totalAudit" />
+<TablePager Pager="auditPager" TotalCount="totalAudit" OnChange="StateHasChanged" />
 </section>}
 @code {
  private bool canInventoryExport,canFinanceExport,canFinanceView,canLedger,canAudit;

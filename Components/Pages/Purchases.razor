@@ -182,7 +182,7 @@
             </tbody>
         </table>
     </div>
-    <TablePager Pager="poPager" TotalCount="totalOrders" />
+    <TablePager Pager="poPager" TotalCount="totalOrders" OnChange="StateHasChanged" />
     @if (orders.Count == 0)
     {
         <p class="purchase-help">Chưa có đơn mua hàng nào tại các kho bạn được phép xem.</p>

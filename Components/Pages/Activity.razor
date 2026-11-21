@@ -75,7 +75,7 @@
     <div class="table-wrap"><table><thead><tr><th>STT</th><th>THỜI GIAN</th><th>TÀI KHOẢN</th><th>THAO TÁC</th><th>PHÂN HỆ / MÀN HÌNH</th></tr></thead><tbody>
         @foreach(var (stt, x) in pagedActions){<tr><td><strong>@stt</strong></td><td>@VnDateTimeHelper.FormatDisplay(x.At)</td><td>@x.Actor</td><td><span class="chip">@VnLabels.ActivityAction(x.Action)</span></td><td>@VnLabels.ActivityResource(x.Resource)</td></tr>}
     </tbody></table></div>
-    <TablePager Pager="actionPager" TotalCount="totalActions" />
+    <TablePager Pager="actionPager" TotalCount="totalActions" OnChange="StateHasChanged" />
 </section>
 @code {
     [Parameter] public string? TableName { get; set; }

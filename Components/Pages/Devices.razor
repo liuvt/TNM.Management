@@ -251,7 +251,7 @@
 @foreach(var (stt, x) in pagedDevices){
     var d = DaysToExpiry(x);
     var locked = IsLocked(x);
-    <tr class="@(!locked && d >= 0 && d <= 10 ? "row-due10-warn" : "")">
+    <tr @key="x.ActivationId" class="@(!locked && d >= 0 && d <= 10 ? "row-due10-warn" : "")">
         <td><strong>@stt</strong></td>
         <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</strong></div></td>
         <td><strong>@x.Imei</strong></td>
@@ -313,7 +313,7 @@
     </tr>
 }
 </tbody></table></div>
-<TablePager Pager="devicePager" TotalCount="totalDevices" />
+<TablePager Pager="devicePager" TotalCount="totalDevices" OnChange="StateHasChanged" />
 </section>
 @if(canHistory){<section class="panel"><div class="panel-head"><div><h2>Lịch sử các lần gia hạn &amp; Thống kê theo Nhân viên bán hàng</h2><p>Khi cập nhật hoặc xóa lịch sử gia hạn (trước khi Kế toán chốt số / khóa số), hạn thiết bị, doanh thu kế toán, sổ quỹ và hoa hồng nhân viên bán hàng sẽ tự động cập nhật đồng bộ.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -406,7 +406,7 @@
 }
 @{ var pagedRenewals = renewalPager.Slice(FilteredRenewals, out var totalRenewals); }
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>TÊN THIẾT BỊ</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>NV BÁN HÀNG GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN CŨ → HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th><th>TRẠNG THÁI KT</th><th>THAO TÁC</th></tr></thead><tbody>
-@foreach(var (stt, x) in pagedRenewals){<tr>
+@foreach(var (stt, x) in pagedRenewals){<tr @key="x.Id">
     <td><strong>@stt</strong></td>
     <td><strong>@x.Imei</strong></td>
     <td>
@@ -456,7 +456,7 @@
     </td>
 </tr>}
 </tbody></table></div>
-<TablePager Pager="renewalPager" TotalCount="totalRenewals" />
+<TablePager Pager="renewalPager" TotalCount="totalRenewals" OnChange="StateHasChanged" />
 </section>}
 @code {
  private bool showRenew, showEditAct, showImportPanel, isImporting;

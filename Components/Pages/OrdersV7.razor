@@ -277,7 +277,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <TablePager Pager="draftPager" TotalCount="totalDrafts" />
+                        <TablePager Pager="draftPager" TotalCount="totalDrafts" OnChange="StateHasChanged" />
                     }
                     else
                     {
@@ -541,7 +541,7 @@
             </tbody>
         </table>
     </div>
-    <TablePager Pager="orderPager" TotalCount="totalOrders" />
+    <TablePager Pager="orderPager" TotalCount="totalOrders" OnChange="StateHasChanged" />
 </section>
 
 @if(showOrderModal && SelectedOrder is not null)
@@ -756,7 +756,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <TablePager Pager="orderLinePager" TotalCount="totalOrderLines" />
+                        <TablePager Pager="orderLinePager" TotalCount="totalOrderLines" OnChange="StateHasChanged" />
                     </div>
                 }
             </div>

@@ -216,7 +216,7 @@ else if (activeTab == "IMEI" && canImeiView)
         </tbody>
       </table>
     </div>
-    <TablePager Pager="summaryPager" TotalCount="totalSummaries" />
+    <TablePager Pager="summaryPager" TotalCount="totalSummaries" OnChange="StateHasChanged" />
   </section>
 
   <section class="panel">
@@ -274,7 +274,7 @@ else if (activeTab == "IMEI" && canImeiView)
         </tbody>
       </table>
     </div>
-    <TablePager Pager="stockPager" TotalCount="totalStock" />
+    <TablePager Pager="stockPager" TotalCount="totalStock" OnChange="StateHasChanged" />
   </section>
 }
 else if (activeTab == "QUANTITY" && canQtyView)
@@ -463,7 +463,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
         </tbody>
       </table>
     </div>
-    <TablePager Pager="balancePager" TotalCount="totalBalances" />
+    <TablePager Pager="balancePager" TotalCount="totalBalances" OnChange="StateHasChanged" />
   </section>
 
   <section class="panel">
@@ -509,7 +509,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
         </tbody>
       </table>
     </div>
-    <TablePager Pager="movePager" TotalCount="totalMovements" />
+    <TablePager Pager="movePager" TotalCount="totalMovements" OnChange="StateHasChanged" />
   </section>
 }
 

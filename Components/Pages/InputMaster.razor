@@ -474,7 +474,7 @@ else
                             </tbody>
                         </table>
                     </div>
-                    <TablePager Pager="instProdPager" TotalCount="totalInstProds" />
+                    <TablePager Pager="instProdPager" TotalCount="totalInstProds" OnChange="StateHasChanged" />
                 </div>
             }
             <div class="form-actions"><button type="button" class="btn" data-confirm="@(editingId.HasValue ? "edit" : "add")" data-confirm-msg="@(editingId.HasValue ? $"Bạn có chắc chắn muốn lưu cập nhật thông tin ({Title}) không?" : $"Bạn có chắc chắn muốn thêm mới dữ liệu vào ({Title}) không?")" @onclick="Save">@(CurrentSection=="installers" ? "Lưu người lắp đặt & đơn giá" : "Lưu dữ liệu")</button><button type="button" class="btn secondary" @onclick="CloseEditor">Hủy</button></div>
