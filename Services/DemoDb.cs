@@ -162,6 +162,8 @@ public sealed class DemoDb
             Exec(c, null, "ALTER TABLE activations ADD COLUMN last_renewed_at TEXT NOT NULL DEFAULT ''");
         if (!actCols.Any(x => string.Equals(x, "renewal_count", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE activations ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0");
+        if (!actCols.Any(x => string.Equals(x, "deleted_summary", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN deleted_summary TEXT NOT NULL DEFAULT ''");
 
         var prodCols = Query(c, "PRAGMA table_info(products)", r => S(r, 1));
         if (!prodCols.Any(x => string.Equals(x, "standard_price_vnd", StringComparison.OrdinalIgnoreCase)))
@@ -1080,431 +1082,648 @@ public sealed class DemoDb
         return unlocked;
     }
 
-    public string ExportDevicesStandardCsv()
+    public bool IsMainDeveloperUser(long userId)
     {
-        var list = Devices();
-        var sb = new StringBuilder();
-        sb.AppendLine("STT,Biển số xe/Số khung,Số EMEI Thiết bị,Tên Thiết bị,Tên Đại lý,Tên Khách hàng,SĐT Khách hàng,Trạng thái thiết bị,Ngày kích hoạt,Ngày hết hạn,Ngày gia hạn gần nhất (nếu có),Số lần gia hạn");
-        static string Esc(string? s)
-        {
-            var v = (s ?? "").Trim();
-            if (v.Contains(',') || v.Contains('"') || v.Contains('\n') || v.Contains('\r'))
-                return "\"" + v.Replace("\"", "\"\"") + "\"";
-            return v;
-        }
-        static string FmtDate(string? d)
-        {
-            if (string.IsNullOrWhiteSpace(d)) return "";
-            return DateTime.TryParse(d.Trim(), out var dt) ? dt.ToString("dd/MM/yyyy") : d.Trim();
-        }
-        for (int i = 0; i < list.Count; i++)
-        {
-            var x = list[i];
-            var stLabel = string.Equals(x.Status, "DISABLED", StringComparison.OrdinalIgnoreCase) ? "Khoá" : "Hoạt động";
-            sb.Append(i + 1).Append(',')
-              .Append(Esc(x.Plate)).Append(',')
-              .Append(Esc(x.Imei)).Append(',')
-              .Append(Esc(x.DeviceTypeLabel)).Append(',')
-              .Append(Esc(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)).Append(',')
-              .Append(Esc(x.OwnerName)).Append(',')
-              .Append(Esc(x.OwnerPhone)).Append(',')
-              .Append(Esc(stLabel)).Append(',')
-              .Append(Esc(FmtDate(x.ActivatedAt))).Append(',')
-              .Append(Esc(FmtDate(x.ExpiresAt))).Append(',')
-              .Append(Esc(FmtDate(x.LastRenewedAt))).Append(',')
-              .Append(x.RenewalCount).AppendLine();
-        }
-        return sb.ToString();
+        if (userId <= 0) return false;
+        using var c = Open();
+        return IsMainDeveloper(c, null, userId);
     }
 
-    public DeviceImportResultVm ImportDevicesFromStream(Stream stream, string fileName)
+    public bool CanSoftDeleteDeviceUser(long userId)
     {
-        using var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        var bytes = ms.ToArray();
-        var isXlsx = fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
-            || (bytes.Length > 4 && bytes[0] == 'P' && bytes[1] == 'K');
-        if (isXlsx)
-        {
-            var rows = ReadXlsxRows(bytes);
-            return UpsertDeviceRows(rows);
-        }
-        else
-        {
-            var text = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
-            var rows = ReadCsvRows(text);
-            return UpsertDeviceRows(rows);
-        }
+        if (userId <= 0) return false;
+        using var c = Open();
+        return N(c, null, @"SELECT COUNT(*) FROM app_users u
+            WHERE u.id=$u AND u.is_active=1 AND (
+                u.is_owner=1
+                OR LOWER(u.username)='vanlt_it'
+                OR EXISTS (
+                    SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+                    WHERE ur.user_id=u.id AND UPPER(r.code) IN ('ADMIN','ACCOUNTANT')
+                )
+            )", ("$u", userId)) > 0;
     }
 
-    public DeviceImportResultVm ImportDevicesFromCsvText(string csvText)
+    public long PreviewRenewalPrice(long customerId, long productId)
     {
-        var rows = ReadCsvRows((csvText ?? "").TrimStart('\uFEFF'));
-        return UpsertDeviceRows(rows);
+        if (customerId <= 0 || productId <= 0) return 0;
+        using var c = Open();
+        return GroupPriceResolver.ResolveRenewalPrice(c, null, customerId, productId);
     }
 
-    private static List<(string Val, bool IsString)[]> ReadXlsxRows(byte[] xlsxBytes)
+    public List<(long Id, string Imei, string WarehouseName)> AvailableStockImeis(long productId = 0)
     {
-        using var ms = new MemoryStream(xlsxBytes);
-        using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
-        var sharedStrings = new List<string>();
-        var ssEntry = zip.GetEntry("xl/sharedStrings.xml");
-        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-        if (ssEntry is not null)
+        using var c = Open();
+        return Query(c, @"SELECT u.id, u.imei, COALESCE(w.name,'Kho chính')
+            FROM stock_units u
+            LEFT JOIN warehouses w ON w.id=u.warehouse_id
+            WHERE u.status='IN_STOCK' AND u.deleted_at IS NULL AND ($p=0 OR u.product_id=$p)
+            ORDER BY u.id DESC LIMIT 300",
+            r => (L(r, 0), S(r, 1), S(r, 2)),
+            ("$p", productId));
+    }
+
+    public long CreateManualDeviceActivation(
+        long customerId,
+        long productId,
+        string imei,
+        string? plateNo,
+        string? ownerName,
+        string? ownerPhone,
+        string activatedAt,
+        string expiresAt,
+        long? sellerId,
+        string? deviceTypeLabel,
+        string? status)
+    {
+        var normImei = (imei ?? "").Trim().Replace(",", "").Replace(" ", "").ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(normImei) || normImei.Length > 64)
+            throw new InvalidOperationException("Vui lòng nhập Số IMEI thiết bị hợp lệ (tối đa 64 ký tự).");
+        if (customerId <= 0)
+            throw new InvalidOperationException("Vui lòng chọn Đại lý / Khách hàng từ danh mục.");
+        if (productId <= 0)
+            throw new InvalidOperationException("Vui lòng chọn Sản phẩm / Dòng thiết bị từ danh mục.");
+
+        string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
+        if (!DateTime.TryParseExact((activatedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var actDate))
+            throw new InvalidOperationException("Ngày kích hoạt không hợp lệ.");
+        if (!DateTime.TryParseExact((expiresAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var expDate))
+            throw new InvalidOperationException("Ngày hết hạn không hợp lệ.");
+
+        var actStr = actDate.ToString("yyyy-MM-dd");
+        var expStr = expDate.ToString("yyyy-MM-dd");
+        var cleanPlate = (plateNo ?? "").Trim();
+        var cleanOwner = (ownerName ?? "").Trim();
+        var cleanPhone = (ownerPhone ?? "").Trim();
+        var dbStatus = (status ?? "").Trim().ToUpperInvariant() is "DISABLED" or "LOCKED" or "KHOÁ" or "KHÓA" ? "DISABLED" : "ACTIVE";
+
+        var createdId = Tx((c, t) =>
         {
-            using var ssStream = ssEntry.Open();
-            var ssDoc = XDocument.Load(ssStream);
-            foreach (var si in ssDoc.Descendants(ns + "si"))
+            var cust = QueryTx(c, t, "SELECT id, name FROM customers WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), Name: S(r, 1)), ("$id", customerId)).SingleOrDefault();
+            if (cust.Id == 0)
+                throw new InvalidOperationException("Không tìm thấy Đại lý / Khách hàng đã chọn.");
+
+            var prod = QueryTx(c, t, "SELECT id, sku, name, COALESCE(base_cost_vnd,0) FROM products WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), Sku: S(r, 1), Name: S(r, 2), Cost: L(r, 3)), ("$id", productId)).SingleOrDefault();
+            if (prod.Id == 0)
+                throw new InvalidOperationException("Không tìm thấy Sản phẩm thiết bị đã chọn.");
+
+            var dupAct = N(c, t, @"SELECT COUNT(*) FROM activations a
+                JOIN stock_units u ON u.id=a.stock_unit_id
+                WHERE LOWER(TRIM(u.imei))=LOWER($imei) AND a.deleted_at IS NULL",
+                ("$imei", normImei));
+            if (dupAct > 0)
+                throw new InvalidOperationException($"Mã IMEI '{normImei}' đã tồn tại trong danh sách thiết bị đang hoạt động.");
+
+            var resolvedLabel = (deviceTypeLabel ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(resolvedLabel))
             {
-                var sb = new StringBuilder();
-                foreach (var t in si.Descendants(ns + "t"))
-                    sb.Append(t.Value);
-                sharedStrings.Add(sb.ToString());
-            }
-        }
-        var sheetEntry = zip.GetEntry("xl/worksheets/sheet1.xml")
-            ?? zip.Entries.FirstOrDefault(e => e.FullName.StartsWith("xl/worksheets/sheet", StringComparison.OrdinalIgnoreCase));
-        if (sheetEntry is null)
-            throw new InvalidOperationException("Không tìm thấy sheet dữ liệu trong file Excel (.xlsx).");
-
-        using var sheetStream = sheetEntry.Open();
-        var sheetDoc = XDocument.Load(sheetStream);
-        var result = new List<(string Val, bool IsString)[]>();
-        foreach (var rowEl in sheetDoc.Descendants(ns + "row"))
-        {
-            var rowArr = new (string Val, bool IsString)[12];
-            for (int i = 0; i < 12; i++) rowArr[i] = ("", true);
-            foreach (var cEl in rowEl.Elements(ns + "c"))
-            {
-                var rAttr = cEl.Attribute("r")?.Value ?? "";
-                int colIdx = 0;
-                foreach (var ch in rAttr)
+                resolvedLabel = prod.Sku.ToUpperInvariant() switch
                 {
-                    if (char.IsLetter(ch))
-                        colIdx = colIdx * 26 + (char.ToUpperInvariant(ch) - 'A' + 1);
-                }
-                if (colIdx < 1 || colIdx > 12) continue;
-                var tAttr = cEl.Attribute("t")?.Value ?? "";
-                var vEl = cEl.Element(ns + "v");
-                var isEl = cEl.Element(ns + "is");
-                string val = "";
-                bool isStr = tAttr is "s" or "inlineStr" or "str";
-                if (tAttr == "s" && vEl is not null && int.TryParse(vEl.Value, out var sIdx) && sIdx >= 0 && sIdx < sharedStrings.Count)
-                    val = sharedStrings[sIdx];
-                else if (tAttr == "inlineStr" && isEl is not null)
-                    val = string.Concat(isEl.Descendants(ns + "t").Select(x => x.Value));
-                else if (vEl is not null)
-                    val = vEl.Value;
-                rowArr[colIdx - 1] = (val.Trim(), isStr);
+                    "SP000001" => "XANHGPS",
+                    "DX00002" or "SP000019" => "NASAGPS",
+                    "SP000005" => "TDCGPS",
+                    "SP000012" => "AICAM",
+                    "SP000006" => "mGPS",
+                    _ => prod.Sku
+                };
             }
-            result.Add(rowArr);
-        }
-        return result;
-    }
 
-    private static List<(string Val, bool IsString)[]> ReadCsvRows(string text)
-    {
-        var result = new List<(string Val, bool IsString)[]>();
-        if (string.IsNullOrWhiteSpace(text)) return result;
-        var lines = new List<List<string>>();
-        var curRow = new List<string>();
-        var curField = new StringBuilder();
-        bool inQuotes = false;
-        char delimiter = ',';
-        var firstLineEnd = text.IndexOfAny(['\r', '\n']);
-        var firstLine = firstLineEnd > 0 ? text[..firstLineEnd] : text;
-        if (firstLine.Count(c => c == '\t') >= 5 && firstLine.Count(c => c == ',') < 5)
-            delimiter = '\t';
+            // Giải phóng các bản ghi stock_units đã xóa mềm mang cùng IMEI (nếu có) để tránh xung đột UNIQUE(imei)
+            Exec(c, t, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE LOWER(TRIM(imei))=LOWER($imei) AND deleted_at IS NOT NULL",
+                ("$imei", normImei));
 
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (inQuotes)
+            var existingUnit = QueryTx(c, t, @"SELECT u.id, u.product_id, u.status, COALESCE(u.warehouse_id, 0), p.sku
+                FROM stock_units u JOIN products p ON p.id=u.product_id
+                WHERE LOWER(TRIM(u.imei))=LOWER($imei) AND u.deleted_at IS NULL
+                ORDER BY u.id DESC LIMIT 1",
+                r => (Id: L(r, 0), ProdId: L(r, 1), Status: S(r, 2), WhId: L(r, 3), Sku: S(r, 4)),
+                ("$imei", normImei)).FirstOrDefault();
+
+            long unitId;
+            if (existingUnit.Id > 0)
             {
-                if (c == '"')
+                if (existingUnit.ProdId != prod.Id)
                 {
-                    if (i + 1 < text.Length && text[i + 1] == '"') { curField.Append('"'); i++; }
-                    else inQuotes = false;
+                    var hasTxLines = N(c, t, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE stock_unit_id=$s AND deleted_at IS NULL", ("$s", existingUnit.Id)) > 0;
+                    if (hasTxLines)
+                        throw new InvalidOperationException($"IMEI '{normImei}' đang nằm trong kho thuộc mã sản phẩm '{existingUnit.Sku}'. Vui lòng chọn đúng sản phẩm '{existingUnit.Sku}'.");
+                    Exec(c, t, "UPDATE stock_units SET product_id=$p WHERE id=$id", ("$p", prod.Id), ("$id", existingUnit.Id));
                 }
-                else curField.Append(c);
+
+                if (existingUnit.Status == "IN_STOCK" && existingUnit.WhId > 0)
+                {
+                    var txCode = "XK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
+                    Exec(c, t, @"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,customer_id,actor_user_id,notes)
+                        VALUES($code,'SALE_OUT',$w,$c,$actor,'Xuất kích hoạt thiết bị thủ công')",
+                        ("$code", txCode), ("$w", existingUnit.WhId), ("$c", cust.Id), ("$actor", ActorId > 0 ? ActorId : null));
+                    var txId = N(c, t, "SELECT last_insert_rowid()");
+                    Exec(c, t, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
+                        ("$t", txId), ("$s", existingUnit.Id), ("$p", prod.Id), ("$cost", prod.Cost));
+                }
+
+                Exec(c, t, @"UPDATE stock_units
+                    SET imei=$imei, status='INSTALLED', warehouse_id=NULL, employee_id=NULL, customer_id=$c, updated_at=datetime('now')
+                    WHERE id=$id",
+                    ("$imei", normImei), ("$c", cust.Id), ("$id", existingUnit.Id));
+                unitId = existingUnit.Id;
             }
             else
             {
-                if (c == '"') inQuotes = true;
-                else if (c == delimiter) { curRow.Add(curField.ToString().Trim()); curField.Clear(); }
-                else if (c == '\r' || c == '\n')
-                {
-                    if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
-                    curRow.Add(curField.ToString().Trim());
-                    curField.Clear();
-                    if (curRow.Any(x => !string.IsNullOrWhiteSpace(x)))
-                        lines.Add(curRow);
-                    curRow = [];
-                }
-                else curField.Append(c);
+                Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at)
+                    VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'))",
+                    ("$p", prod.Id), ("$imei", normImei), ("$c", cust.Id));
+                unitId = N(c, t, "SELECT last_insert_rowid()");
             }
-        }
-        if (curField.Length > 0 || curRow.Count > 0)
-        {
-            curRow.Add(curField.ToString().Trim());
-            if (curRow.Any(x => !string.IsNullOrWhiteSpace(x)))
-                lines.Add(curRow);
-        }
 
-        foreach (var r in lines)
-        {
-            var arr = new (string Val, bool IsString)[12];
-            for (int i = 0; i < 12; i++)
-                arr[i] = (i < r.Count ? r[i] : "", true);
-            result.Add(arr);
-        }
-        return result;
-    }
+            var vin = !string.IsNullOrWhiteSpace(cleanOwner) && !string.Equals(cleanOwner, cleanPlate, StringComparison.OrdinalIgnoreCase)
+                ? (string.IsNullOrWhiteSpace(cleanPhone) ? cleanOwner : $"{cleanOwner} · {cleanPhone}")
+                : normImei;
 
-    private static DateTime? ParseImportDate(string val, bool isString, string? refExpStr = null, bool refExpIsString = true)
-    {
-        val = (val ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(val) || val is "#REF!" or "NaN" or "None" or "-")
-            return null;
-        if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var oa) && oa > 20000 && oa < 80000)
-        {
-            var dt = new DateTime(1899, 12, 30).AddDays(oa);
-            if (!isString && !string.IsNullOrWhiteSpace(refExpStr) && refExpIsString && refExpStr.Contains('/'))
+            Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
+                VALUES($u,$c,$p,$plate,$vin,$act,$exp,$st,$dtype,$agency,$owner,$phone,'',0,datetime('now'),datetime('now'))",
+                ("$u", unitId), ("$c", cust.Id), ("$p", prod.Id), ("$plate", cleanPlate), ("$vin", vin),
+                ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
+                ("$dtype", resolvedLabel), ("$agency", cust.Name), ("$owner", cleanOwner), ("$phone", cleanPhone));
+            var actId = N(c, t, "SELECT last_insert_rowid()");
+
+            if (sellerId is > 0)
             {
-                if (DateTime.TryParseExact(refExpStr.Trim(), ["dd/MM/yyyy", "d/M/yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var dExp))
+                var sellerLabel = QueryTx(c, t, "SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id AND deleted_at IS NULL", r => S(r, 0), ("$id", sellerId.Value)).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(sellerLabel))
                 {
-                    if (dt.Day != dExp.Day && dt.Month == dExp.Day && dt.Day == dExp.Month && dt.Month <= 12 && dt.Day <= 12)
-                        dt = new DateTime(dt.Year, dExp.Month, dExp.Day);
-                }
-            }
-            return dt.Date;
-        }
-        string[] formats = ["dd/MM/yyyy", "d/M/yyyy", "yyyy-MM-dd", "dd-MM-yyyy", "d-M-yyyy", "MM/dd/yyyy", "yyyy/MM/dd"];
-        var clean = val.Split(' ')[0].Trim();
-        if (DateTime.TryParseExact(clean, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-            return parsed.Date;
-        if (DateTime.TryParse(clean, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
-            return parsed.Date;
-        return null;
-    }
-
-    private DeviceImportResultVm UpsertDeviceRows(List<(string Val, bool IsString)[]> rows)
-    {
-        if (rows.Count == 0)
-            throw new InvalidOperationException("File dữ liệu trống, không có dòng nào để import.");
-
-        int updated = 0, inserted = 0, skipped = 0, totalProcessed = 0;
-
-        Tx((c, t) =>
-        {
-            // Đảm bảo khách hàng 'Hợp tác xã 586' tồn tại trong danh mục customers
-            var htx586Id = N(c, t, "SELECT COALESCE((SELECT id FROM customers WHERE UPPER(name) LIKE '%586%' AND deleted_at IS NULL LIMIT 1), 0)");
-            if (htx586Id == 0)
-            {
-                var defGrpId = N(c, t, "SELECT COALESCE((SELECT group_id FROM customers WHERE deleted_at IS NULL LIMIT 1), 1)");
-                var defSellerId = N(c, t, "SELECT COALESCE((SELECT id FROM v7_sellers WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 1)");
-                var nextCustNo = N(c, t, "SELECT COALESCE(MAX(id),0)+10 FROM customers");
-                var custCode = $"KH{nextCustNo:D5}";
-                while (N(c, t, "SELECT COUNT(*) FROM customers WHERE code=$c", ("$c", custCode)) > 0)
-                {
-                    nextCustNo++;
-                    custCode = $"KH{nextCustNo:D5}";
-                }
-                Exec(c, t, @"INSERT INTO customers(group_id,code,name,source_type,source_name,phone,address,is_active,seller_id)
-                    VALUES($g,$code,'Hợp tác xã 586','AGENCY','SL001 — Nguyễn Minh Anh','','',1,$sl)",
-                    ("$g", defGrpId), ("$code", custCode), ("$sl", defSellerId > 0 ? defSellerId : null));
-                htx586Id = N(c, t, "SELECT last_insert_rowid()");
-            }
-
-            var custList = QueryTx(c, t, "SELECT id, name FROM customers WHERE deleted_at IS NULL", r => (Id: L(r, 0), Name: S(r, 1)));
-            long ResolveCustomerId(string agency)
-            {
-                var a = (agency ?? "").Trim();
-                var au = a.ToUpperInvariant();
-                if (string.IsNullOrWhiteSpace(a))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Khách lẻ", StringComparison.OrdinalIgnoreCase)).Id;
-                foreach (var cu in custList)
-                {
-                    if (string.Equals(cu.Name, a, StringComparison.OrdinalIgnoreCase))
-                        return cu.Id;
-                }
-                if (au.Contains("TRƯỜNG NHẬT MINH") || au.Contains("TRƯỜNG NHẬT"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Trường Nhật Minh", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("NAM THẮNG") && (au.Contains("KIÊN GIANG") || au.Contains("KG")))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Thắng KG", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("NAM THẮNG") && au.Contains("CHÍNH HIỆP"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Thắng Chính Hiệp", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("NAM THẮNG"))
-                    return custList.FirstOrDefault(x => x.Name.Equals("HTX Vận tải Nam Thắng", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("LÂM MINH") || au.Contains("HTXLAMMINH"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Lâm Minh", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("TÂN ĐẠI THÀNH"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Tân Đại Thành", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("NAM HI"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Hi", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("586"))
-                    return htx586Id;
-                if (au.Contains("CHÍNH HIỆP"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Chính Hiệp", StringComparison.OrdinalIgnoreCase) && !x.Name.Contains("Nam Thắng", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("TÂN THÀNH ĐÔ"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Tân Thành Đô", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("NAM PHƯƠNG"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Nam Phương", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("ĐI XANH") || au.Contains("DI XANH") || au.Contains("GREENWAY"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Đi Xanh", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("HẢI VÂN") || au == "136")
-                    return custList.FirstOrDefault(x => x.Name.Contains("Hải Vân", StringComparison.OrdinalIgnoreCase)).Id;
-                if (au.Contains("ĐĂNG TIẾN") || au.Contains("SAO VIỆT"))
-                    return custList.FirstOrDefault(x => x.Name.Contains("Đăng Tiến", StringComparison.OrdinalIgnoreCase)).Id;
-                var fallback = custList.FirstOrDefault(x => x.Name.Contains("Khách lẻ", StringComparison.OrdinalIgnoreCase)).Id;
-                return fallback > 0 ? fallback : custList[0].Id;
-            }
-
-            var prodBySku = QueryTx(c, t, "SELECT id, sku FROM products WHERE deleted_at IS NULL", r => (Id: L(r, 0), Sku: S(r, 1)))
-                .ToDictionary(x => x.Sku.ToUpperInvariant(), x => x.Id);
-            long ResolveProductId(string devName, long existingProdId = 0)
-            {
-                var d = (devName ?? "").Trim().ToUpperInvariant();
-                if (d.Contains("XANH")) return prodBySku.GetValueOrDefault("SP000001", 4);
-                if (d.Contains("NASA"))
-                {
-                    if (existingProdId is 1 or 2) return existingProdId;
-                    return prodBySku.GetValueOrDefault("DX00002", 2);
-                }
-                if (d.Contains("AICAM") || d.Contains("CAM")) return prodBySku.GetValueOrDefault("SP000012", 16);
-                if (d == "MGPS" || d.Contains("MGPS")) return prodBySku.GetValueOrDefault("SP000006", 5);
-                if (d.Contains("TDC")) return prodBySku.GetValueOrDefault("SP000005", 6);
-                return existingProdId > 0 ? existingProdId : prodBySku.GetValueOrDefault("SP000001", 4);
-            }
-
-            var existingUnits = QueryTx(c, t, "SELECT id, imei, product_id FROM stock_units",
-                r => (Id: L(r, 0), Imei: S(r, 1), ProdId: L(r, 2)));
-            var unitByNormImei = new Dictionary<string, (long Id, string RawImei, long ProdId)>(StringComparer.OrdinalIgnoreCase);
-            foreach (var u in existingUnits)
-            {
-                var norm = u.Imei.Trim().Replace(",", "").Replace(" ", "").ToUpperInvariant();
-                if (!string.IsNullOrWhiteSpace(norm))
-                    unitByNormImei[norm] = (u.Id, u.Imei, u.ProdId);
-            }
-
-            var existingActs = QueryTx(c, t, "SELECT id, stock_unit_id, vin_no FROM activations",
-                r => (Id: L(r, 0), UnitId: L(r, 1), VinNo: S(r, 2)))
-                .ToDictionary(x => x.UnitId, x => (x.Id, x.VinNo));
-
-            for (int i = 0; i < rows.Count; i++)
-            {
-                var r = rows[i];
-                var col0 = r[0].Val;
-                var col2 = r[2].Val;
-                // Skip header row
-                if (col0.Equals("STT", StringComparison.OrdinalIgnoreCase) || col2.Contains("EMEI", StringComparison.OrdinalIgnoreCase) || col2.Contains("IMEI", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var normImei = col2.Trim().Replace(",", "").Replace(" ", "").ToUpperInvariant();
-                if (string.IsNullOrWhiteSpace(normImei))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var plate = r[1].Val.Trim();
-                var devLabel = r[3].Val.Trim();
-                if (string.IsNullOrWhiteSpace(devLabel)) devLabel = "XANHGPS";
-                var agency = r[4].Val.Trim();
-                var owner = r[5].Val.Trim();
-                var phone = r[6].Val.Trim();
-                if (phone is "#REF!" or "NaN" or "None" or "-") phone = "";
-                var rawStatus = r[7].Val.Trim();
-                var dbStatus = rawStatus.ToUpperInvariant() is "KHOÁ" or "KHÓA" or "LOCKED" or "DISABLED" ? "DISABLED" : "ACTIVE";
-
-                var dtAct = ParseImportDate(r[8].Val, r[8].IsString) ?? DateTime.Today;
-                var dtExp = ParseImportDate(r[9].Val, r[9].IsString) ?? dtAct.AddYears(1);
-                var dtRen = ParseImportDate(r[10].Val, r[10].IsString, r[9].Val, r[9].IsString);
-                int renCnt = 0;
-                if (!string.IsNullOrWhiteSpace(r[11].Val) && double.TryParse(r[11].Val, NumberStyles.Float, CultureInfo.InvariantCulture, out var rc))
-                    renCnt = Math.Max(0, (int)Math.Round(rc));
-
-                var actStr = dtAct.ToString("yyyy-MM-dd");
-                var expStr = dtExp.ToString("yyyy-MM-dd");
-                var renStr = dtRen?.ToString("yyyy-MM-dd") ?? "";
-
-                var custId = ResolveCustomerId(agency);
-                totalProcessed++;
-
-                if (unitByNormImei.TryGetValue(normImei, out var existingUnit))
-                {
-                    var prodId = ResolveProductId(devLabel, existingUnit.ProdId);
-                    Exec(c, t, @"UPDATE stock_units
-                        SET product_id=$p, status='INSTALLED', warehouse_id=NULL, supplier_id=NULL, employee_id=NULL, customer_id=$c, deleted_at=NULL, updated_at=datetime('now')
-                        WHERE id=$id",
-                        ("$p", prodId), ("$c", custId), ("$id", existingUnit.Id));
-
-                    if (existingActs.TryGetValue(existingUnit.Id, out var existingAct))
-                    {
-                        var vin = !string.IsNullOrWhiteSpace(owner) && !string.Equals(owner, plate, StringComparison.OrdinalIgnoreCase)
-                            ? (string.IsNullOrWhiteSpace(phone) ? owner : $"{owner} · {phone}")
-                            : existingAct.VinNo;
-                        Exec(c, t, @"UPDATE activations
-                            SET customer_id=$c, product_id=$p, plate_no=$plate, vin_no=$vin,
-                                activated_at=$act, expires_at=$exp, status=$st,
-                                device_type_label=$dtype, agency_name=$agency, owner_name=$owner, owner_phone=$phone,
-                                last_renewed_at=$renAt, renewal_count=$renCnt,
-                                deleted_at=NULL, updated_at=datetime('now')
-                            WHERE id=$id",
-                            ("$c", custId), ("$p", prodId), ("$plate", plate), ("$vin", vin),
-                            ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
-                            ("$dtype", devLabel), ("$agency", agency), ("$owner", owner), ("$phone", phone),
-                            ("$renAt", renStr), ("$renCnt", renCnt),
-                            ("$id", existingAct.Id));
-                        updated++;
-                    }
-                    else
-                    {
-                        var vin = !string.IsNullOrWhiteSpace(owner) && !string.Equals(owner, plate, StringComparison.OrdinalIgnoreCase)
-                            ? (string.IsNullOrWhiteSpace(phone) ? owner : $"{owner} · {phone}")
-                            : normImei;
-                        Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
-                            VALUES($u,$c,$p,$plate,$vin,$act,$exp,$st,$dtype,$agency,$owner,$phone,$renAt,$renCnt,datetime('now'),datetime('now'))",
-                            ("$u", existingUnit.Id), ("$c", custId), ("$p", prodId), ("$plate", plate), ("$vin", vin),
-                            ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
-                            ("$dtype", devLabel), ("$agency", agency), ("$owner", owner), ("$phone", phone),
-                            ("$renAt", renStr), ("$renCnt", renCnt));
-                        var newActId = N(c, t, "SELECT last_insert_rowid()");
-                        existingActs[existingUnit.Id] = (newActId, vin);
-                        updated++;
-                    }
-                }
-                else
-                {
-                    var prodId = ResolveProductId(devLabel, 0);
-                    Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at)
-                        VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'))",
-                        ("$p", prodId), ("$imei", normImei), ("$c", custId));
-                    var newUnitId = N(c, t, "SELECT last_insert_rowid()");
-                    unitByNormImei[normImei] = (newUnitId, normImei, prodId);
-
-                    var vin = !string.IsNullOrWhiteSpace(owner) && !string.Equals(owner, plate, StringComparison.OrdinalIgnoreCase)
-                        ? (string.IsNullOrWhiteSpace(phone) ? owner : $"{owner} · {phone}")
-                        : normImei;
-                    Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
-                        VALUES($u,$c,$p,$plate,$vin,$act,$exp,$st,$dtype,$agency,$owner,$phone,$renAt,$renCnt,datetime('now'),datetime('now'))",
-                        ("$u", newUnitId), ("$c", custId), ("$p", prodId), ("$plate", plate), ("$vin", vin),
-                        ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
-                        ("$dtype", devLabel), ("$agency", agency), ("$owner", owner), ("$phone", phone),
-                        ("$renAt", renStr), ("$renCnt", renCnt));
-                    var newActId = N(c, t, "SELECT last_insert_rowid()");
-                    existingActs[newUnitId] = (newActId, vin);
-                    inserted++;
+                    Exec(c, t, "UPDATE customers SET seller_id=$sid, source_name=$sname WHERE id=$cid",
+                        ("$sid", sellerId.Value), ("$sname", sellerLabel), ("$cid", cust.Id));
                 }
             }
 
-            Log(c, t, "IMPORT_DEVICES", "ACTIVATION", 0, $"Import {totalProcessed} dòng: Cập nhật trùng {updated} TB, Thêm mới {inserted} TB, Bỏ qua {skipped}");
-            return 0;
+            Log(c, t, "CREATE_DEVICE", "ACTIVATION", actId, $"Thêm thiết bị thủ công IMEI {normImei} ({resolvedLabel}) · Đại lý/KH: {cust.Name} · Hạn: {actStr} -> {expStr}");
+            return actId;
         });
 
         NotifyDevicesChanged();
-        var msg = $"Đã xử lý {totalProcessed:N0} dòng dữ liệu thiết bị: Cập nhật trùng {updated:N0} thiết bị theo danh sách mới, Thêm mới {inserted:N0} thiết bị" + (skipped > 0 ? $" (Bỏ qua {skipped} dòng trống)." : ".");
-        return new DeviceImportResultVm(totalProcessed, updated, inserted, skipped, msg);
+        return createdId;
+    }
+
+    private static string StripDelSuffix(string rawImei)
+    {
+        if (string.IsNullOrWhiteSpace(rawImei)) return "";
+        var idx = rawImei.IndexOf("#DEL#", StringComparison.OrdinalIgnoreCase);
+        return idx >= 0 ? rawImei[..idx] : rawImei;
+    }
+
+    public string SoftDeleteDeviceActivation(long activationId, long actorId = 0)
+    {
+        var effActor = actorId > 0 ? actorId : ActorId;
+        if (!CanSoftDeleteDeviceUser(effActor))
+            throw new InvalidOperationException("Chỉ tài khoản Kế toán, Quản trị (Admin) hoặc Chủ sở hữu (Owner) mới có quyền xóa mềm thiết bị.");
+
+        var prevActor = ActorId;
+        ActorId = effActor;
+        using var scope = AuditRuntime.As(effActor);
+        try
+        {
+            var feedback = Tx((c, t) =>
+            {
+                var isMain = IsMainDeveloper(c, t, effActor);
+                long? delActorParam = isMain ? null : effActor;
+                var nowIso = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+
+                var act = QueryTx(c, t, @"SELECT a.id, a.stock_unit_id, a.customer_id, a.product_id, COALESCE(a.v7_order_id,0),
+                    u.imei, COALESCE(a.plate_no,''), COALESCE(NULLIF(a.agency_name,''), c.name, ''),
+                    COALESCE(NULLIF(a.device_type_label,''), p.sku)
+                    FROM activations a
+                    JOIN stock_units u ON u.id=a.stock_unit_id
+                    JOIN products p ON p.id=a.product_id
+                    LEFT JOIN customers c ON c.id=a.customer_id
+                    WHERE a.id=$id AND a.deleted_at IS NULL",
+                    r => (Id: L(r, 0), StockUnitId: L(r, 1), CustId: L(r, 2), ProdId: L(r, 3), OrderId: L(r, 4),
+                          Imei: S(r, 5), Plate: S(r, 6), CustName: S(r, 7), DevLabel: S(r, 8)),
+                    ("$id", activationId)).SingleOrDefault();
+
+                if (act.Id == 0)
+                    throw new InvalidOperationException("Không tìm thấy thiết bị đang hoạt động hoặc thiết bị đã được xóa mềm trước đó.");
+
+                var cleanImei = StripDelSuffix(act.Imei);
+
+                // Kiểm tra chốt số Kế toán trên các đợt gia hạn của thiết bị
+                var lockedRenCnt = N(c, t, @"SELECT COUNT(*) FROM renewals r
+                    LEFT JOIN invoices i ON i.renewal_id=r.id AND i.deleted_at IS NULL
+                    WHERE r.activation_id=$a AND r.deleted_at IS NULL AND (r.is_locked=1 OR COALESCE(i.is_locked,0)=1)",
+                    ("$a", act.Id));
+                if (!isMain && lockedRenCnt > 0)
+                    throw new InvalidOperationException("Thiết bị này có đợt gia hạn / chứng từ kế toán đã chốt số khóa sổ. Vui lòng mở khóa chốt số trước khi xóa mềm.");
+
+                var summaryParts = new List<string>();
+
+                // Helper xóa mềm chứng từ kế toán (invoices + invoice_lines + payment_allocations + payments mồ côi)
+                void SoftVoidInvoice(long invId)
+                {
+                    var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", r => L(r, 0), ("$i", invId));
+                    Exec(c, t, "UPDATE payment_allocations SET deleted_at=$now, deleted_by=$actor WHERE invoice_id=$i AND deleted_at IS NULL",
+                        ("$now", nowIso), ("$actor", delActorParam), ("$i", invId));
+                    foreach (var pid in payIds.Distinct())
+                    {
+                        if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", pid)) == 0)
+                        {
+                            Exec(c, t, "UPDATE payments SET deleted_at=$now, deleted_by=$actor WHERE id=$p AND deleted_at IS NULL",
+                                ("$now", nowIso), ("$actor", delActorParam), ("$p", pid));
+                        }
+                    }
+                    Exec(c, t, "UPDATE invoice_lines SET deleted_at=$now, deleted_by=$actor WHERE invoice_id=$i AND deleted_at IS NULL",
+                        ("$now", nowIso), ("$actor", delActorParam), ("$i", invId));
+                    Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=$now, deleted_by=$actor WHERE id=$i",
+                        ("$now", nowIso), ("$actor", delActorParam), ("$i", invId));
+                }
+
+                // 1. Xóa mềm toàn bộ các đợt gia hạn (renewals) & chứng từ công nợ gia hạn (RENEWAL invoices)
+                var activeRenewals = QueryTx(c, t, "SELECT id, amount_vnd FROM renewals WHERE activation_id=$a AND deleted_at IS NULL",
+                    r => (Id: L(r, 0), Amt: L(r, 1)), ("$a", act.Id));
+                if (activeRenewals.Count > 0)
+                {
+                    var renInvNos = new List<string>();
+                    long totalRenVnd = 0;
+                    foreach (var ren in activeRenewals)
+                    {
+                        totalRenVnd += ren.Amt;
+                        var renInvs = QueryTx(c, t, "SELECT id, invoice_no FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL",
+                            r => (Id: L(r, 0), No: S(r, 1)), ("$r", ren.Id));
+                        foreach (var inv in renInvs)
+                        {
+                            if (!string.IsNullOrWhiteSpace(inv.No)) renInvNos.Add(inv.No);
+                            SoftVoidInvoice(inv.Id);
+                        }
+                        Exec(c, t, "UPDATE renewals SET deleted_at=$now, deleted_by=$actor WHERE id=$r",
+                            ("$now", nowIso), ("$actor", delActorParam), ("$r", ren.Id));
+                    }
+                    var invSeg = renInvNos.Count > 0 ? $" [{string.Join(", ", renInvNos)}]" : "";
+                    summaryParts.Add($"Đã loại bỏ {activeRenewals.Count} đợt gia hạn ({totalRenVnd:N0} ₫){invSeg}");
+                }
+
+                // 2. Xử lý đơn hàng lắp đặt & chứng từ công nợ bán hàng / kỹ thuật (SALE / SERVICE) nếu thiết bị sinh từ đơn hàng
+                if (act.OrderId > 0)
+                {
+                    var ordInfo = QueryTx(c, t, "SELECT id, code, quantity, status FROM v7_orders WHERE id=$o AND deleted_at IS NULL",
+                        r => (Id: L(r, 0), Code: S(r, 1), Qty: L(r, 2), Status: S(r, 3)), ("$o", act.OrderId)).SingleOrDefault();
+                    if (ordInfo.Id > 0)
+                    {
+                        var otherActiveActs = N(c, t, "SELECT COUNT(*) FROM activations WHERE v7_order_id=$o AND id<>$a AND deleted_at IS NULL",
+                            ("$o", ordInfo.Id), ("$a", act.Id));
+
+                        if (otherActiveActs == 0 && ordInfo.Qty <= 1)
+                        {
+                            var lockedOrdInv = N(c, t, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND deleted_at IS NULL AND is_locked=1", ("$o", ordInfo.Id));
+                            if (!isMain && lockedOrdInv > 0)
+                                throw new InvalidOperationException($"Đơn hàng {ordInfo.Code} gắn với thiết bị này có chứng từ kế toán đã chốt số khóa sổ. Vui lòng mở khóa trước khi xóa mềm.");
+
+                            var ordInvs = QueryTx(c, t, "SELECT id, invoice_no, amount_vnd FROM invoices WHERE v7_order_id=$o AND deleted_at IS NULL",
+                                r => (Id: L(r, 0), No: S(r, 1), Amt: L(r, 2)), ("$o", ordInfo.Id));
+                            var ordInvNos = new List<string>();
+                            foreach (var inv in ordInvs)
+                            {
+                                if (!string.IsNullOrWhiteSpace(inv.No)) ordInvNos.Add($"{inv.No} ({inv.Amt:N0} ₫)");
+                                SoftVoidInvoice(inv.Id);
+                            }
+
+                            Exec(c, t, "UPDATE v7_stock_effects SET deleted_at=$now, deleted_by=$actor WHERE order_id=$o AND deleted_at IS NULL",
+                                ("$now", nowIso), ("$actor", delActorParam), ("$o", ordInfo.Id));
+                            Exec(c, t, "UPDATE v7_order_lines SET stock_unit_id=NULL, deleted_at=$now, deleted_by=$actor WHERE order_id=$o AND deleted_at IS NULL",
+                                ("$now", nowIso), ("$actor", delActorParam), ("$o", ordInfo.Id));
+                            Exec(c, t, "UPDATE v7_orders SET status='CANCELLED', deleted_at=$now, deleted_by=$actor WHERE id=$o",
+                                ("$now", nowIso), ("$actor", delActorParam), ("$o", ordInfo.Id));
+
+                            summaryParts.Add($"Hủy đơn {ordInfo.Code}" + (ordInvNos.Count > 0 ? $" & chứng từ công nợ [{string.Join(", ", ordInvNos)}]" : ""));
+                        }
+                        else
+                        {
+                            // Đơn nhiều thiết bị: giảm trừ phần giá trị thiết bị này trên chứng từ SALE/SERVICE chưa khóa sổ
+                            var matchedLine = QueryTx(c, t, @"SELECT id, unit_price_vnd, COALESCE(installer_fee_vnd,0)
+                                FROM v7_order_lines
+                                WHERE order_id=$o AND deleted_at IS NULL AND (stock_unit_id=$s OR LOWER(TRIM(COALESCE(imei,'')))=LOWER($imei))
+                                ORDER BY id ASC LIMIT 1",
+                                r => (Id: L(r, 0), Price: L(r, 1), Fee: L(r, 2)),
+                                ("$o", ordInfo.Id), ("$s", act.StockUnitId), ("$imei", cleanImei)).FirstOrDefault();
+
+                            if (matchedLine.Id > 0)
+                            {
+                                Exec(c, t, "UPDATE v7_order_lines SET stock_unit_id=NULL, deleted_at=$now, deleted_by=$actor WHERE id=$lid",
+                                    ("$now", nowIso), ("$actor", delActorParam), ("$lid", matchedLine.Id));
+                                Exec(c, t, "UPDATE v7_stock_effects SET deleted_at=$now, deleted_by=$actor WHERE stock_unit_id=$s AND deleted_at IS NULL",
+                                    ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
+
+                                if (matchedLine.Price > 0)
+                                {
+                                    var saleInv = QueryTx(c, t, "SELECT id, invoice_no, amount_vnd FROM invoices WHERE v7_order_id=$o AND invoice_type='SALE' AND deleted_at IS NULL AND is_locked=0 ORDER BY id DESC LIMIT 1",
+                                        r => (Id: L(r, 0), No: S(r, 1), Amt: L(r, 2)), ("$o", ordInfo.Id)).FirstOrDefault();
+                                    if (saleInv.Id > 0)
+                                    {
+                                        var nextAmt = Math.Max(0, saleInv.Amt - matchedLine.Price);
+                                        var paidAmt = N(c, t, "SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", saleInv.Id));
+                                        var nextSt = nextAmt == 0 ? "VOID" : (paidAmt >= nextAmt ? "PAID" : (paidAmt > 0 ? "PARTIAL" : "OPEN"));
+                                        Exec(c, t, "UPDATE invoices SET amount_vnd=$amt, status=$st WHERE id=$i",
+                                            ("$amt", nextAmt), ("$st", nextSt), ("$i", saleInv.Id));
+                                        var il = QueryTx(c, t, "SELECT id, quantity FROM invoice_lines WHERE invoice_id=$i AND product_id=$p AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
+                                            r => (Id: L(r, 0), Qty: L(r, 1)), ("$i", saleInv.Id), ("$p", act.ProdId)).FirstOrDefault();
+                                        if (il.Id > 0)
+                                        {
+                                            if (il.Qty > 1)
+                                                Exec(c, t, "UPDATE invoice_lines SET quantity=quantity-1 WHERE id=$id", ("$id", il.Id));
+                                            else
+                                                Exec(c, t, "UPDATE invoice_lines SET deleted_at=$now, deleted_by=$actor WHERE id=$id", ("$now", nowIso), ("$actor", delActorParam), ("$id", il.Id));
+                                        }
+                                        summaryParts.Add($"Giảm trừ {matchedLine.Price:N0} ₫ trên chứng từ {saleInv.No} (Đơn {ordInfo.Code})");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Xử lý tồn kho IMEI (stock_units): nếu xuất từ kho RECEIVE thì hoàn trả IN_STOCK và tách bản ghi lưu vết riêng
+                var receiveWh = N(c, t, @"SELECT COALESCE(
+                    (SELECT COALESCE(tx.warehouse_id, (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 0)
+                     FROM inventory_transaction_lines l
+                     JOIN inventory_transactions tx ON tx.id=l.transaction_id
+                     WHERE l.stock_unit_id=$s AND tx.movement_type='RECEIVE' AND l.deleted_at IS NULL AND tx.deleted_at IS NULL
+                     ORDER BY l.id DESC LIMIT 1), 0)", ("$s", act.StockUnitId));
+
+                if (receiveWh > 0)
+                {
+                    Exec(c, t, @"UPDATE inventory_transaction_lines SET deleted_at=$now, deleted_by=$actor
+                        WHERE stock_unit_id=$s AND deleted_at IS NULL
+                          AND transaction_id IN (SELECT id FROM inventory_transactions WHERE movement_type='SALE_OUT')",
+                        ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
+
+                    // Tạo bản ghi stock_units lưu vết đã xóa để giải phóng stock_unit_id thật về lại tồn kho IN_STOCK
+                    Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at,deleted_at,deleted_by)
+                        VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'),$now,$actor)",
+                        ("$p", act.ProdId), ("$imei", $"{cleanImei}#DEL#{act.Id}"), ("$c", act.CustId), ("$now", nowIso), ("$actor", delActorParam));
+                    var archiveUnitId = N(c, t, "SELECT last_insert_rowid()");
+
+                    Exec(c, t, "UPDATE activations SET stock_unit_id=$arch WHERE id=$a", ("$arch", archiveUnitId), ("$a", act.Id));
+                    Exec(c, t, @"UPDATE stock_units
+                        SET imei=$imei, status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, deleted_at=NULL, updated_at=datetime('now')
+                        WHERE id=$s",
+                        ("$imei", cleanImei), ("$w", receiveWh), ("$s", act.StockUnitId));
+                    summaryParts.Add("Hoàn IMEI về lại tồn kho khả dụng");
+                }
+                else
+                {
+                    Exec(c, t, "UPDATE stock_units SET imei=$delImei, deleted_at=$now, deleted_by=$actor WHERE id=$s",
+                        ("$delImei", $"{cleanImei}#DEL#{act.Id}"), ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
+                }
+
+                var finalSummary = summaryParts.Count > 0
+                    ? string.Join("; ", summaryParts)
+                    : "Không có chứng từ công nợ / gia hạn phát sinh phía sau";
+
+                Exec(c, t, @"UPDATE activations
+                    SET status='DISABLED', deleted_at=$now, deleted_by=$actor, deleted_summary=$sum, updated_at=datetime('now')
+                    WHERE id=$id",
+                    ("$now", nowIso), ("$actor", delActorParam), ("$sum", finalSummary), ("$id", act.Id));
+
+                // 4. Đồng bộ lại chứng từ Hoa hồng Seller chưa khóa sổ
+                SyncUnlockedSellerCommissionInvoices(c, t);
+
+                Log(c, t, "SOFT_DELETE_DEVICE", "ACTIVATION", act.Id,
+                    $"Xóa mềm thiết bị IMEI {cleanImei} ({act.DevLabel} · Biển số: {(string.IsNullOrWhiteSpace(act.Plate) ? "—" : act.Plate)} · KH: {act.CustName}) — {finalSummary}");
+
+                return $"Đã xóa mềm thiết bị {cleanImei} ({act.DevLabel}) và lưu vết vào Lịch sử thiết bị đã xóa mềm bên dưới ({finalSummary}).";
+            });
+
+            NotifyDevicesChanged();
+            return feedback;
+        }
+        finally
+        {
+            ActorId = prevActor;
+        }
+    }
+
+    public string HardDeleteDeviceActivation(long activationId, long actorId = 0)
+    {
+        var effActor = actorId > 0 ? actorId : ActorId;
+        if (!IsMainDeveloperUser(effActor))
+            throw new InvalidOperationException("Chức năng Xóa cứng chỉ dành riêng cho tài khoản quản trị cấp cao (Main).");
+
+        var prevActor = ActorId;
+        ActorId = effActor;
+        using var scope = AuditRuntime.As(effActor);
+        try
+        {
+            var feedback = Tx((c, t) =>
+            {
+                var act = QueryTx(c, t, @"SELECT a.id, a.stock_unit_id, a.customer_id, a.product_id, COALESCE(a.v7_order_id,0),
+                    u.imei, COALESCE(a.plate_no,''), COALESCE(NULLIF(a.device_type_label,''), p.sku)
+                    FROM activations a
+                    JOIN stock_units u ON u.id=a.stock_unit_id
+                    JOIN products p ON p.id=a.product_id
+                    WHERE a.id=$id",
+                    r => (Id: L(r, 0), StockUnitId: L(r, 1), CustId: L(r, 2), ProdId: L(r, 3), OrderId: L(r, 4),
+                          Imei: S(r, 5), Plate: S(r, 6), DevLabel: S(r, 7)),
+                    ("$id", activationId)).SingleOrDefault();
+
+                if (act.Id == 0)
+                    throw new InvalidOperationException("Không tìm thấy bản ghi thiết bị để xóa cứng.");
+
+                var cleanImei = StripDelSuffix(act.Imei);
+                var isArchiveUnit = act.Imei.Contains("#DEL#", StringComparison.OrdinalIgnoreCase);
+
+                void HardDeleteInvoice(long invId)
+                {
+                    var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i", r => L(r, 0), ("$i", invId));
+                    Exec(c, t, "DELETE FROM payment_allocations WHERE invoice_id=$i", ("$i", invId));
+                    foreach (var pid in payIds.Distinct())
+                    {
+                        if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p", ("$p", pid)) == 0)
+                            Exec(c, t, "DELETE FROM payments WHERE id=$p", ("$p", pid));
+                    }
+                    Exec(c, t, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", invId));
+                    Exec(c, t, "DELETE FROM invoices WHERE id=$i", ("$i", invId));
+                }
+
+                // 1. Xóa cứng toàn bộ lịch sử gia hạn (renewals) & chứng từ RENEWAL
+                var renIds = QueryTx(c, t, "SELECT id FROM renewals WHERE activation_id=$a", r => L(r, 0), ("$a", act.Id));
+                int removedRenCount = renIds.Count;
+                foreach (var renId in renIds)
+                {
+                    var renInvIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r", r => L(r, 0), ("$r", renId));
+                    foreach (var invId in renInvIds)
+                        HardDeleteInvoice(invId);
+                    Exec(c, t, "DELETE FROM renewals WHERE id=$r", ("$r", renId));
+                }
+
+                // 2. Xóa cứng bản ghi kích hoạt & bảo hành gắn với stock_unit_id này (trước khi xử lý đơn hàng / tồn kho)
+                Exec(c, t, "DELETE FROM warranty_events WHERE case_id IN (SELECT id FROM warranty_cases WHERE stock_unit_id=$s)", ("$s", act.StockUnitId));
+                Exec(c, t, "DELETE FROM warranty_cases WHERE stock_unit_id=$s", ("$s", act.StockUnitId));
+                Exec(c, t, "DELETE FROM v7_stock_effects WHERE stock_unit_id=$s", ("$s", act.StockUnitId));
+                Exec(c, t, "UPDATE v7_order_lines SET stock_unit_id=NULL WHERE stock_unit_id=$s", ("$s", act.StockUnitId));
+                Exec(c, t, "DELETE FROM activations WHERE id=$id", ("$id", act.Id));
+
+                // 3. Xóa cứng luồng đơn hàng & công nợ kế toán (v7_orders, SALE, SERVICE) nếu có
+                bool removedOrder = false;
+                if (act.OrderId > 0)
+                {
+                    var ordExists = N(c, t, "SELECT COUNT(*) FROM v7_orders WHERE id=$o", ("$o", act.OrderId)) > 0;
+                    if (ordExists)
+                    {
+                        var remainingActs = N(c, t, "SELECT COUNT(*) FROM activations WHERE v7_order_id=$o", ("$o", act.OrderId));
+                        var ordQty = N(c, t, "SELECT COALESCE((SELECT quantity FROM v7_orders WHERE id=$o), 1)", ("$o", act.OrderId));
+                        if (remainingActs == 0 && ordQty <= 1)
+                        {
+                            Exec(c, t, "DELETE FROM v7_stock_effects WHERE order_id=$o", ("$o", act.OrderId));
+                            Exec(c, t, "UPDATE v7_orders SET status='CANCELLED' WHERE id=$o AND status='COMPLETED'", ("$o", act.OrderId));
+                            Exec(c, t, "UPDATE v7_order_lines SET stock_unit_id=NULL WHERE order_id=$o", ("$o", act.OrderId));
+
+                            var ordInvIds = QueryTx(c, t, "SELECT id FROM invoices WHERE v7_order_id=$o", r => L(r, 0), ("$o", act.OrderId));
+                            foreach (var invId in ordInvIds)
+                                HardDeleteInvoice(invId);
+
+                            Exec(c, t, "DELETE FROM v7_order_events WHERE order_id=$o", ("$o", act.OrderId));
+                            Exec(c, t, "DELETE FROM v7_order_lines WHERE order_id=$o", ("$o", act.OrderId));
+                            Exec(c, t, "DELETE FROM v7_orders WHERE id=$o", ("$o", act.OrderId));
+                            removedOrder = true;
+                        }
+                        else
+                        {
+                            var matchedLine = QueryTx(c, t, @"SELECT id, unit_price_vnd, deleted_at
+                                FROM v7_order_lines
+                                WHERE order_id=$o AND LOWER(TRIM(COALESCE(imei,'')))=LOWER($imei)
+                                ORDER BY id ASC LIMIT 1",
+                                r => (Id: L(r, 0), Price: L(r, 1), DelAt: S(r, 2)),
+                                ("$o", act.OrderId), ("$imei", cleanImei)).FirstOrDefault();
+
+                            if (matchedLine.Id > 0)
+                            {
+                                // Chỉ giảm trừ hóa đơn nếu dòng này chưa từng được giảm trừ lúc xóa mềm
+                                if (string.IsNullOrWhiteSpace(matchedLine.DelAt) && matchedLine.Price > 0)
+                                {
+                                    var saleInv = QueryTx(c, t, "SELECT id, amount_vnd FROM invoices WHERE v7_order_id=$o AND invoice_type='SALE' ORDER BY id DESC LIMIT 1",
+                                        r => (Id: L(r, 0), Amt: L(r, 1)), ("$o", act.OrderId)).FirstOrDefault();
+                                    if (saleInv.Id > 0)
+                                    {
+                                        var nextAmt = Math.Max(0, saleInv.Amt - matchedLine.Price);
+                                        if (nextAmt == 0)
+                                        {
+                                            HardDeleteInvoice(saleInv.Id);
+                                        }
+                                        else
+                                        {
+                                            var paidAmt = N(c, t, "SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", saleInv.Id));
+                                            var nextSt = paidAmt >= nextAmt ? "PAID" : (paidAmt > 0 ? "PARTIAL" : "OPEN");
+                                            Exec(c, t, "UPDATE invoices SET amount_vnd=$amt, status=$st WHERE id=$i", ("$amt", nextAmt), ("$st", nextSt), ("$i", saleInv.Id));
+                                            var il = QueryTx(c, t, "SELECT id, quantity FROM invoice_lines WHERE invoice_id=$i AND product_id=$p ORDER BY id DESC LIMIT 1",
+                                                r => (Id: L(r, 0), Qty: L(r, 1)), ("$i", saleInv.Id), ("$p", act.ProdId)).FirstOrDefault();
+                                            if (il.Id > 0)
+                                            {
+                                                if (il.Qty > 1) Exec(c, t, "UPDATE invoice_lines SET quantity=quantity-1 WHERE id=$id", ("$id", il.Id));
+                                                else Exec(c, t, "DELETE FROM invoice_lines WHERE id=$id", ("$id", il.Id));
+                                            }
+                                        }
+                                    }
+                                }
+                                Exec(c, t, "DELETE FROM v7_order_lines WHERE id=$id", ("$id", matchedLine.Id));
+                            }
+                        }
+                    }
+                }
+
+                // 4. Hoàn tác phiếu SALE_OUT & dọn dẹp stock_units
+                var saleOutLines = QueryTx(c, t, @"SELECT l.id, tx.id
+                    FROM inventory_transaction_lines l
+                    JOIN inventory_transactions tx ON tx.id=l.transaction_id
+                    WHERE l.stock_unit_id=$s AND tx.movement_type='SALE_OUT'",
+                    r => (LineId: L(r, 0), TxId: L(r, 1)), ("$s", act.StockUnitId));
+                foreach (var sl in saleOutLines)
+                    Exec(c, t, "DELETE FROM inventory_transaction_lines WHERE id=$id", ("$id", sl.LineId));
+                foreach (var txId in saleOutLines.Select(x => x.TxId).Distinct())
+                {
+                    if (N(c, t, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE transaction_id=$t", ("$t", txId)) == 0)
+                        Exec(c, t, "DELETE FROM inventory_transactions WHERE id=$t AND movement_type='SALE_OUT'", ("$t", txId));
+                }
+
+                var receiveWh = !isArchiveUnit ? N(c, t, @"SELECT COALESCE(
+                    (SELECT COALESCE(tx.warehouse_id, (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 0)
+                     FROM inventory_transaction_lines l
+                     JOIN inventory_transactions tx ON tx.id=l.transaction_id
+                     WHERE l.stock_unit_id=$s AND tx.movement_type='RECEIVE'
+                     ORDER BY l.id DESC LIMIT 1), 0)", ("$s", act.StockUnitId)) : 0;
+
+                if (receiveWh > 0 && N(c, t, "SELECT COUNT(*) FROM stock_units WHERE LOWER(TRIM(imei))=LOWER($imei) AND id<>$s AND deleted_at IS NULL", ("$imei", cleanImei), ("$s", act.StockUnitId)) == 0)
+                {
+                    Exec(c, t, @"UPDATE stock_units
+                        SET imei=$imei, status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, deleted_at=NULL, deleted_by=NULL, updated_at=datetime('now')
+                        WHERE id=$s",
+                        ("$imei", cleanImei), ("$w", receiveWh), ("$s", act.StockUnitId));
+                }
+                else if (N(c, t, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE stock_unit_id=$s", ("$s", act.StockUnitId)) == 0 &&
+                         N(c, t, "SELECT COUNT(*) FROM activations WHERE stock_unit_id=$s", ("$s", act.StockUnitId)) == 0)
+                {
+                    Exec(c, t, "DELETE FROM stock_units WHERE id=$s", ("$s", act.StockUnitId));
+                }
+
+                // 5. Đồng bộ lại chứng từ Hoa hồng Seller chưa khóa sổ
+                SyncUnlockedSellerCommissionInvoices(c, t);
+
+                return $"Đã xóa cứng vĩnh viễn thiết bị {cleanImei} ({act.DevLabel})"
+                    + (removedRenCount > 0 ? $", {removedRenCount} đợt gia hạn & công nợ liên quan" : "")
+                    + (removedOrder ? ", cùng đơn hàng & chứng từ kế toán liên quan." : ".");
+            });
+
+            NotifyDevicesChanged();
+            return feedback;
+        }
+        finally
+        {
+            ActorId = prevActor;
+        }
+    }
+
+    public List<DeletedDeviceVm> DeletedDevices()
+    {
+        using var c = Open();
+        return Query(c, @"SELECT a.id, u.imei, p.sku,
+            COALESCE(NULLIF(a.device_type_label,''),
+              CASE WHEN p.sku='SP000001' THEN 'XANHGPS'
+                   WHEN p.sku IN ('DX00002','SP000019') THEN 'NASAGPS'
+                   WHEN p.sku='SP000005' THEN 'TDCGPS'
+                   WHEN p.sku='SP000012' THEN 'AICAM'
+                   WHEN p.sku='SP000006' THEN 'mGPS'
+                   ELSE p.sku END),
+            COALESCE(a.plate_no,''),
+            COALESCE(NULLIF(a.agency_name,''), c.name, '—'),
+            COALESCE(a.owner_name,''),
+            COALESCE(a.owner_phone,''),
+            COALESCE(a.activated_at,''),
+            COALESCE(a.expires_at,''),
+            COALESCE(a.deleted_at,''),
+            CASE
+              WHEN du.id IS NULL OR LOWER(COALESCE(du.username,''))='vanlt_it' THEN 'Hệ thống / Quản trị'
+              ELSE du.display_name || ' (' || du.username || ')'
+            END,
+            COALESCE(NULLIF(a.deleted_summary,''), 'Không có chứng từ công nợ / gia hạn phát sinh phía sau')
+            FROM activations a
+            JOIN stock_units u ON u.id=a.stock_unit_id
+            JOIN products p ON p.id=a.product_id
+            LEFT JOIN customers c ON c.id=a.customer_id
+            LEFT JOIN app_users du ON du.id=a.deleted_by
+            WHERE a.deleted_at IS NOT NULL
+            ORDER BY a.deleted_at DESC, a.id DESC",
+            r => new DeletedDeviceVm(
+                L(r, 0),
+                StripDelSuffix(S(r, 1)),
+                S(r, 2),
+                S(r, 3),
+                S(r, 4),
+                S(r, 5),
+                S(r, 6),
+                S(r, 7),
+                S(r, 8),
+                S(r, 9),
+                VnDateTimeHelper.FormatDisplay(S(r, 10), false),
+                S(r, 11),
+                S(r, 12)));
     }
 
     public List<RenewalVm> Renewals()
@@ -1530,7 +1749,7 @@ public sealed class DemoDb
           LEFT JOIN customers c ON c.id=a.customer_id
           LEFT JOIN v7_sellers sl ON sl.id=r.seller_id
           LEFT JOIN invoices inv ON inv.id=(SELECT i2.id FROM invoices i2 WHERE i2.renewal_id=r.id AND i2.deleted_at IS NULL AND i2.status<>'VOID' ORDER BY i2.id DESC LIMIT 1)
-          WHERE r.deleted_at IS NULL
+          WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL
           ORDER BY r.id DESC",
           r => new RenewalVm(
               L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), S(r,6),
@@ -1973,8 +2192,8 @@ public sealed class DemoDb
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
                    + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN products p ON p.id=il.product_id JOIN customers cu ON cu.id=i.customer_id
                       WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND p.is_serialized=1 AND i.status<>'VOID' AND cu.seller_id=s.id) AS dev_qty,
-                   (SELECT COUNT(*) FROM renewals r
-                    WHERE r.deleted_at IS NULL
+                   (SELECT COUNT(*) FROM renewals r JOIN activations a ON a.id=r.activation_id
+                    WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL
                       AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))) AS ren_cnt
             FROM v7_sellers s WHERE s.deleted_at IS NULL",
             r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), OrderRate: L(r, 3), RenRate: L(r, 4), DevQty: L(r, 5), RenCnt: L(r, 6)));
@@ -2685,7 +2904,7 @@ public sealed class DemoDb
                 JOIN activations a ON a.id=r.activation_id
                 JOIN stock_units u ON u.id=a.stock_unit_id
                 JOIN products p ON p.id=a.product_id
-                WHERE r.deleted_at IS NULL AND r.amount_vnd > 0
+                WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL AND r.amount_vnd > 0
                   AND NOT EXISTS (
                       SELECT 1 FROM invoices i
                       WHERE i.renewal_id=r.id AND i.invoice_type='RENEWAL' AND i.deleted_at IS NULL AND i.status<>'VOID'
@@ -2851,11 +3070,11 @@ public sealed class DemoDb
                    (SELECT COALESCE(SUM(COALESCE(o.installer_fee_vnd,0)),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
                     WHERE o.deleted_at IS NULL AND o.status='COMPLETED' {ordRangeCond}
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%')))),
-                   (SELECT COUNT(*) FROM renewals r
-                    WHERE r.deleted_at IS NULL {renRangeCond}
+                   (SELECT COUNT(*) FROM renewals r JOIN activations a ON a.id=r.activation_id
+                    WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL {renRangeCond}
                       AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
-                   (SELECT COALESCE(SUM(r.amount_vnd),0) FROM renewals r
-                    WHERE r.deleted_at IS NULL {renRangeCond}
+                   (SELECT COALESCE(SUM(r.amount_vnd),0) FROM renewals r JOIN activations a ON a.id=r.activation_id
+                    WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL {renRangeCond}
                       AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))),
                    (SELECT COALESCE(SUM(i.amount_vnd),0) FROM invoices i
                     WHERE i.deleted_at IS NULL AND i.invoice_type='COMMISSION' AND i.status<>'VOID' {invRangeCond}

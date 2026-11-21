@@ -8,48 +8,125 @@
 <div class="crud-actionbar">
     @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Thời gian gia hạn & Ngày KH":"Cập nhật Thời gian gia hạn & Ngày kích hoạt")</button>}
-    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showImportPanel?"":"secondary")" @onclick="()=>ToggleForm(nameof(showImportPanel))">@(showImportPanel?"Đóng · 📥 Nhập danh sách thiết bị":"📥 Nhập danh sách thiết bị (12 cột)")</button>}
+    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showCreateDevice?"":"secondary")" @onclick="()=>ToggleForm(nameof(showCreateDevice))">@(showCreateDevice?"Đóng · + Thêm thiết bị":"+ Thêm thiết bị")</button>}
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
-    <a class="btn secondary" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải Tệp Mẫu Chuẩn (.xlsx)</a>
 </div>
 
 @if(canRenew || canUpdateDevice){
-<div class="panel edit-panel" hidden="@(!showImportPanel)">
+<div class="panel edit-panel" hidden="@(!showCreateDevice)">
     <div class="panel-head">
         <div>
-            <h2>📥 Nhập &amp; Cập nhật Danh sách Thiết bị theo Mẫu chuẩn (12 cột)</h2>
-            <p>Hệ thống tự động kiểm tra theo <strong>Số IMEI Thiết bị</strong>: nếu trùng dữ liệu cũ sẽ <strong>cập nhật lại theo danh sách mới</strong>, nếu chưa có sẽ <strong>thêm mới</strong> vào danh sách quản lý.</p>
+            <h2>+ Thêm thiết bị mới (Nhập tay &amp; Chọn từ danh mục có sẵn)</h2>
+            <p>Chọn <strong>Đại lý / Khách hàng</strong>, <strong>Sản phẩm thiết bị</strong>, <strong>Nhân viên bán hàng</strong> hoặc <strong>Khách hàng / Chủ xe</strong> có sẵn trong hệ thống và nhập thông tin kích hoạt thiết bị.</p>
         </div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-        <a class="btn secondary btn-sm" href="/templates/DATA_TB_TNM.xlsx" download="DATA_TB_TNM.xlsx">⬇ Tải Tệp Dữ Liệu Chuẩn Gốc (DATA_TB_TNM.xlsx · 3.021 dòng)</a>
-        <a class="btn secondary btn-sm" href="/templates/danh-sach-thiet-bi-import.csv" download="danh-sach-thiet-bi-import.csv">⬇ Tải Tệp Dữ Liệu Chuẩn (.csv · 3.021 dòng)</a>
-        <a class="btn secondary btn-sm" href="/templates/mau-import-thiet-bi.csv" download="mau-import-thiet-bi.csv">⬇ Tải Biểu Mẫu Nhập Liệu (10 dòng mẫu)</a>
-        <a class="btn btn-sm" href="/export/devices-import-format.csv" target="_blank">⬇ Xuất Toàn Bộ Thiết Bị Đang Quản Lý Theo Mẫu 12 Cột (.csv)</a>
-    </div>
-    <div style="font-size:12px;color:#334155;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:8px 12px;margin-bottom:12px">
-        <strong>Cấu trúc 12 cột chuẩn:</strong>
-        <code>1. STT | 2. Biển số xe/Số khung | 3. Số IMEI Thiết bị | 4. Tên Thiết bị | 5. Tên Đại lý | 6. Tên Khách hàng | 7. SĐT Khách hàng | 8. Trạng thái thiết bị (Hoạt động / Khoá) | 9. Ngày kích hoạt | 10. Ngày hết hạn | 11. Ngày gia hạn gần nhất (nếu có) | 12. Số lần gia hạn</code>
-    </div>
     <div class="form-grid">
-        <label>Chọn tệp Excel (<code>.xlsx</code>) hoặc bảng tính (<code>.csv</code>) theo mẫu 12 cột
-            <InputFile OnChange="OnImportFileSelected" accept=".xlsx,.csv,.txt" />
+        <label>Đại lý / Hợp tác xã / Khách hàng *
+            <select @bind="createCustomerId" @bind:after="OnCreateCustomerChanged">
+                @foreach(var cu in customers)
+                {
+                    <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName @(string.IsNullOrWhiteSpace(cu.Group) || cu.Group == "-" ? "" : $"[{cu.Group}]")</option>
+                }
+            </select>
         </label>
-        <label>Hoặc dán trực tiếp nội dung bảng dữ liệu (tùy chọn)
-            <textarea rows="3" @bind="importCsvPaste" placeholder="Dán các dòng dữ liệu từ bảng Excel (12 cột) vào đây..."></textarea>
+        <label>Sản phẩm / Dòng thiết bị *
+            <select @bind="createProductId" @bind:after="OnCreateProductChanged">
+                @foreach(var pr in hardwareProducts)
+                {
+                    <option value="@pr.Id">@pr.Sku — @pr.Name @(pr.StockInHand > 0 ? $"[Tồn kho: {pr.StockInHand:N0}]" : "")</option>
+                }
+            </select>
+        </label>
+        <label>Tên / Nhãn thiết bị hiển thị *
+            <select @bind="createDeviceTypeLabel">
+                @foreach(var lbl in AvailableDeviceTypeLabels)
+                {
+                    <option value="@lbl">@lbl</option>
+                }
+            </select>
+        </label>
+        <label>Chọn nhanh IMEI từ Tồn kho khả dụng (tùy chọn)
+            <select @bind="pickedStockImei" @bind:after="OnPickStockImei">
+                <option value="">— Nhập tay mã IMEI bên cạnh @(availStockImeis.Count > 0 ? $"(hoặc chọn trong {availStockImeis.Count} IMEI tồn kho)" : "(không có IMEI tồn kho SP này)") —</option>
+                @foreach(var st in availStockImeis)
+                {
+                    <option value="@st.Imei">@st.Imei (@st.WarehouseName)</option>
+                }
+            </select>
+        </label>
+        <label>Số IMEI thiết bị *
+            <input @bind="createImei" list="create-avail-imeis" placeholder="Nhập mã IMEI thiết bị (VD: 0958C6245X)..." />
+            <datalist id="create-avail-imeis">
+                @foreach(var st in availStockImeis)
+                {
+                    <option value="@st.Imei">@st.WarehouseName</option>
+                }
+            </datalist>
+        </label>
+        <label>Biển số xe / Số khung
+            <input @bind="createPlate" placeholder="VD: 51H-123.45 hoặc số khung..." />
+        </label>
+        <label>Chọn nhanh Khách hàng / Chủ xe có sẵn (thuộc Đại lý)
+            <select @bind="pickedAgencyOwnerKey" @bind:after="OnPickAgencyOwner">
+                <option value="">— Nhập chủ xe mới hoặc chọn từ danh sách có sẵn (@agencyOwners.Count) —</option>
+                @foreach(var ow in agencyOwners)
+                {
+                    <option value="@ow.Key">@ow.Name @(string.IsNullOrWhiteSpace(ow.Phone) ? "" : $"· 📞 {ow.Phone}")</option>
+                }
+            </select>
+        </label>
+        <label>Tên khách hàng / Chủ xe sử dụng
+            <input @bind="createOwnerName" list="create-owners-datalist" placeholder="Nhập tên chủ xe / khách sử dụng..." />
+            <datalist id="create-owners-datalist">
+                @foreach(var ow in agencyOwners)
+                {
+                    <option value="@ow.Name">@ow.Phone</option>
+                }
+            </datalist>
+        </label>
+        <label>Số điện thoại khách hàng / Chủ xe
+            <input @bind="createOwnerPhone" placeholder="VD: 0909123456..." />
+        </label>
+        <label>Nhân viên bán hàng phụ trách
+            <select @bind="createSellerId">
+                <option value="0">— Chưa gán / Theo mặc định Đại lý —</option>
+                @foreach(var sl in sellerChoices)
+                {
+                    <option value="@sl.Id">@sl.Code — @sl.Name @(string.IsNullOrWhiteSpace(sl.Department) ? "" : $"({sl.Department})")</option>
+                }
+            </select>
+        </label>
+        <label>Ngày kích hoạt *
+            <input type="date" @bind="createActivatedDate" @bind:after="OnCreateActivatedOrDurationChanged" />
+        </label>
+        <label>Thời hạn kích hoạt
+            <select @bind="createDurationMonths" @bind:after="OnCreateActivatedOrDurationChanged">
+                <option value="12">1 năm (12 tháng)</option>
+                <option value="24">2 năm (24 tháng)</option>
+                <option value="36">3 năm (36 tháng)</option>
+                <option value="6">6 tháng</option>
+            </select>
+        </label>
+        <label>Ngày hết hạn *
+            <input type="date" @bind="createExpiresDate" />
+        </label>
+        <label>Trạng thái thiết bị *
+            <select @bind="createDeviceStatus">
+                <option value="ACTIVE">Hoạt động (Cho phép gia hạn)</option>
+                <option value="DISABLED">Tạm khóa thiết bị</option>
+            </select>
+        </label>
+        <label>Giá gia hạn áp dụng theo Nhóm KH (12 tháng)
+            <input readonly value="@($"{createPreviewRenewalVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
         </label>
     </div>
     <div class="form-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button type="button" class="btn" disabled="@isImporting" data-confirm="edit" data-confirm-title="Xác nhận Nhập &amp; Cập nhật Thiết bị" data-confirm-msg="Bạn có chắc chắn muốn thực hiện nhập và cập nhật trùng dữ liệu thiết bị theo danh sách đã chọn không?" @onclick="ExecuteImportDevices">
-            @(isImporting ? "Đang kiểm tra trùng & cập nhật..." : "Thực hiện Nhập & Cập nhật dữ liệu")
+        <button type="button" class="btn" data-confirm="add" data-confirm-title="Xác nhận Thêm thiết bị mới" data-confirm-msg="@($"Bạn có chắc chắn muốn thêm thiết bị IMEI {(string.IsNullOrWhiteSpace(createImei) ? "—" : createImei.Trim())} ({createDeviceTypeLabel}) vào danh sách quản lý không?")" @onclick="SaveNewManualDevice">
+            + Lưu thêm thiết bị
         </button>
-        @if (!string.IsNullOrWhiteSpace(selectedImportFileName))
+        @if (!string.IsNullOrWhiteSpace(createMessage))
         {
-            <span class="chip blue-chip">Tệp đã chọn: @selectedImportFileName</span>
-        }
-        @if (!string.IsNullOrWhiteSpace(importFeedback))
-        {
-            <span class="feedback" style="font-weight:700">@importFeedback</span>
+            <span class="feedback" style="font-weight:700">@createMessage</span>
         }
     </div>
 </div>
@@ -295,10 +372,10 @@
             }
         </td>
         <td>
-            @if(canRenew || canUpdateDevice)
+            @if(canRenew || canUpdateDevice || canSoftDeleteDevice || isMainRole)
             {
                 <div style="display:flex;gap:4px;flex-wrap:wrap">
-                    @if(locked)
+                    @if(locked && (canRenew || canUpdateDevice))
                     {
                         <button type="button" class="btn btn-sm" style="background:#15803d;border-color:#15803d" data-confirm="none" @onclick="() => ToggleDeviceLock(x)">🔓 Mở khóa</button>
                     }
@@ -306,7 +383,26 @@
                     {
                         <button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button>
                     }
-                    <button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button>
+                    @if(canRenew || canUpdateDevice)
+                    {
+                        <button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button>
+                    }
+                    @if(canSoftDeleteDevice)
+                    {
+                        <button type="button" class="btn secondary btn-sm" style="color:#b45309;border-color:#fcd34d;background:#fffbeb"
+                            data-confirm="delete"
+                            data-confirm-title="Xác nhận Xóa mềm thiết bị &amp; Loại bỏ công nợ liên quan"
+                            data-confirm-msg="@($"Bạn có chắc chắn muốn XÓA MỀM thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận lưu vết bên dưới phần Lịch sử.")"
+                            @onclick="() => SoftDeleteDevice(x)">Xóa mềm</button>
+                    }
+                    @if(isMainRole)
+                    {
+                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5;background:#fef2f2;font-weight:700"
+                            data-confirm="delete"
+                            data-confirm-title="Xác nhận XÓA CỨNG vĩnh viễn thiết bị &amp; Toàn bộ luồng kế toán"
+                            data-confirm-msg="@($"CẢNH BÁO XÓA CỨNG: Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)}) cùng toàn bộ lịch sử gia hạn, đơn hàng và chứng từ kế toán công nợ liên quan phía sau khỏi CSDL không? Thao tác này không thể hoàn tác.")"
+                            @onclick="() => HardDeleteDevice(x.ActivationId)">🗑 Xóa cứng</button>
+                    }
                 </div>
             }
         </td>
@@ -458,72 +554,147 @@
 </tbody></table></div>
 <TablePager Pager="renewalPager" TotalCount="totalRenewals" OnChange="StateHasChanged" />
 </section>}
+
+@if(canHistory || canSoftDeleteDevice || isMainRole)
+{
+    var pagedDeleted = deletedDevicePager.Slice(FilteredDeletedDevices, out var totalDeletedDevices);
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>Lịch sử thiết bị đã xóa mềm (Lưu vết kiểm soát)</h2>
+                <p>Lưu vết đầy đủ các thiết bị đã thực hiện xóa mềm (thời gian xóa, người thực hiện và chi tiết các luồng gia hạn / công nợ kế toán phía sau đã tự động loại bỏ).</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input class="search-input" style="min-width:220px" @bind="deletedSearch" @bind:event="oninput" @bind:after="() => deletedDevicePager.Reset()" placeholder="Tìm IMEI, biển số, KH, người xóa..." />
+                <span class="chip orange-chip">Đã xóa mềm: @totalDeletedDevices thiết bị</span>
+            </div>
+        </div>
+        @if(!string.IsNullOrWhiteSpace(deletedHistoryMessage))
+        {
+            <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+                @deletedHistoryMessage
+            </div>
+        }
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>STT</th>
+                        <th>BIỂN SỐ</th>
+                        <th>SỐ IMEI</th>
+                        <th>TÊN THIẾT BỊ</th>
+                        <th>ĐẠI LÝ / KHÁCH HÀNG</th>
+                        <th>CHỦ XE &amp; SĐT</th>
+                        <th>KÍCH HOẠT → HẾT HẠN</th>
+                        <th>THỜI GIAN &amp; NGƯỜI XÓA</th>
+                        <th>LUỒNG KẾ TOÁN / GIA HẠN ĐÃ LOẠI BỎ</th>
+                        @if(isMainRole)
+                        {
+                            <th>THAO TÁC</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @if(pagedDeleted.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="@(isMainRole ? 10 : 9)" style="text-align:center;padding:18px;color:#64748b">
+                                Chưa có thiết bị nào trong danh sách lưu vết xóa mềm.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach(var (stt, dx) in pagedDeleted)
+                        {
+                            <tr @key="dx.ActivationId" style="background:#fffaf5">
+                                <td><strong>@stt</strong></td>
+                                <td><strong>@(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)</strong></td>
+                                <td><strong style="text-decoration:line-through;color:#64748b">@dx.Imei</strong></td>
+                                <td>
+                                    <span class="chip orange-chip">@dx.DeviceTypeLabel</span>
+                                    <div><small style="color:#64748b">@dx.Sku</small></div>
+                                </td>
+                                <td class="wrap-cell"><strong>@dx.CustomerName</strong></td>
+                                <td class="wrap-cell">
+                                    <div>@(string.IsNullOrWhiteSpace(dx.OwnerName) ? "—" : dx.OwnerName)</div>
+                                    @if(!string.IsNullOrWhiteSpace(dx.OwnerPhone))
+                                    {
+                                        <small>📞 @dx.OwnerPhone</small>
+                                    }
+                                </td>
+                                <td>
+                                    <div><small style="color:#64748b">@dx.ActivatedAt</small> → <strong>@dx.ExpiresAt</strong></div>
+                                </td>
+                                <td class="wrap-cell">
+                                    <div><strong>@dx.DeletedAt</strong></div>
+                                    <small style="color:#b45309;font-weight:600">Bởi: @dx.DeletedByName</small>
+                                </td>
+                                <td class="wrap-cell">
+                                    <span style="font-size:12.5px;color:#334155">@dx.DeletedSummary</span>
+                                </td>
+                                @if(isMainRole)
+                                {
+                                    <td>
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5;background:#fef2f2;font-weight:700"
+                                            data-confirm="delete"
+                                            data-confirm-title="Xác nhận XÓA CỨNG vĩnh viễn bản ghi lưu vết"
+                                            data-confirm-msg="@($"Bạn có chắc chắn muốn XÓA CỨNG vĩnh viễn thiết bị IMEI {dx.Imei} ({(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)}) cùng toàn bộ dữ liệu liên quan khỏi CSDL không?")"
+                                            @onclick="() => HardDeleteDevice(dx.ActivationId, fromDeletedList: true)">🗑 Xóa cứng</button>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+        <TablePager Pager="deletedDevicePager" TotalCount="totalDeletedDevices" OnChange="StateHasChanged" />
+    </section>
+}
 @code {
- private bool showRenew, showEditAct, showImportPanel, isImporting;
- private IBrowserFile? selectedImportFile;
- private string selectedImportFileName = "", importCsvPaste = "", importFeedback = "";
+ private bool showRenew, showEditAct, showCreateDevice;
  private readonly PagerState devicePager = new();
  private readonly PagerState renewalPager = new();
+ private readonly PagerState deletedDevicePager = new();
  private void ToggleForm(string form){
   showRenew = form=="showRenew" && !showRenew;
   showEditAct = form=="showEditAct" && !showEditAct;
-  showImportPanel = form=="showImportPanel" && !showImportPanel;
- }
-
- private void OnImportFileSelected(InputFileChangeEventArgs e)
- {
-  selectedImportFile = e.File;
-  selectedImportFileName = e.File?.Name ?? "";
-  importFeedback = "";
- }
-
- private async Task ExecuteImportDevices()
- {
-  try
-  {
-   isImporting = true;
-   importFeedback = "";
-   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
-   DeviceImportResultVm res;
-   if (selectedImportFile is not null)
-   {
-    await using var stream = selectedImportFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-    using var ms = new MemoryStream();
-    await stream.CopyToAsync(ms);
-    ms.Position = 0;
-    res = Db.ImportDevicesFromStream(ms, selectedImportFile.Name);
-   }
-   else if (!string.IsNullOrWhiteSpace(importCsvPaste))
-   {
-    res = Db.ImportDevicesFromCsvText(importCsvPaste);
-   }
-   else
-   {
-    importFeedback = "Vui lòng chọn tệp (.xlsx / .csv) hoặc dán dữ liệu trước khi bấm Nhập dữ liệu.";
-    return;
-   }
-   Reload();
-   importFeedback = res.SummaryMessage;
-  }
-  catch (Exception ex)
-  {
-   importFeedback = "Lỗi nhập dữ liệu: " + ex.Message;
-  }
-  finally
-  {
-   isImporting = false;
-  }
+  showCreateDevice = form=="showCreateDevice" && !showCreateDevice;
  }
 
  private List<DeviceVm> devices=[];
  private List<RenewalVm> renewals=[];
+ private List<DeletedDeviceVm> deletedDevices=[];
  private List<SellerChoiceVm> sellerChoices=[];
- private long activationId=1, editActivationId=1, renewSellerId, editDeviceSellerId;
+ private List<CustomerVm> customers=[];
+ private List<ProductVm> hardwareProducts=[];
+ private List<(long Id, string Imei, string WarehouseName)> availStockImeis=[];
+ private List<(string Key, string Name, string Phone)> agencyOwners=[];
+
+ // State thêm thiết bị mới (nhập tay & chọn từ data)
+ private long createCustomerId, createProductId, createSellerId, createPreviewRenewalVnd;
+ private int createDurationMonths = 12;
+ private DateTime createActivatedDate = DateTime.Today;
+ private DateTime createExpiresDate = DateTime.Today.AddYears(1);
+ private string createDeviceTypeLabel = "XANHGPS", createImei = "", pickedStockImei = "", createPlate = "", pickedAgencyOwnerKey = "", createOwnerName = "", createOwnerPhone = "", createDeviceStatus = "ACTIVE", createMessage = "";
+
+ private long activationId=1, editActivationId=1, renewSellerId, editDeviceSellerId, currentActorId;
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
- private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",editPlate="",editVin="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
- private bool canRenew,canUpdateDevice,canFinanceLock,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60;
+ private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
+ private bool canRenew,canUpdateDevice,canFinanceLock,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,isMainRole;
+
+ private IEnumerable<string> AvailableDeviceTypeLabels =>
+  new[] { "XANHGPS", "NASAGPS", "TDCGPS", "mGPS", "AICAM", "CAM4CH", "TG2000" }
+   .Concat(devices.Select(d => d.DeviceTypeLabel).Where(s => !string.IsNullOrWhiteSpace(s)))
+   .Distinct(StringComparer.OrdinalIgnoreCase);
+
+ private IEnumerable<DeletedDeviceVm> FilteredDeletedDevices => deletedDevices.Where(dx =>
+  string.IsNullOrWhiteSpace(deletedSearch) ||
+  ($"{dx.Imei} {dx.Plate} {dx.DeviceTypeLabel} {dx.Sku} {dx.CustomerName} {dx.OwnerName} {dx.OwnerPhone} {dx.DeletedByName} {dx.DeletedSummary}")
+   .Contains(deletedSearch.Trim(), StringComparison.OrdinalIgnoreCase));
 
  // State chỉnh sửa / xóa lịch sử gia hạn
  private long editingRenewalId, confirmDeleteRenewalId, editRenewalSellerId, editRenewalPrice = 500_000;
@@ -603,6 +774,18 @@
   await ExcelExporter.DownloadAsync(JS, "lich-su-gia-han-thiet-bi", "Lịch sử gia hạn", headers, rows);
  }
  protected override async Task OnInitializedAsync(){
+  try
+  {
+   currentActorId = await Gate.RequireAsync(Permissions.DevicesView);
+   isMainRole = Db.IsMainDeveloperUser(currentActorId);
+   canSoftDeleteDevice = Db.CanSoftDeleteDeviceUser(currentActorId);
+  }
+  catch
+  {
+   currentActorId = 0;
+   isMainRole = false;
+   canSoftDeleteDevice = false;
+  }
   canRenew=await Gate.CanAsync(Permissions.DevicesRenew);
   canUpdateDevice=await Gate.CanAsync(Permissions.DevicesUpdate) || await Gate.CanAsync(Permissions.UsersManage);
   canFinanceLock=await Gate.CanAsync(Permissions.FinancePay) || await Gate.CanAsync(Permissions.UsersManage);
@@ -616,7 +799,29 @@
  }
  private void Reload(){
   sellerChoices=Db.SellerChoices();
+  customers=Db.Customers().OrderBy(x => x.Code, StringComparer.OrdinalIgnoreCase).ToList();
+  hardwareProducts=Db.Products().Where(p => p.IsSerialized || string.Equals(p.Kind, "GOODS", StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Sku, StringComparer.OrdinalIgnoreCase).ToList();
   devices=Db.Devices();
+  if(customers.Count > 0 && !customers.Any(c => c.Id == createCustomerId))
+  {
+   createCustomerId = customers[0].Id;
+   OnCreateCustomerChanged();
+  }
+  else
+  {
+   RebuildAgencyOwners();
+  }
+  if(hardwareProducts.Count > 0 && !hardwareProducts.Any(p => p.Id == createProductId))
+  {
+   var defaultXanh = hardwareProducts.FirstOrDefault(p => string.Equals(p.Sku, "SP000001", StringComparison.OrdinalIgnoreCase));
+   createProductId = defaultXanh?.Id ?? hardwareProducts[0].Id;
+   OnCreateProductChanged();
+  }
+  else if(createProductId > 0)
+  {
+   availStockImeis = Db.AvailableStockImeis(createProductId);
+   RefreshCreatePreviewPrice();
+  }
   if(devices.Count > 0)
   {
    if(!devices.Any(x => x.ActivationId == activationId)) activationId = devices[0].ActivationId;
@@ -624,6 +829,131 @@
    if(!devices.Any(x => x.ActivationId == editActivationId)) { editActivationId = devices[0].ActivationId; OnEditDeviceSelected(); }
   }
   if(canHistory)renewals=Db.Renewals();
+  if(canHistory || canSoftDeleteDevice || isMainRole)deletedDevices=Db.DeletedDevices();
+ }
+ private void RebuildAgencyOwners(){
+  var list = new List<(string Key, string Name, string Phone)>();
+  var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+  var curCust = customers.FirstOrDefault(c => c.Id == createCustomerId);
+  if(curCust is not null && !string.IsNullOrWhiteSpace(curCust.RepresentativeName))
+  {
+   var repKey = $"{curCust.RepresentativeName.Trim()}|{curCust.Phone?.Trim() ?? ""}";
+   if(seen.Add(repKey)) list.Add((repKey, curCust.RepresentativeName.Trim(), curCust.Phone?.Trim() ?? ""));
+  }
+  foreach(var dv in devices.Where(d => d.CustomerId == createCustomerId))
+  {
+   var nm = !string.IsNullOrWhiteSpace(dv.OwnerName) ? dv.OwnerName.Trim() : (dv.ContactName ?? "").Trim();
+   var ph = (dv.OwnerPhone ?? "").Trim();
+   if(string.IsNullOrWhiteSpace(nm)) continue;
+   var key = $"{nm}|{ph}";
+   if(seen.Add(key)) list.Add((key, nm, ph));
+  }
+  agencyOwners = list.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+ }
+ private void OnCreateCustomerChanged(){
+  pickedAgencyOwnerKey = "";
+  var curCust = customers.FirstOrDefault(c => c.Id == createCustomerId);
+  if(curCust?.SellerId is > 0) createSellerId = curCust.SellerId.Value;
+  RebuildAgencyOwners();
+  RefreshCreatePreviewPrice();
+ }
+ private void OnCreateProductChanged(){
+  pickedStockImei = "";
+  var pr = hardwareProducts.FirstOrDefault(p => p.Id == createProductId);
+  if(pr is not null)
+  {
+   createDeviceTypeLabel = pr.Sku.ToUpperInvariant() switch
+   {
+    "SP000001" => "XANHGPS",
+    "DX00002" or "SP000019" => "NASAGPS",
+    "SP000005" => "TDCGPS",
+    "SP000012" => "AICAM",
+    "SP000006" => "mGPS",
+    _ => pr.Sku
+   };
+  }
+  availStockImeis = createProductId > 0 ? Db.AvailableStockImeis(createProductId) : [];
+  RefreshCreatePreviewPrice();
+ }
+ private void RefreshCreatePreviewPrice(){
+  createPreviewRenewalVnd = (createCustomerId > 0 && createProductId > 0)
+   ? Db.PreviewRenewalPrice(createCustomerId, createProductId)
+   : 0;
+ }
+ private void OnPickStockImei(){
+  if(!string.IsNullOrWhiteSpace(pickedStockImei))
+   createImei = pickedStockImei.Trim();
+ }
+ private void OnPickAgencyOwner(){
+  if(string.IsNullOrWhiteSpace(pickedAgencyOwnerKey)) return;
+  var parts = pickedAgencyOwnerKey.Split('|', 2);
+  createOwnerName = parts[0];
+  createOwnerPhone = parts.Length > 1 ? parts[1] : "";
+ }
+ private void OnCreateActivatedOrDurationChanged(){
+  createExpiresDate = createActivatedDate.AddMonths(createDurationMonths > 0 ? createDurationMonths : 12);
+ }
+ private async Task SaveNewManualDevice(){
+  try
+  {
+   createMessage = "";
+   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   var normImei = (createImei ?? "").Trim();
+   Db.CreateManualDeviceActivation(
+    createCustomerId,
+    createProductId,
+    normImei,
+    createPlate,
+    createOwnerName,
+    createOwnerPhone,
+    createActivatedDate.ToString("yyyy-MM-dd"),
+    createExpiresDate.ToString("yyyy-MM-dd"),
+    createSellerId > 0 ? createSellerId : null,
+    createDeviceTypeLabel,
+    createDeviceStatus);
+   createImei = "";
+   pickedStockImei = "";
+   createPlate = "";
+   Reload();
+   createMessage = $"Đã thêm thành công thiết bị IMEI {normImei.ToUpperInvariant()} ({createDeviceTypeLabel}) · Hạn: {createActivatedDate:yyyy-MM-dd} → {createExpiresDate:yyyy-MM-dd}.";
+  }
+  catch (Exception ex)
+  {
+   createMessage = "Lỗi: " + ex.Message;
+  }
+ }
+ private async Task SoftDeleteDevice(DeviceVm x){
+  try
+  {
+   var actor = await Gate.RequireAsync(Permissions.DevicesView);
+   var msg = Db.SoftDeleteDeviceActivation(x.ActivationId, actor);
+   Reload();
+   listMessage = msg;
+   deletedHistoryMessage = msg;
+  }
+  catch (Exception ex)
+  {
+   listMessage = "Lỗi xóa mềm: " + ex.Message;
+  }
+ }
+ private async Task HardDeleteDevice(long targetActivationId, bool fromDeletedList = false){
+  try
+  {
+   var actor = await Gate.RequireAsync(Permissions.DevicesView);
+   var msg = Db.HardDeleteDeviceActivation(targetActivationId, actor);
+   Reload();
+   if (fromDeletedList)
+    deletedHistoryMessage = msg;
+   else
+    listMessage = msg;
+  }
+  catch (Exception ex)
+  {
+   if (fromDeletedList)
+    deletedHistoryMessage = "Lỗi xóa cứng: " + ex.Message;
+   else
+    listMessage = "Lỗi xóa cứng: " + ex.Message;
+  }
  }
  private void OnRenewDeviceSelected(){
   var d = devices.FirstOrDefault(x => x.ActivationId == activationId);
@@ -641,6 +971,7 @@
   OnRenewDeviceSelected();
   showRenew = true;
   showEditAct = false;
+  showCreateDevice = false;
  }
  private void OnEditDeviceSelected(){
   var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
@@ -663,6 +994,7 @@
   OnEditDeviceSelected();
   showEditAct = true;
   showRenew = false;
+  showCreateDevice = false;
  }
  private void StartEditRenewal(RenewalVm r){
   editingRenewalId = r.Id;

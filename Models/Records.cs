@@ -15,6 +15,20 @@ public record ProductStockSummaryVm(long ProductId, string Sku, string ProductNa
 public record DeviceVm(long ActivationId, string Imei, string Sku, string Customer, string Plate,
     string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId, string VinNo = "", string OrderCode = "", string ContactName = "", long? SellerId = null, string SellerName = "",
     string DeviceTypeLabel = "", string AgencyName = "", string OwnerName = "", string OwnerPhone = "", string Status = "ACTIVE", string LastRenewedAt = "", long RenewalCount = 0, long RenewalPriceVnd = 0);
+public record DeletedDeviceVm(
+    long ActivationId,
+    string Imei,
+    string Sku,
+    string DeviceTypeLabel,
+    string Plate,
+    string CustomerName,
+    string OwnerName,
+    string OwnerPhone,
+    string ActivatedAt,
+    string ExpiresAt,
+    string DeletedAt,
+    string DeletedByName,
+    string DeletedSummary);
 public record DeviceImportResultVm(int TotalRows, int UpdatedExisting, int InsertedNew, int SkippedInvalid, string SummaryMessage);
 public record InvoiceLineVm(long Id, long InvoiceId, string Description, string ProductSku, long Quantity, long UnitPrice)
 {
