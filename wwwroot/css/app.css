@@ -343,6 +343,12 @@ tr.tnm-rd-active-row td{background:#ebfbee!important;box-shadow:inset 0 1px 0 #8
 
 /* Mini-Table & Manual Column Mapping inside Detail Dialog */
 .tnm-mini-table-host{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.tnm-mt-summary-banner{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;padding:9px 13px;background:linear-gradient(135deg,#ebfbee 0%,#f4fcf6 100%);border:1px solid #8ce99a;border-radius:9px}
+.tnm-mt-sum-primary{display:inline-flex;align-items:center;gap:8px;font-size:12.8px;font-weight:720;color:#14532d}
+.tnm-mt-sum-primary strong{display:inline-flex;align-items:center;justify-content:center;padding:2px 10px;border-radius:7px;background:#2b9348;color:#fff;font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;box-shadow:0 1px 4px rgba(43,147,72,.22)}
+.tnm-mt-sum-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#334155;font-variant-numeric:tabular-nums}
+.tnm-mt-sum-meta strong{font-weight:760;color:#0f172a}
+.tnm-mt-stt-badge{display:inline-flex;align-items:center;justify-content:center;min-width:25px;height:23px;padding:0 6px;border-radius:6px;background:#eef4f0;border:1px solid #cfe3d5;color:#1b653e;font-size:11.3px;font-weight:800;font-variant-numeric:tabular-nums}
 .tnm-mt-toolbar{display:flex;flex-direction:column;gap:7px;padding:8px 10px;background:#fff;border:1px solid #dde8e1;border-radius:8px}
 .tnm-mt-top-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .tnm-mt-modes{display:inline-flex;background:#eef4f0;padding:2px;border-radius:7px;gap:2px;border:1px solid #dce6df}
@@ -366,12 +372,14 @@ table.tnm-mini-table tbody td{padding:7px 10px;border-top:1px solid #edf2ef;vert
 table.tnm-mini-table tbody tr:nth-child(even) td{background:#fbfdfc}
 table.tnm-mini-table tbody tr:hover td{background:#f0faf3!important}
 table.tnm-mini-table th.num,table.tnm-mini-table td.num{text-align:right;white-space:nowrap!important;font-variant-numeric:tabular-nums}
+table.tnm-mini-table tfoot td{position:sticky;bottom:0;z-index:1;padding:8px 10px;background:#f1f7f3;border-top:2px solid #b2f2bb;font-size:12.2px;font-weight:760;color:#14532d}
 .tnm-mt-ref{font-size:11.2px;color:#334155;background:#f1f5f9;padding:2px 6px;border-radius:5px;display:inline-block;font-variant-numeric:tabular-nums}
 .tnm-mt-cards{max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px;scrollbar-width:thin}
-.tnm-mt-card{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 11px;background:#fff;border:1px solid #dfe8e2;border-radius:8px}
+.tnm-mt-card{display:flex;align-items:flex-start;gap:11px;padding:9px 12px;background:#fff;border:1px solid #dfe8e2;border-radius:8px}
 .tnm-mt-card:hover{border-color:#8ce99a;background:#f6fcf8}
+.tnm-mt-card-num{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;padding:0 7px;border-radius:7px;background:#ebfbee;border:1px solid #8ce99a;color:#1b653e;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:1px}
 .tnm-mt-card-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
 .tnm-mt-card-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .tnm-mt-card-idx{font-size:10.5px;font-weight:800;color:#475569;background:#e2e8f0;padding:1px 6px;border-radius:5px}
-.tnm-mt-card-right{text-align:right;flex:none;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;gap:2px}
+.tnm-mt-card-right{text-align:right;flex:none;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;gap:2px;margin-left:auto}
 .tnm-mt-col-hidden{display:none!important}

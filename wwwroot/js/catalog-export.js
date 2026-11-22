@@ -621,6 +621,20 @@ window.tnmOpenDateTimePicker = function (inputId) {
                 isFixed: (th.dataset.col || '') === 'stt'
             }));
 
+            const hasQtyCol = cols.some(c => c.key === 'qty');
+            const hasTotalCol = cols.some(c => c.key === 'total');
+
+            function parseVnInt(raw) {
+                if (!raw) return 0;
+                const cleaned = String(raw).replace(/[^\d-]/g, '');
+                const n = parseInt(cleaned, 10);
+                return Number.isFinite(n) ? n : 0;
+            }
+
+            function formatVnInt(n) {
+                return Number(n || 0).toLocaleString('en-US');
+            }
+
             const bodyRows = Array.from(table.tBodies[0].rows || []);
             const rowData = bodyRows.map((tr, rIdx) => {
                 const map = {};
@@ -631,8 +645,23 @@ window.tnmOpenDateTimePicker = function (inputId) {
                     map[key] = { html: td.innerHTML, text: txt };
                     searchText += ' ' + txt;
                 });
-                return { tr, rIdx, map, searchText: searchText.toLowerCase() };
+                const qtyNum = hasQtyCol && map.qty ? parseVnInt(map.qty.text) : 1;
+                const totalNum = hasTotalCol && map.total ? parseVnInt(map.total.text) : 0;
+                return { tr, rIdx, map, qtyNum, totalNum, searchText: searchText.toLowerCase() };
             });
+
+            const grandTotalQty = rowData.reduce((acc, r) => acc + r.qtyNum, 0);
+            const grandTotalVnd = rowData.reduce((acc, r) => acc + r.totalNum, 0);
+
+            // Top Summary Banner ("Số tổng số lượng thiết bị trong đơn phía trên")
+            const summaryBanner = document.createElement('div');
+            summaryBanner.className = 'tnm-mt-summary-banner';
+
+            // Append tfoot summary row to mini-table if qty or total column exists
+            let tfootEl = null;
+            if ((hasQtyCol || hasTotalCol) && rowData.length > 0) {
+                tfootEl = table.createTFoot();
+            }
 
             // Wrap table inside scrollable container
             const scrollWrap = document.createElement('div');
@@ -743,6 +772,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
             colMapRow.appendChild(resetBtn);
             toolbar.appendChild(colMapRow);
 
+            host.insertBefore(summaryBanner, scrollWrap);
             host.insertBefore(toolbar, scrollWrap);
 
             function renderCards(matchedRows) {
@@ -751,15 +781,18 @@ window.tnmOpenDateTimePicker = function (inputId) {
                     const card = document.createElement('div');
                     card.className = 'tnm-mt-card';
 
+                    // Số thứ tự rõ ràng đứng riêng phía trước bên trái mỗi dòng
+                    const numBox = document.createElement('div');
+                    numBox.className = 'tnm-mt-card-num';
+                    numBox.title = `Số thứ tự dòng #${idx + 1}`;
+                    numBox.textContent = `${idx + 1}`;
+                    card.appendChild(numBox);
+
                     const main = document.createElement('div');
                     main.className = 'tnm-mt-card-main';
 
                     const top = document.createElement('div');
                     top.className = 'tnm-mt-card-top';
-                    const idxSpan = document.createElement('span');
-                    idxSpan.className = 'tnm-mt-card-idx';
-                    idxSpan.textContent = `#${idx + 1}`;
-                    top.appendChild(idxSpan);
 
                     if (!hiddenCols.has('sku') && rd.map.sku && rd.map.sku.text && rd.map.sku.text !== '—') {
                         const s = document.createElement('span');
@@ -771,7 +804,9 @@ window.tnmOpenDateTimePicker = function (inputId) {
                         r.innerHTML = rd.map.ref.html;
                         top.appendChild(r);
                     }
-                    main.appendChild(top);
+                    if (top.childNodes.length > 0) {
+                        main.appendChild(top);
+                    }
 
                     if (!hiddenCols.has('name') && rd.map.name) {
                         const nm = document.createElement('div');
@@ -809,6 +844,49 @@ window.tnmOpenDateTimePicker = function (inputId) {
                 });
             }
 
+            function renderTableFooter(matchedRows) {
+                if (!tfootEl) return;
+                tfootEl.innerHTML = '';
+                const trFoot = document.createElement('tr');
+                const matchedQty = matchedRows.reduce((acc, r) => acc + r.qtyNum, 0);
+                const matchedVnd = matchedRows.reduce((acc, r) => acc + r.totalNum, 0);
+
+                const visCols = cols.filter(c => !hiddenCols.has(c.key));
+                const qtyVisIdx = visCols.findIndex(c => c.key === 'qty');
+                const totalVisIdx = visCols.findIndex(c => c.key === 'total');
+                const firstMetricIdx = qtyVisIdx >= 0 ? qtyVisIdx : totalVisIdx;
+
+                if (firstMetricIdx > 0) {
+                    const labelTd = document.createElement('td');
+                    labelTd.colSpan = firstMetricIdx;
+                    labelTd.textContent = `TỔNG CỘNG (${matchedRows.length} dòng mục)`;
+                    trFoot.appendChild(labelTd);
+
+                    for (let i = firstMetricIdx; i < visCols.length; i++) {
+                        const col = visCols[i];
+                        const td = document.createElement('td');
+                        if (col.key === 'qty') {
+                            td.className = 'num';
+                            td.innerHTML = `<strong>${formatVnInt(matchedQty)}</strong>`;
+                        } else if (col.key === 'total') {
+                            td.className = 'num';
+                            td.innerHTML = `<strong style="color:#0284c7">${formatVnInt(matchedVnd)} ₫</strong>`;
+                        } else {
+                            td.className = 'num';
+                            td.textContent = '';
+                        }
+                        trFoot.appendChild(td);
+                    }
+                } else {
+                    const fullTd = document.createElement('td');
+                    fullTd.colSpan = Math.max(1, visCols.length);
+                    fullTd.innerHTML = `Tổng số lượng thiết bị / sản phẩm: <strong>${formatVnInt(matchedQty)}</strong>` +
+                        (hasTotalCol ? ` · Tổng thành tiền: <strong style="color:#0284c7">${formatVnInt(matchedVnd)} ₫</strong>` : '');
+                    trFoot.appendChild(fullTd);
+                }
+                tfootEl.appendChild(trFoot);
+            }
+
             function applyState() {
                 btnTable.classList.toggle('active', viewMode === 'table');
                 btnRows.classList.toggle('active', viewMode === 'rows');
@@ -826,7 +904,7 @@ window.tnmOpenDateTimePicker = function (inputId) {
                 });
                 resetBtn.hidden = hiddenCols.size === 0;
 
-                table.querySelectorAll('[data-col]').forEach(cell => {
+                table.querySelectorAll('thead [data-col], tbody [data-col]').forEach(cell => {
                     const k = cell.dataset.col;
                     cell.classList.toggle('tnm-mt-col-hidden', hiddenCols.has(k));
                 });
@@ -839,16 +917,41 @@ window.tnmOpenDateTimePicker = function (inputId) {
                     if (ok) matched.push(rd);
                 });
 
-                // Re-number visible STT in table
+                const matchedQty = matched.reduce((acc, r) => acc + r.qtyNum, 0);
+                const matchedVnd = matched.reduce((acc, r) => acc + r.totalNum, 0);
+
+                // Re-number visible STT in table with clear badge at the front
                 matched.forEach((rd, visIdx) => {
                     const sttCell = rd.tr.querySelector('td[data-col="stt"]');
-                    if (sttCell) sttCell.innerHTML = `<strong>${visIdx + 1}</strong>`;
+                    if (sttCell) sttCell.innerHTML = `<span class="tnm-mt-stt-badge">${visIdx + 1}</span>`;
                 });
 
-                countBadge.textContent = q
-                    ? `Hiển thị ${matched.length} / ${rowData.length} mặt hàng`
-                    : `Tổng: ${rowData.length} mặt hàng`;
+                // Render Top Summary Banner ("Tổng số lượng thiết bị trong đơn phía trên")
+                const qtyLabel = hasQtyCol ? 'Tổng số lượng thiết bị / sản phẩm trong đơn:' : 'Tổng số sản phẩm:';
+                const qtyDisplay = q ? `${formatVnInt(matchedQty)} / ${formatVnInt(grandTotalQty)}` : `${formatVnInt(grandTotalQty)}`;
+                const rowsMeta = q
+                    ? `Số dòng hiển thị: <strong>${matched.length} / ${rowData.length} dòng</strong>`
+                    : `Số dòng mặt hàng: <strong>${rowData.length} dòng</strong>`;
+                const totalMeta = hasTotalCol
+                    ? `<span>· Tổng thành tiền: <strong style="color:#0284c7">${formatVnInt(q ? matchedVnd : grandTotalVnd)} ₫</strong></span>`
+                    : '';
 
+                summaryBanner.innerHTML = `
+                    <div class="tnm-mt-sum-primary">
+                        <span>📦 ${qtyLabel}</span>
+                        <strong>${qtyDisplay}</strong>
+                    </div>
+                    <div class="tnm-mt-sum-meta">
+                        <span>${rowsMeta}</span>
+                        ${totalMeta}
+                    </div>
+                `;
+
+                countBadge.textContent = q
+                    ? `Đang lọc: ${matched.length}/${rowData.length} dòng (SL: ${formatVnInt(matchedQty)})`
+                    : `${rowData.length} dòng · Tổng SL: ${formatVnInt(grandTotalQty)}`;
+
+                renderTableFooter(matched);
                 if (viewMode === 'rows') {
                     renderCards(matched);
                 }

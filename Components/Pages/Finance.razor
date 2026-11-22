@@ -501,6 +501,17 @@
                  placeholder="Tìm mã sản phẩm, số HD00..., biển số xe, chủ xe trong chứng từ..." />
         </DateTimeRangeBar>
 
+        <div class="tnm-mt-summary-banner" style="margin-bottom:10px">
+          <div class="tnm-mt-sum-primary">
+            <span>📦 Tổng số lượng thiết bị / sản phẩm trong chứng từ:</span>
+            <strong>@filteredInvLines.Sum(x => x.Quantity).ToString("N0")</strong>
+          </div>
+          <div class="tnm-mt-sum-meta">
+            <span>Số dòng hạng mục: <strong>@filteredInvLines.Count.ToString("N0") dòng</strong></span>
+            <span>· Tổng thành tiền: <strong style="color:#0284c7">@Money(filteredInvLines.Sum(x => x.LineTotal))</strong></span>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <table>
             <thead>
@@ -519,7 +530,7 @@
               {
                 var lineDt = VnDateTimeHelper.TryExtractLineTimestamp(line.Description, selectedInvoice.TimestampDt);
                 <tr>
-                  <td><strong>@stt</strong></td>
+                  <td><span class="tnm-mt-stt-badge">@stt</span></td>
                   <td>@(lineDt.HasValue ? VnDateTimeHelper.FormatDisplay(lineDt.Value) : selectedInvoice.DisplayTimestamp)</td>
                   <td>@(string.IsNullOrWhiteSpace(line.ProductSku) ? "—" : line.ProductSku)</td>
                   <td class="wrap-cell">@line.Description</td>

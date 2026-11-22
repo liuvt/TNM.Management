@@ -778,7 +778,26 @@
                             }
                         </datalist>
 
-                        @{ var pagedOrderLines = orderLinePager.Slice(SelectedOrder.Lines, out var totalOrderLines); }
+                        @{
+                            var pagedOrderLines = orderLinePager.Slice(SelectedOrder.Lines, out var totalOrderLines);
+                            var totalDevicesInOrder = SelectedOrder.Lines.Sum(l => l.Quantity);
+                            var serializedTotalInOrder = SelectedOrder.Lines.Where(l => l.IsSerialized).Sum(l => l.Quantity);
+                            var imeiEnteredInOrder = SelectedOrder.Lines.Count(l => l.IsSerialized && !string.IsNullOrWhiteSpace(l.Imei));
+                        }
+                        <div class="tnm-mt-summary-banner" style="margin-bottom:10px">
+                            <div class="tnm-mt-sum-primary">
+                                <span>📦 Tổng số lượng thiết bị / sản phẩm trong đơn:</span>
+                                <strong>@totalDevicesInOrder.ToString("N0")</strong>
+                            </div>
+                            <div class="tnm-mt-sum-meta">
+                                <span>Số dòng mặt hàng: <strong>@totalOrderLines.ToString("N0") dòng</strong></span>
+                                @if (serializedTotalInOrder > 0)
+                                {
+                                    <span>· Đã nhập IMEI: <strong style="color:#0f766e">@imeiEnteredInOrder / @serializedTotalInOrder thiết bị</strong></span>
+                                }
+                                <span>· Tổng tiền đơn: <strong style="color:#0284c7">@SelectedOrder.Price.ToString("N0") ₫</strong></span>
+                            </div>
+                        </div>
                         <div class="table-wrap">
                             <table>
                                 <thead><tr><th>STT</th><th>Sản phẩm</th><th>Tồn kho hiện tại</th><th>SL lắp</th><th>Đơn giá bán</th><th>Công lắp</th><th>Số IMEI (Có thể bổ sung sau)</th><th>Biển số xe</th><th>Thông tin phụ / Số khung / Chủ xe</th></tr></thead>
@@ -788,7 +807,7 @@
                                         var rep = GetOrCreateLineReport(ln);
                                         var prodInfo = products.FirstOrDefault(p => p.Id == ln.ProductId);
                                         <tr>
-                                            <td><strong>@stt</strong></td>
+                                            <td><span class="tnm-mt-stt-badge">@stt</span></td>
                                             <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
                                             <td>
                                                 @if(prodInfo?.Kind == "GOODS")
