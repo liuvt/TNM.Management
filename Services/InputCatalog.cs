@@ -103,9 +103,10 @@ public sealed class InputCatalog(IWebHostEnvironment env)
                 Do(c, "ALTER TABLE customer_groups ADD COLUMN parent_id INTEGER REFERENCES customer_groups(id)");
 
             // Khởi tạo sẵn các nhóm con mẫu cho Đại lý / HTX (AGENCY / DEALER / COOP) nếu nhóm đó chưa có nhóm con nào
-            var agencyRoots = Read(c, @"
+            var cgDelCond = cgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)) ? "AND deleted_at IS NULL" : "";
+            var agencyRoots = Read(c, $@"
                 SELECT id, code, name FROM customer_groups
-                WHERE parent_id IS NULL AND deleted_at IS NULL
+                WHERE parent_id IS NULL {cgDelCond}
                   AND (code IN ('AGENCY', 'DEALER', 'COOP', 'CORP') OR name LIKE '%Đại lý%' OR name LIKE '%HTX%' OR name LIKE '%Hợp tác xã%')",
                 r => (Id: r.GetInt64(0), Code: Txt(r, 1), Name: Txt(r, 2)));
             foreach (var rg in agencyRoots)

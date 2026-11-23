@@ -128,6 +128,65 @@ public record CashBookSummaryVm(
     long CustomerReceivedVnd,
     long SupplierPaidVnd,
     long OtherPaidVnd);
+
+public record ExpenseCategoryVm(
+    long Id,
+    string Code,
+    string Name,
+    string GroupName,
+    string TargetEntity,
+    string DefaultNote,
+    int SortOrder,
+    bool IsSystem,
+    bool IsActive,
+    long VoucherCount = 0,
+    long TotalAmountVnd = 0)
+{
+    public string TargetEntityLabel => TargetEntity switch
+    {
+        "SUPPLIER" => "Nhà cung cấp",
+        "INSTALLER" => "Kỹ thuật / Nhân sự",
+        "SELLER" => "Nhân viên bán hàng",
+        "CUSTOMER" => "Khách hàng / HTX",
+        _ => "Tự do / Vận hành"
+    };
+}
+
+public record ExpenseVoucherVm(
+    long Id,
+    string PaymentNo,
+    string PaidAt,
+    string Method,
+    long AmountVnd,
+    long? CategoryId,
+    string CategoryCode,
+    string CategoryName,
+    string CategoryGroup,
+    string PayeeName,
+    string LinkedEntityLabel,
+    long? SupplierId,
+    long? CustomerId,
+    long? SellerId,
+    long? EmployeeId,
+    long? OrderId,
+    string OrderCode,
+    long? InvoiceId,
+    string InvoiceNo,
+    string InvoiceType,
+    string ReferenceDoc,
+    string Notes,
+    bool IsLocked,
+    string CreatedByName)
+{
+    public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(PaidAt, false);
+    public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(PaidAt, false);
+    public string PeriodKey => TimestampDt.HasValue ? TimestampDt.Value.ToString("yyyy-MM") : (!string.IsNullOrWhiteSpace(PaidAt) && PaidAt.Length >= 7 && PaidAt[4] == '-' ? PaidAt[..7] : VnDateTimeHelper.TodayVn.ToString("yyyy-MM"));
+    public int PeriodYear => TimestampDt?.Year ?? VnDateTimeHelper.TodayVn.Year;
+    public int PeriodMonth => TimestampDt?.Month ?? VnDateTimeHelper.TodayVn.Month;
+    public string PeriodLabel => $"Tháng {PeriodMonth:D2}/{PeriodYear}";
+    public string MethodLabel => Method == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng";
+    public bool MatchesRange(DateTime? from, DateTime? to) => (!from.HasValue && !to.HasValue) || VnDateTimeHelper.InRange(TimestampDt, from, to);
+}
 public record PartnerDebtSummaryVm(
     string CategoryCode,
     string CategoryLabel,

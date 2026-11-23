@@ -192,84 +192,87 @@ public sealed class V7Orders(IWebHostEnvironment env)
             END;
             """);
 
-        // Điều chỉnh tự động (idempotent) đơn SO7-000024 sang chế độ Không tính công lắp (Giá chưa lắp = 700,000đ thay vì Giá có lắp = 850,000đ)
-        using (var fixQ = Cmd(c, "SELECT id, customer_id FROM v7_orders WHERE code='SO7-000024' AND deleted_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED') AND COALESCE(no_install_fee,0)=0"))
-        using (var fixR = fixQ.ExecuteReader())
+        if (cols.Contains("deleted_at"))
         {
-            if (fixR.Read())
+            // Điều chỉnh tự động (idempotent) đơn SO7-000024 sang chế độ Không tính công lắp (Giá chưa lắp = 700,000đ thay vì Giá có lắp = 850,000đ)
+            using (var fixQ = Cmd(c, "SELECT id, customer_id FROM v7_orders WHERE code='SO7-000024' AND deleted_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED') AND COALESCE(no_install_fee,0)=0"))
+            using (var fixR = fixQ.ExecuteReader())
             {
-                var so24Id = fixR.GetInt64(0);
-                var so24Cust = fixR.GetInt64(1);
-                fixR.Close();
+                if (fixR.Read())
+                {
+                    var so24Id = fixR.GetInt64(0);
+                    var so24Cust = fixR.GetInt64(1);
+                    fixR.Close();
 
-                var so24Lines = new List<(long LineId, long ProductId, long Qty)>();
-                using (var lq = Cmd(c, "SELECT id, product_id, quantity FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", so24Id)))
-                using (var lr = lq.ExecuteReader())
-                {
-                    while (lr.Read())
-                        so24Lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetInt64(2)));
-                }
-
-                long newTotal = 0;
-                foreach (var ln in so24Lines)
-                {
-                    var (stdUnitPrice, _) = QuoteOrderPrice(c, so24Cust, ln.ProductId, includeInstallPrice: false);
-                    Run(c, "UPDATE v7_order_lines SET unit_price_vnd=$p, installer_fee_vnd=0 WHERE id=$id", ("$p", stdUnitPrice), ("$id", ln.LineId));
-                    newTotal += stdUnitPrice * ln.Qty;
-                }
-                if (so24Lines.Count > 0)
-                {
-                    Run(c, "UPDATE v7_orders SET no_install_fee=1, unit_price_vnd=$total, installer_fee_vnd=0 WHERE id=$id", ("$total", newTotal), ("$id", so24Id));
-                }
-            }
-        }
-
-        // Điều chỉnh tự động (idempotent) đơn hoàn thành SO7-000010 sang chế độ Không tính công lắp (Giá chưa lắp = 620,000đ x 20 = 12,400,000đ) & đồng bộ Hóa đơn SALE phía sau khi chưa chốt số
-        var so10NeedFix = Scalar(c, @"SELECT COALESCE((SELECT id FROM v7_orders o
-            WHERE o.code='SO7-000010' AND o.deleted_at IS NULL AND o.status='COMPLETED' AND COALESCE(o.no_install_fee,0)=0
-              AND NOT EXISTS (SELECT 1 FROM invoices iv WHERE iv.v7_order_id=o.id AND iv.deleted_at IS NULL AND COALESCE(iv.is_locked,0)=1)
-            LIMIT 1), 0)");
-        if (so10NeedFix > 0)
-        {
-            var mainActorId = Scalar(c, "SELECT COALESCE((SELECT id FROM app_users WHERE is_active=1 AND LOWER(username)='vanlt_it' LIMIT 1), 0)");
-            if (mainActorId > 0)
-            {
-                long cId = 0, dur = 12;
-                long? whId = null, empId = null, sellerRecId = null;
-                bool cod = false, deduct = true, partner = false;
-                string contact = "", phone = "", addr = "", instAt = "", notes = "", installerName = "", saleSrc = "", actAt = "";
-                using (var o10Q = Cmd(c, @"SELECT customer_id, COALESCE(contact_name,''), COALESCE(customer_phone,''), COALESCE(install_address,''),
-                    COALESCE(install_at,''), COALESCE(duration_months,12), COALESCE(notes,''), COALESCE(collect_on_delivery,0),
-                    warehouse_id, source, COALESCE(installer,''), installer_employee_id, COALESCE(deduct_stock,1),
-                    seller_record_id, COALESCE(sale_source,''), COALESCE(activated_at,'')
-                    FROM v7_orders WHERE id=$id", ("$id", so10NeedFix)))
-                using (var o10R = o10Q.ExecuteReader())
-                {
-                    if (o10R.Read())
+                    var so24Lines = new List<(long LineId, long ProductId, long Qty)>();
+                    using (var lq = Cmd(c, "SELECT id, product_id, quantity FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", so24Id)))
+                    using (var lr = lq.ExecuteReader())
                     {
-                        cId = o10R.GetInt64(0);
-                        contact = o10R.GetString(1);
-                        phone = o10R.GetString(2);
-                        addr = o10R.GetString(3);
-                        instAt = o10R.GetString(4);
-                        dur = o10R.GetInt64(5);
-                        notes = o10R.GetString(6);
-                        cod = o10R.GetInt64(7) == 1;
-                        whId = o10R.IsDBNull(8) ? null : o10R.GetInt64(8);
-                        partner = o10R.GetString(9) == "PARTNER";
-                        installerName = o10R.GetString(10);
-                        empId = o10R.IsDBNull(11) ? null : o10R.GetInt64(11);
-                        deduct = o10R.GetInt64(12) == 1;
-                        sellerRecId = o10R.IsDBNull(13) ? null : o10R.GetInt64(13);
-                        saleSrc = o10R.GetString(14);
-                        actAt = o10R.GetString(15);
+                        while (lr.Read())
+                            so24Lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetInt64(2)));
+                    }
+
+                    long newTotal = 0;
+                    foreach (var ln in so24Lines)
+                    {
+                        var (stdUnitPrice, _) = QuoteOrderPrice(c, so24Cust, ln.ProductId, includeInstallPrice: false);
+                        Run(c, "UPDATE v7_order_lines SET unit_price_vnd=$p, installer_fee_vnd=0 WHERE id=$id", ("$p", stdUnitPrice), ("$id", ln.LineId));
+                        newTotal += stdUnitPrice * ln.Qty;
+                    }
+                    if (so24Lines.Count > 0)
+                    {
+                        Run(c, "UPDATE v7_orders SET no_install_fee=1, unit_price_vnd=$total, installer_fee_vnd=0 WHERE id=$id", ("$total", newTotal), ("$id", so24Id));
                     }
                 }
-                c.Close();
-                UpdateCompletedOrderMain(
-                    mainActorId, so10NeedFix, cId, contact, phone, addr, instAt, dur, notes, cod,
-                    whId, partner, installerName, empId, deduct, noInstallFee: true, sellerRecId, saleSrc, actAt, null);
-                return;
+            }
+
+            // Điều chỉnh tự động (idempotent) đơn hoàn thành SO7-000010 sang chế độ Không tính công lắp (Giá chưa lắp = 620,000đ x 20 = 12,400,000đ) & đồng bộ Hóa đơn SALE phía sau khi chưa chốt số
+            var so10NeedFix = Scalar(c, @"SELECT COALESCE((SELECT id FROM v7_orders o
+                WHERE o.code='SO7-000010' AND o.deleted_at IS NULL AND o.status='COMPLETED' AND COALESCE(o.no_install_fee,0)=0
+                  AND NOT EXISTS (SELECT 1 FROM invoices iv WHERE iv.v7_order_id=o.id AND iv.deleted_at IS NULL AND COALESCE(iv.is_locked,0)=1)
+                LIMIT 1), 0)");
+            if (so10NeedFix > 0)
+            {
+                var mainActorId = Scalar(c, "SELECT COALESCE((SELECT id FROM app_users WHERE is_active=1 AND LOWER(username)='vanlt_it' LIMIT 1), 0)");
+                if (mainActorId > 0)
+                {
+                    long cId = 0, dur = 12;
+                    long? whId = null, empId = null, sellerRecId = null;
+                    bool cod = false, deduct = true, partner = false;
+                    string contact = "", phone = "", addr = "", instAt = "", notes = "", installerName = "", saleSrc = "", actAt = "";
+                    using (var o10Q = Cmd(c, @"SELECT customer_id, COALESCE(contact_name,''), COALESCE(customer_phone,''), COALESCE(install_address,''),
+                        COALESCE(install_at,''), COALESCE(duration_months,12), COALESCE(notes,''), COALESCE(collect_on_delivery,0),
+                        warehouse_id, source, COALESCE(installer,''), installer_employee_id, COALESCE(deduct_stock,1),
+                        seller_record_id, COALESCE(sale_source,''), COALESCE(activated_at,'')
+                        FROM v7_orders WHERE id=$id", ("$id", so10NeedFix)))
+                    using (var o10R = o10Q.ExecuteReader())
+                    {
+                        if (o10R.Read())
+                        {
+                            cId = o10R.GetInt64(0);
+                            contact = o10R.GetString(1);
+                            phone = o10R.GetString(2);
+                            addr = o10R.GetString(3);
+                            instAt = o10R.GetString(4);
+                            dur = o10R.GetInt64(5);
+                            notes = o10R.GetString(6);
+                            cod = o10R.GetInt64(7) == 1;
+                            whId = o10R.IsDBNull(8) ? null : o10R.GetInt64(8);
+                            partner = o10R.GetString(9) == "PARTNER";
+                            installerName = o10R.GetString(10);
+                            empId = o10R.IsDBNull(11) ? null : o10R.GetInt64(11);
+                            deduct = o10R.GetInt64(12) == 1;
+                            sellerRecId = o10R.IsDBNull(13) ? null : o10R.GetInt64(13);
+                            saleSrc = o10R.GetString(14);
+                            actAt = o10R.GetString(15);
+                        }
+                    }
+                    c.Close();
+                    UpdateCompletedOrderMain(
+                        mainActorId, so10NeedFix, cId, contact, phone, addr, instAt, dur, notes, cod,
+                        whId, partner, installerName, empId, deduct, noInstallFee: true, sellerRecId, saleSrc, actAt, null);
+                    return;
+                }
             }
         }
     }
