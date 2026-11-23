@@ -134,6 +134,9 @@
                     <label class="checkbox-row">
                         <input type="checkbox" @bind="cod" /> Thu hộ tiền mặt khi lắp đặt
                     </label>
+                    <label class="checkbox-row" style="color:@(createNoInstallFee ? "#c2410c" : "inherit");font-weight:@(createNoInstallFee ? "700" : "500")">
+                        <input type="checkbox" @bind="createNoInstallFee" /> Không tính công lắp (Áp dụng Giá chưa lắp)
+                    </label>
                 </div>
 
                 @if(SelectedCustomer is not null)
@@ -202,7 +205,18 @@
                                 <input @bind="createInstallerName" placeholder="Bắt buộc nhập tên Hãng lắp đặt..." />
                             </label>
                         }
-                        <label class="checkbox-row" style="grid-column:span 2;padding:0.5rem 0.75rem;background:@(createNoDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(createNoDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
+                        <label class="checkbox-row" style="padding:0.5rem 0.75rem;background:@(createNoInstallFee ? "#fff7ed" : "#eff6ff");border:1px solid @(createNoInstallFee ? "#fdba74" : "#93c5fd");border-radius:8px">
+                            <input type="checkbox" @bind="createNoInstallFee" />
+                            <span>
+                                <strong>Không tính công lắp (Giá chưa lắp)</strong>
+                                <small style="display:block;color:#475569">
+                                    @(createNoInstallFee
+                                        ? "Đang bật KHÔNG TÍNH CÔNG LẮP: Áp dụng Giá bán chưa lắp (Standard) theo nhóm KH và công kỹ thuật = 0 ₫."
+                                        : "Đang để mặc định CÓ TÍNH LẮP ĐẶT: Áp dụng Giá bán có lắp (Installed) theo nhóm KH.")
+                                </small>
+                            </span>
+                        </label>
+                        <label class="checkbox-row" style="padding:0.5rem 0.75rem;background:@(createNoDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(createNoDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
                             <input type="checkbox" checked="@createNoDeductStock" @onchange="OnCreateNoDeductChanged" />
                             <span>
                                 <strong>Không trừ tồn kho</strong>
@@ -248,7 +262,8 @@
                                         var idx = entry.Idx;
                                         var item = entry.Item;
                                         var p = products.FirstOrDefault(x => x.Id == item.ProductId);
-                                        var unitPrice = Orders.PreviewUnitPrice(customer, item.ProductId);
+                                        var (stdPrice, instPrice) = Orders.PreviewPricePair(customer, item.ProductId);
+                                        var unitPrice = createNoInstallFee ? stdPrice : instPrice;
                                         <tr>
                                             <td><strong>@stt</strong></td>
                                             <td><strong>@(p?.Sku ?? "—")</strong></td>
@@ -264,7 +279,14 @@
                                                 }
                                             </td>
                                             <td>@(p?.IsSerialized == true ? $"Thiết bị IMEI (tách {item.Quantity} dòng)" : "Theo số lượng")</td>
-                                            <td><strong>@unitPrice.ToString("N0") ₫</strong></td>
+                                            <td>
+                                                <div><strong>@unitPrice.ToString("N0") ₫</strong></div>
+                                                <span class="chip @(createNoInstallFee ? "orange-chip" : "blue-chip")">@(createNoInstallFee ? "Giá chưa lắp" : "Giá có lắp")</span>
+                                                @if(stdPrice > 0 && instPrice > 0 && stdPrice != instPrice)
+                                                {
+                                                    <small style="display:block;color:#64748b;margin-top:2px">@(createNoInstallFee ? $"Giá có lắp: {instPrice:N0} ₫" : $"Giá chưa lắp: {stdPrice:N0} ₫")</small>
+                                                }
+                                            </td>
                                             <td style="max-width:110px">
                                                 <input type="number" min="1" max="100" value="@item.Quantity" @onchange="e => UpdateDraftQty(idx, e.Value)" />
                                             </td>
@@ -367,6 +389,7 @@
             <option value="INTERNAL">ĐV lắp đặt (Trừ kho)</option>
             <option value="PARTNER">Hãng lắp đặt</option>
             <option value="NO_DEDUCT">Không trừ tồn kho</option>
+            <option value="NO_INSTALL_FEE">Không tính công lắp (Giá chưa lắp)</option>
         </select>
         @if(HasActiveOrderFilter)
         {
@@ -495,9 +518,10 @@
                         </td>
                         <td>
                             <div><strong>@o.Price.ToString("N0") ₫</strong></div>
+                            <span class="chip @(o.NoInstallFee ? "orange-chip" : "blue-chip")" style="margin-top:2px">@o.InstallPriceModeDisplay</span>
                             @if(o.CostSnapshot > 0)
                             {
-                                <small style="color:#64748b">Giá vốn: @o.CostSnapshot.ToString("N0") ₫</small>
+                                <div><small style="color:#64748b">Giá vốn: @o.CostSnapshot.ToString("N0") ₫</small></div>
                             }
                         </td>
                         <td class="wrap-cell">
@@ -534,7 +558,11 @@
                         <td class="wrap-cell">
                             <div><span class="chip">@o.InstallerTypeDisplay</span></div>
                             <div><strong>@(string.IsNullOrWhiteSpace(o.Installer) ? "—" : o.Installer)</strong></div>
-                            @if(o.InstallerFee > 0)
+                            @if(o.NoInstallFee)
+                            {
+                                <small style="color:#c2410c;font-weight:600">Không tính công lắp (0 ₫)</small>
+                            }
+                            else if(o.InstallerFee > 0)
                             {
                                 <small>Công lắp: @o.InstallerFee.ToString("N0") ₫</small>
                             }
@@ -703,7 +731,19 @@
                         </label>
                     }
 
-                    <label class="checkbox-row" style="grid-column:span 2;padding:0.5rem 0.75rem;background:@(noDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(noDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
+                    <label class="checkbox-row" style="padding:0.5rem 0.75rem;background:@(editNoInstallFee ? "#fff7ed" : "#eff6ff");border:1px solid @(editNoInstallFee ? "#fdba74" : "#93c5fd");border-radius:8px">
+                        <input type="checkbox" @bind="editNoInstallFee" disabled="@SelectedOrder.IsImmutable" />
+                        <span>
+                            <strong>Không tính công lắp (Giá chưa lắp)</strong>
+                            <small style="display:block;color:#475569">
+                                @(editNoInstallFee
+                                    ? "Đang bật KHÔNG TÍNH CÔNG LẮP: Áp dụng Giá bán chưa lắp (Standard) theo nhóm KH và công kỹ thuật = 0 ₫."
+                                    : "Đang bật CÓ TÍNH LẮP ĐẶT: Áp dụng Giá bán có lắp (Installed) theo nhóm KH.")
+                            </small>
+                        </span>
+                    </label>
+
+                    <label class="checkbox-row" style="padding:0.5rem 0.75rem;background:@(noDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(noDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
                         <input type="checkbox" checked="@noDeductStock" disabled="@SelectedOrder.IsImmutable" @onchange="OnEditNoDeductChanged" />
                         <span>
                             <strong>Không trừ tồn kho</strong>
@@ -783,6 +823,11 @@
                             var totalDevicesInOrder = SelectedOrder.Lines.Sum(l => l.Quantity);
                             var serializedTotalInOrder = SelectedOrder.Lines.Where(l => l.IsSerialized).Sum(l => l.Quantity);
                             var imeiEnteredInOrder = SelectedOrder.Lines.Count(l => l.IsSerialized && !string.IsNullOrWhiteSpace(l.Imei));
+                            var editCustId = customers.FirstOrDefault(c => c.Code == SelectedOrder.CustomerCode)?.Id ?? 0;
+                            var priceModeChanged = !SelectedOrder.IsImmutable && editNoInstallFee != SelectedOrder.NoInstallFee && editCustId > 0;
+                            var displayOrderTotal = priceModeChanged
+                                ? SelectedOrder.Lines.Sum(l => Orders.PreviewUnitPrice(editCustId, l.ProductId, includeInstallPrice: !editNoInstallFee) * l.Quantity)
+                                : SelectedOrder.Price;
                         }
                         <div class="tnm-mt-summary-banner" style="margin-bottom:10px">
                             <div class="tnm-mt-sum-primary">
@@ -795,7 +840,8 @@
                                 {
                                     <span>· Đã nhập IMEI: <strong style="color:#0f766e">@imeiEnteredInOrder / @serializedTotalInOrder thiết bị</strong></span>
                                 }
-                                <span>· Tổng tiền đơn: <strong style="color:#0284c7">@SelectedOrder.Price.ToString("N0") ₫</strong></span>
+                                <span>· Chế độ giá: <strong style="color:@(editNoInstallFee ? "#c2410c" : "#0369a1")">@(editNoInstallFee ? "Giá chưa lắp (Không công lắp)" : "Giá có lắp")</strong></span>
+                                <span>· Tổng tiền đơn: <strong style="color:#0284c7">@displayOrderTotal.ToString("N0") ₫</strong>@(priceModeChanged ? " (Dự kiến sau lưu)" : "")</span>
                             </div>
                         </div>
                         <div class="table-wrap">
@@ -806,6 +852,10 @@
                                     {
                                         var rep = GetOrCreateLineReport(ln);
                                         var prodInfo = products.FirstOrDefault(p => p.Id == ln.ProductId);
+                                        var displayLinePrice = priceModeChanged
+                                            ? Orders.PreviewUnitPrice(editCustId, ln.ProductId, includeInstallPrice: !editNoInstallFee)
+                                            : ln.UnitPrice;
+                                        var displayLineFee = editNoInstallFee ? 0L : ln.InstallerFee;
                                         <tr>
                                             <td><span class="tnm-mt-stt-badge">@stt</span></td>
                                             <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
@@ -820,8 +870,14 @@
                                                 }
                                             </td>
                                             <td><strong>@ln.Quantity</strong></td>
-                                            <td><strong>@ln.UnitPrice.ToString("N0") ₫</strong></td>
-                                            <td>@ln.InstallerFee.ToString("N0") ₫</td>
+                                            <td>
+                                                <strong>@displayLinePrice.ToString("N0") ₫</strong>
+                                                @if(priceModeChanged && displayLinePrice != ln.UnitPrice)
+                                                {
+                                                    <small style="display:block;color:#c2410c">Cũ: @ln.UnitPrice.ToString("N0") ₫</small>
+                                                }
+                                            </td>
+                                            <td>@displayLineFee.ToString("N0") ₫</td>
                                             @if(ln.IsSerialized)
                                             {
                                                 <td>
@@ -941,6 +997,8 @@
             return false;
         if (soSourceFilter == "NO_DEDUCT" && o.DeductStock)
             return false;
+        if (soSourceFilter == "NO_INSTALL_FEE" && !o.NoInstallFee)
+            return false;
 
         if (!string.IsNullOrWhiteSpace(soSearch))
         {
@@ -948,7 +1006,7 @@
             var lineText = o.Lines is { Count: > 0 }
                 ? string.Join(" ", o.Lines.Select(l => $"{l.ProductSku} {l.ProductName} {l.Imei} {l.PlateNo} {l.VinNo}"))
                 : "";
-            var haystack = $"{o.Code} {o.Customer} {o.CustomerB2BDisplay} {o.CustomerCode} {o.CustomerGroup} {o.ContactName} {o.CustomerPhone} {o.SaleSource} {o.Product} {o.Imei} {o.PlateNo} {o.InstallAddress} {o.InstallAt} {o.Notes} {o.Warehouse} {o.Installer} {o.StatusDisplay} {lineText}";
+            var haystack = $"{o.Code} {o.Customer} {o.CustomerB2BDisplay} {o.CustomerCode} {o.CustomerGroup} {o.ContactName} {o.CustomerPhone} {o.SaleSource} {o.Product} {o.Imei} {o.PlateNo} {o.InstallAddress} {o.InstallAt} {o.Notes} {o.Warehouse} {o.Installer} {o.StatusDisplay} {o.InstallPriceModeDisplay} {lineText}";
             if (!haystack.Contains(q, StringComparison.OrdinalIgnoreCase))
                 return false;
         }
@@ -975,6 +1033,7 @@
     private void OpenCreateModal()
     {
         message = "";
+        createNoInstallFee = false;
         installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
         showCreateModal = true;
     }
@@ -982,6 +1041,7 @@
     private void OpenQuickPasteModal()
     {
         message = "";
+        createNoInstallFee = false;
         installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
         showCreateModal = true;
         showQuickPaste = true;
@@ -1000,7 +1060,7 @@
         {
             "STT", "Mã đơn", "Trạng thái", "Mã KH", "Đơn vị / Khách hàng", "Nhóm KH",
             "Khách lắp / Chủ xe", "SĐT khách lắp", "Nhân viên bán hàng", "Sản phẩm lắp đặt",
-            "Số lượng SP", "Thời hạn", "Giá bán (VND)", "Giá vốn (VND)", "Công lắp (VND)",
+            "Số lượng SP", "Thời hạn", "Chế độ giá lắp", "Giá bán (VND)", "Giá vốn (VND)", "Công lắp (VND)",
             "Thời gian lắp", "Địa chỉ lắp", "Số IMEI", "Biển số xe", "Thông tin phụ / Số khung",
             "Kho xuất", "Chế độ tồn kho", "Phân loại ĐV lắp", "Đơn vị / Hãng lắp đặt",
             "Ngày kích hoạt", "Thu hộ tiền mặt", "Ghi chú"
@@ -1031,6 +1091,7 @@
                 o.Product,
                 totalQty,
                 o.DurationDisplay,
+                o.InstallPriceModeDisplay,
                 o.Price,
                 o.CostSnapshot,
                 o.InstallerFee,
@@ -1054,14 +1115,14 @@
 
     // Create form state
     private long customer, product, draftQty = 1, durationMonths = 12, createWarehouse, createInstallerEmpId, createSellerId;
-    private bool cod, createNoDeductStock;
+    private bool cod, createNoDeductStock, createNoInstallFee;
     private string contactName = "", customerPhone = "", saleSource = "", address = "", notes = "";
     private string installAtText = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
     private string createSource = "INTERNAL", createInstallerName = "";
 
     // Edit / Process form state
     private long selected, warehouse, installerEmployeeId, editDurationMonths = 12, editSellerId;
-    private bool noDeductStock, editCod, showOrderModal;
+    private bool noDeductStock, editNoInstallFee, editCod, showOrderModal;
     private string installer = "", source = "INTERNAL", message = "";
     private string editContactName = "", editCustomerPhone = "", editInstallAt = "", editAddress = "", editNotes = "", editSaleSource = "";
     private DateTime activationDateInput = DateTime.Today;
@@ -1165,6 +1226,13 @@
                     cod = false;
                 else if (val.Contains("thu hộ", StringComparison.OrdinalIgnoreCase) || val.Contains("cod", StringComparison.OrdinalIgnoreCase))
                     cod = true;
+                if (val.Contains("không tính công lắp", StringComparison.OrdinalIgnoreCase) ||
+                    val.Contains("không lắp", StringComparison.OrdinalIgnoreCase) ||
+                    val.Contains("chưa lắp", StringComparison.OrdinalIgnoreCase) ||
+                    val.Contains("tự lắp", StringComparison.OrdinalIgnoreCase))
+                {
+                    createNoInstallFee = true;
+                }
             }
             else if (colonIdx < 0 && !lower.Contains("thông tin"))
             {
@@ -1373,6 +1441,7 @@
             installer = o.Installer ?? "";
             source = o.Source;
             noDeductStock = !o.DeductStock;
+            editNoInstallFee = o.NoInstallFee;
             editSellerId = o.SellerRecordId ?? 0;
             editSaleSource = o.SaleSource;
             editContactName = o.ContactName;
@@ -1432,6 +1501,8 @@
 
     private string GetRateLabel(long empId)
     {
+        if (editNoInstallFee)
+            return "Đang bật Không tính công lắp: 0 ₫";
         var o = SelectedOrder;
         if (o is not null && o.Lines.Count > 0)
         {
@@ -1471,6 +1542,7 @@
         if (string.IsNullOrWhiteSpace(formattedWhen)) formattedWhen = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
         var isPartner = createSource == "PARTNER";
         var deduct = !createNoDeductStock;
+        var noInst = createNoInstallFee;
         var createdId = Orders.CreateMulti(
             actor,
             customer,
@@ -1488,15 +1560,18 @@
             createInstallerName,
             createInstallerEmpId > 0 ? createInstallerEmpId : null,
             deduct,
-            createSellerId > 0 ? createSellerId : null);
+            createSellerId > 0 ? createSellerId : null,
+            noInst);
         draftLines.Clear();
         product = 0;
         draftQty = 1;
+        createNoInstallFee = false;
         selected = createdId;
         showCreateModal = false;
         showQuickPaste = false;
         OnOrderSelected();
-        return $"Đã tạo đơn SO7-{createdId:000000} (chưa trừ tồn kho). Khi ĐV lắp đặt gửi IMEI về, hãy nhập IMEI, chọn Ngày kích hoạt và bấm '3. Hoàn thành đơn & Kích hoạt IMEI'.";
+        var priceModeNote = noInst ? "Chế độ: Không tính công lắp (Giá chưa lắp)" : "Chế độ: Giá có lắp";
+        return $"Đã tạo đơn SO7-{createdId:000000} ({priceModeNote}, chưa trừ tồn kho). Khi ĐV lắp đặt gửi IMEI về, hãy nhập IMEI, chọn Ngày kích hoạt và bấm '3. Hoàn thành đơn'.";
     });
 
     private Task SaveOrderAndDispatch() => Act(actor =>
@@ -1518,18 +1593,42 @@
             installerEmployeeId > 0 ? installerEmployeeId : null,
             !noDeductStock,
             editSellerId > 0 ? editSellerId : null,
-            editSaleSource);
-        return $"Đã cập nhật thông tin & điều phối đơn SO7-{selected:000000} (Tồn kho chỉ trừ khi bấm Hoàn thành đơn).";
+            editSaleSource,
+            editNoInstallFee);
+        return $"Đã cập nhật thông tin & chế độ giá ({(editNoInstallFee ? "Không tính công lắp - Giá chưa lắp" : "Giá có lắp")}) cho đơn SO7-{selected:000000} (Tồn kho chỉ trừ khi bấm Hoàn thành đơn).";
     });
 
     private Task Report() => Act(actor =>
     {
         if (selected <= 0) throw new InvalidOperationException("Vui lòng chọn đơn hàng.");
         var o = SelectedOrder;
+        if (o is not null && !o.IsImmutable && editNoInstallFee != o.NoInstallFee)
+        {
+            Orders.UpdateOrderInfo(
+                actor,
+                selected,
+                editContactName,
+                editCustomerPhone,
+                editAddress,
+                editInstallAt,
+                editDurationMonths,
+                editNotes,
+                editCod,
+                warehouse > 0 ? warehouse : null,
+                source == "PARTNER",
+                installer,
+                installerEmployeeId > 0 ? installerEmployeeId : null,
+                !noDeductStock,
+                editSellerId > 0 ? editSellerId : null,
+                editSaleSource,
+                editNoInstallFee);
+        }
         if (o is not null && o.Status is "PENDING" or "APPROVED")
         {
             if (warehouse > 0) Orders.Approve(actor, selected, warehouse);
-            var effInstaller = !string.IsNullOrWhiteSpace(installer) ? installer : "ĐV lắp đặt";
+            var effInstaller = !string.IsNullOrWhiteSpace(installer)
+                ? installer
+                : (editNoInstallFee ? "Giao thiết bị (Không lắp đặt)" : "ĐV lắp đặt");
             Orders.Dispatch(actor, selected, source == "PARTNER", effInstaller, installerEmployeeId > 0 ? installerEmployeeId : null, !noDeductStock, warehouse > 0 ? warehouse : null);
         }
         var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
@@ -1561,7 +1660,7 @@
         // Lưu thông tin cập nhật & điều phối nếu CSKH vừa sửa trên form
         var effInstaller = !string.IsNullOrWhiteSpace(installer)
             ? installer
-            : (source == "PARTNER" ? "" : "ĐV lắp đặt nội bộ");
+            : (source == "PARTNER" ? "" : (editNoInstallFee ? "Giao thiết bị (Không lắp đặt)" : "ĐV lắp đặt nội bộ"));
         Orders.UpdateOrderInfo(
             actor,
             selected,
@@ -1578,7 +1677,8 @@
             installerEmployeeId > 0 ? installerEmployeeId : null,
             !noDeductStock,
             editSellerId > 0 ? editSellerId : null,
-            editSaleSource);
+            editSaleSource,
+            editNoInstallFee);
 
         var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
         if (o.Lines.Any(x => x.IsSerialized))

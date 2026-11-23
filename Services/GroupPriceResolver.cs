@@ -288,7 +288,7 @@ public static class GroupPriceResolver
                  WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.unit_cost_vnd>0
                  ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
                 $bc, 0)", ("$p", productId), ("$bc", baseCost));
-        return supCost + installFee;
+        return priceMode == "STANDARD" ? supCost : supCost + installFee;
     }
 
     private static SqliteCommand Cmd(SqliteConnection c, SqliteTransaction? tx, string sql, params (string, object?)[] args)

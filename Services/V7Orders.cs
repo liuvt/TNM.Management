@@ -50,12 +50,14 @@ public record V7Order(
     string Notes = "",
     bool Cod = false,
     long? SellerRecordId = null,
-    long CostSnapshot = 0)
+    long CostSnapshot = 0,
+    bool NoInstallFee = false)
 {
     public string CustomerB2BDisplay => string.IsNullOrWhiteSpace(RepresentativeName) ? Customer : $"{Customer} (ĐD: {RepresentativeName})";
     public string DurationDisplay => DurationMonths == 12 ? "1 năm" : (DurationMonths > 0 && DurationMonths % 12 == 0) ? $"{DurationMonths / 12} năm" : $"{DurationMonths} tháng";
     public string InstallerTypeDisplay => Source == "PARTNER" ? "Hãng lắp đặt" : "ĐV lắp đặt";
     public string StockEffectDisplay => DeductStock ? "Trừ tồn kho" : "Không trừ tồn kho (Hãng)";
+    public string InstallPriceModeDisplay => NoInstallFee ? "Giá chưa lắp (Không công lắp)" : "Giá có lắp";
     public long GrossProfitSnapshot => Price - CostSnapshot - InstallerFee;
     public bool IsImmutable => Status == "COMPLETED";
     public bool HasMissingImei => Lines.Any(l => l.IsSerialized && string.IsNullOrWhiteSpace(l.Imei));
@@ -113,6 +115,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         if (!cols.Contains("duration_months")) Run(c, "ALTER TABLE v7_orders ADD COLUMN duration_months INTEGER NOT NULL DEFAULT 12");
         if (!cols.Contains("deduct_stock")) Run(c, "ALTER TABLE v7_orders ADD COLUMN deduct_stock INTEGER NOT NULL DEFAULT 1");
         if (!cols.Contains("seller_record_id")) Run(c, "ALTER TABLE v7_orders ADD COLUMN seller_record_id INTEGER REFERENCES v7_sellers(id)");
+        if (!cols.Contains("no_install_fee")) Run(c, "ALTER TABLE v7_orders ADD COLUMN no_install_fee INTEGER NOT NULL DEFAULT 0");
 
         Run(c, """
             CREATE TABLE IF NOT EXISTS v7_order_lines(
@@ -152,7 +155,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         Run(c, """
             DROP TRIGGER IF EXISTS trg_v7_orders_lock_completed_update;
             CREATE TRIGGER trg_v7_orders_lock_completed_update
-            BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, notes, completed_at ON v7_orders
+            BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, no_install_fee, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, notes, completed_at ON v7_orders
             WHEN OLD.status = 'COMPLETED' AND NEW.status <> 'CANCELLED'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
@@ -182,6 +185,38 @@ public sealed class V7Orders(IWebHostEnvironment env)
               SELECT RAISE(ABORT,'APPEND_ONLY_QUANTITY_LEDGER');
             END;
             """);
+
+        // Điều chỉnh tự động (idempotent) đơn SO7-000024 sang chế độ Không tính công lắp (Giá chưa lắp = 700,000đ thay vì Giá có lắp = 850,000đ)
+        using (var fixQ = Cmd(c, "SELECT id, customer_id FROM v7_orders WHERE code='SO7-000024' AND deleted_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED') AND COALESCE(no_install_fee,0)=0"))
+        using (var fixR = fixQ.ExecuteReader())
+        {
+            if (fixR.Read())
+            {
+                var so24Id = fixR.GetInt64(0);
+                var so24Cust = fixR.GetInt64(1);
+                fixR.Close();
+
+                var so24Lines = new List<(long LineId, long ProductId, long Qty)>();
+                using (var lq = Cmd(c, "SELECT id, product_id, quantity FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", so24Id)))
+                using (var lr = lq.ExecuteReader())
+                {
+                    while (lr.Read())
+                        so24Lines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetInt64(2)));
+                }
+
+                long newTotal = 0;
+                foreach (var ln in so24Lines)
+                {
+                    var (stdUnitPrice, _) = QuoteOrderPrice(c, so24Cust, ln.ProductId, includeInstallPrice: false);
+                    Run(c, "UPDATE v7_order_lines SET unit_price_vnd=$p, installer_fee_vnd=0 WHERE id=$id", ("$p", stdUnitPrice), ("$id", ln.LineId));
+                    newTotal += stdUnitPrice * ln.Qty;
+                }
+                if (so24Lines.Count > 0)
+                {
+                    Run(c, "UPDATE v7_orders SET no_install_fee=1, unit_price_vnd=$total, installer_fee_vnd=0 WHERE id=$id", ("$total", newTotal), ("$id", so24Id));
+                }
+            }
+        }
     }
 
     private static bool IsMainDeveloper(SqliteConnection c, long actor) =>
@@ -218,7 +253,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
     private static void Event(SqliteConnection c, long id, long actor, string name) =>
         Run(c, "INSERT INTO v7_order_events(order_id,actor_id,event) VALUES($o,$a,$e)", ("$o", id), ("$a", actor), ("$e", name));
 
-    private static (long Price, long Cost) QuoteOrderPrice(SqliteConnection c, long customerId, long productId)
+    private static (long Price, long Cost) QuoteOrderPrice(SqliteConnection c, long customerId, long productId, bool includeInstallPrice = true)
     {
         var dayVn = VnDateTimeHelper.TodayVn.ToString("yyyy-MM-dd");
         var cost = Scalar(c, @"SELECT COALESCE(
@@ -227,15 +262,25 @@ public sealed class V7Orders(IWebHostEnvironment env)
             0)", ("$p", productId), ("$d", dayVn));
 
         // Luồng chuẩn: Nhóm con HTX (sub_group_id) -> Nhóm cha (parent_id / group_id) -> Giá sản phẩm khai báo gốc
-        var resolved = GroupPriceResolver.ResolveOrderPrice(c, null, customerId, productId, "INSTALLED");
+        var mode = includeInstallPrice ? "INSTALLED" : "STANDARD";
+        var resolved = GroupPriceResolver.ResolveOrderPrice(c, null, customerId, productId, mode);
         return (resolved.FinalPriceVnd, cost);
     }
 
-    public long PreviewUnitPrice(long customerId, long productId)
+    public long PreviewUnitPrice(long customerId, long productId, bool includeInstallPrice = true)
     {
         if (customerId <= 0 || productId <= 0) return 0;
         using var c = Open();
-        return QuoteOrderPrice(c, customerId, productId).Price;
+        return QuoteOrderPrice(c, customerId, productId, includeInstallPrice).Price;
+    }
+
+    public (long StandardPrice, long InstalledPrice) PreviewPricePair(long customerId, long productId)
+    {
+        if (customerId <= 0 || productId <= 0) return (0, 0);
+        using var c = Open();
+        var std = QuoteOrderPrice(c, customerId, productId, includeInstallPrice: false).Price;
+        var inst = QuoteOrderPrice(c, customerId, productId, includeInstallPrice: true).Price;
+        return (std, inst);
     }
 
     public List<V7Order> List()
@@ -287,7 +332,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             COALESCE(c.representative_name,''),
             COALESCE(o.contact_name,''),COALESCE(o.duration_months,12),COALESCE(o.deduct_stock,1),
             COALESCE(o.activated_at,''),o.warehouse_id,COALESCE(o.notes,''),COALESCE(o.collect_on_delivery,0),
-            COALESCE(o.seller_record_id, c.seller_id),COALESCE(o.unit_cost_snapshot_vnd,0)
+            COALESCE(o.seller_record_id, c.seller_id),COALESCE(o.unit_cost_snapshot_vnd,0),COALESCE(o.no_install_fee,0)
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
             LEFT JOIN customer_groups cg ON cg.id=c.group_id
             LEFT JOIN customer_groups pg ON pg.id=cg.parent_id
@@ -336,7 +381,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 r.GetString(26),
                 r.GetInt64(27) == 1,
                 r.IsDBNull(28) ? null : r.GetInt64(28),
-                r.GetInt64(29)));
+                r.GetInt64(29),
+                r.GetInt64(30) == 1));
         }
         return list;
     }
@@ -423,7 +469,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
         string? installer = null,
         long? installerEmployeeId = null,
         bool deductStock = true,
-        long? sellerRecordId = null)
+        long? sellerRecordId = null,
+        bool noInstallFee = false)
     {
         var validItems = (items ?? []).Where(x => x.ProductId > 0 && x.Quantity > 0).ToList();
         if (customer < 1 || validItems.Count == 0)
@@ -445,7 +492,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 if (Scalar(c, "SELECT COUNT(*) FROM products WHERE id=$id AND is_active=1 AND deleted_at IS NULL", ("$id", item.ProductId)) == 0)
                     throw new InvalidOperationException("Sản phẩm không hợp lệ.");
                 var isSerialized = Scalar(c, "SELECT is_serialized FROM products WHERE id=$id", ("$id", item.ProductId)) == 1;
-                var (unitPrice, unitCost) = QuoteOrderPrice(c, customer, item.ProductId);
+                var (unitPrice, unitCost) = QuoteOrderPrice(c, customer, item.ProductId, includeInstallPrice: !noInstallFee);
 
                 if (isSerialized)
                 {
@@ -471,10 +518,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
             var when = !string.IsNullOrWhiteSpace(installAt) ? FormatInstallDateTime(installAt) : DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
             var dur = durationMonths > 0 ? durationMonths : 12;
 
-            Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,seller_record_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,contact_name,customer_phone,sale_source,duration_months,deduct_stock,source,install_address,install_at,notes,collect_on_delivery)
-                VALUES(lower(hex(randomblob(16))),$c,$s,$sellerRec,$p,$qty,$price,$cost,$contact,$phone,$src,$dur,$deduct,$source,$a,$at,$n,$cod)",
+            Run(c, @"INSERT INTO v7_orders(code,customer_id,seller_id,seller_record_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,contact_name,customer_phone,sale_source,duration_months,deduct_stock,no_install_fee,source,install_address,install_at,notes,collect_on_delivery)
+                VALUES(lower(hex(randomblob(16))),$c,$s,$sellerRec,$p,$qty,$price,$cost,$contact,$phone,$src,$dur,$deduct,$noInst,$source,$a,$at,$n,$cod)",
                 ("$c", customer), ("$s", actor), ("$sellerRec", resolvedSellerId), ("$p", primaryProduct), ("$qty", totalQty), ("$price", totalPrice), ("$cost", totalCost),
                 ("$contact", contact), ("$phone", phone), ("$src", src), ("$dur", dur), ("$deduct", deductStock ? 1 : 0),
+                ("$noInst", noInstallFee ? 1 : 0),
                 ("$source", partner ? "PARTNER" : "INTERNAL"),
                 ("$a", addr), ("$at", when), ("$n", notes ?? ""), ("$cod", cod ? 1 : 0));
             var id = Scalar(c, "SELECT last_insert_rowid()");
@@ -542,6 +590,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
         long? empId = installerEmployeeId is > 0 ? installerEmployeeId : null;
         string installerName = (installer ?? "").Trim();
         long totalFee = 0;
+        bool isNoInstallFee = Scalar(c, "SELECT COALESCE(no_install_fee, 0) FROM v7_orders WHERE id=$id", ("$id", id)) == 1;
 
         if (empId.HasValue)
         {
@@ -557,18 +606,26 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
             foreach (var ln in orderLines)
             {
-                using var rq = Cmd(c, "SELECT install_rate_vnd FROM v7_installer_product_rates WHERE employee_id=$e AND product_id=$p AND deleted_at IS NULL", ("$e", empId.Value), ("$p", ln.ProductId));
-                var rateVal = rq.ExecuteScalar();
-                var unitFee = rateVal is not null ? Convert.ToInt64(rateVal) : Scalar(c, "SELECT technical_fee_vnd FROM products WHERE id=$p", ("$p", ln.ProductId));
+                long unitFee = 0;
+                if (!isNoInstallFee)
+                {
+                    using var rq = Cmd(c, "SELECT install_rate_vnd FROM v7_installer_product_rates WHERE employee_id=$e AND product_id=$p AND deleted_at IS NULL", ("$e", empId.Value), ("$p", ln.ProductId));
+                    var rateVal = rq.ExecuteScalar();
+                    unitFee = rateVal is not null ? Convert.ToInt64(rateVal) : Scalar(c, "SELECT technical_fee_vnd FROM products WHERE id=$p", ("$p", ln.ProductId));
+                }
                 Run(c, "UPDATE v7_order_lines SET installer_fee_vnd=$fee WHERE id=$lid", ("$fee", unitFee), ("$lid", ln.LineId));
                 totalFee += unitFee * ln.Qty;
             }
         }
-        else if (string.IsNullOrWhiteSpace(installerName))
+        else
         {
-            throw new InvalidOperationException(partner
-                ? "Bắt buộc phải chọn hoặc nhập tên Hãng lắp đặt."
-                : "Cần chọn nhân sự lắp đặt hoặc nhập tên Đơn vị lắp đặt.");
+            if (string.IsNullOrWhiteSpace(installerName))
+            {
+                throw new InvalidOperationException(partner
+                    ? "Bắt buộc phải chọn hoặc nhập tên Hãng lắp đặt."
+                    : "Cần chọn nhân sự lắp đặt hoặc nhập tên Đơn vị lắp đặt.");
+            }
+            Run(c, "UPDATE v7_order_lines SET installer_fee_vnd=0 WHERE order_id=$o AND deleted_at IS NULL", ("$o", id));
         }
 
         var nextSt = curSt == "REPORTED" ? "REPORTED" : "DISPATCHED";
@@ -602,7 +659,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
         long? installerEmployeeId,
         bool deductStock,
         long? sellerRecordId = null,
-        string? saleSource = null)
+        string? saleSource = null,
+        bool? noInstallFee = null)
     {
         Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "WAREHOUSE", "ACCOUNTANT", "SELLER");
@@ -614,6 +672,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 throw new InvalidOperationException("Khi chọn 'Không trừ tồn kho', bắt buộc phải có tên Hãng lắp đặt.");
 
             var custId = Scalar(c, "SELECT customer_id FROM v7_orders WHERE id=$id", ("$id", id));
+            var oldNoInstall = Scalar(c, "SELECT COALESCE(no_install_fee, 0) FROM v7_orders WHERE id=$id", ("$id", id)) == 1;
+            var effectiveNoInstall = noInstallFee ?? oldNoInstall;
             var (resolvedSellerId, resolvedSrc) = ResolveOrderSeller(c, custId, actor, sellerRecordId, saleSource);
 
             Run(c, @"UPDATE v7_orders SET
@@ -625,6 +685,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 notes=$notes,
                 collect_on_delivery=$cod,
                 deduct_stock=$deduct,
+                no_install_fee=$noInst,
                 source=$source,
                 seller_record_id=COALESCE($sellerRec, seller_record_id),
                 sale_source=CASE WHEN $src<>'' THEN $src ELSE sale_source END
@@ -637,10 +698,37 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 ("$notes", (notes ?? "").Trim()),
                 ("$cod", cod ? 1 : 0),
                 ("$deduct", deductStock ? 1 : 0),
+                ("$noInst", effectiveNoInstall ? 1 : 0),
                 ("$source", partner ? "PARTNER" : "INTERNAL"),
                 ("$sellerRec", resolvedSellerId),
                 ("$src", resolvedSrc),
                 ("$id", id));
+
+            if (noInstallFee.HasValue && noInstallFee.Value != oldNoInstall)
+            {
+                var orderLines = new List<(long LineId, long ProductId, long Qty)>();
+                using (var lq = Cmd(c, "SELECT id, product_id, quantity FROM v7_order_lines WHERE order_id=$o AND deleted_at IS NULL", ("$o", id)))
+                using (var lr = lq.ExecuteReader())
+                {
+                    while (lr.Read())
+                        orderLines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetInt64(2)));
+                }
+
+                long newTotalPrice = 0;
+                foreach (var ln in orderLines)
+                {
+                    var (newUnitPrice, _) = QuoteOrderPrice(c, custId, ln.ProductId, includeInstallPrice: !effectiveNoInstall);
+                    Run(c, "UPDATE v7_order_lines SET unit_price_vnd=$p WHERE id=$lid", ("$p", newUnitPrice), ("$lid", ln.LineId));
+                    newTotalPrice += newUnitPrice * ln.Qty;
+                }
+                Run(c, "UPDATE v7_orders SET unit_price_vnd=$total WHERE id=$id", ("$total", newTotalPrice), ("$id", id));
+            }
+
+            if (effectiveNoInstall)
+            {
+                Run(c, "UPDATE v7_order_lines SET installer_fee_vnd=0 WHERE order_id=$o AND deleted_at IS NULL", ("$o", id));
+                Run(c, "UPDATE v7_orders SET installer_fee_vnd=0 WHERE id=$id", ("$id", id));
+            }
 
             if (warehouseId is > 0 && Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouseId.Value)) > 0)
             {
@@ -743,10 +831,10 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 throw new InvalidOperationException("Đơn hàng đã hoàn thành hoặc đã hủy.");
 
             using var q = Cmd(c, @"SELECT customer_id,warehouse_id,source,unit_price_vnd,COALESCE(installer_fee_vnd,0),
-                COALESCE(installer,''),COALESCE(code,''),COALESCE(duration_months,12),COALESCE(deduct_stock,1),COALESCE(activated_at,'')
+                COALESCE(installer,''),COALESCE(code,''),COALESCE(duration_months,12),COALESCE(deduct_stock,1),COALESCE(activated_at,''),COALESCE(no_install_fee,0)
                 FROM v7_orders WHERE id=$id", ("$id", id));
             long customer, warehouse, totalPrice, totalInstallerFee, durationMonths;
-            bool deductStock;
+            bool deductStock, noInstallFee;
             string source, installerName, orderCode, existingActivatedAt;
             using (var r = q.ExecuteReader())
             {
@@ -761,6 +849,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 durationMonths = r.GetInt64(7) > 0 ? r.GetInt64(7) : 12;
                 deductStock = r.GetInt64(8) == 1 && source != "PARTNER" ? true : (r.GetInt64(8) == 1);
                 existingActivatedAt = r.GetString(9);
+                noInstallFee = r.GetInt64(10) == 1;
+            }
+            if (noInstallFee)
+            {
+                totalInstallerFee = 0;
             }
 
             if (!deductStock)
@@ -971,14 +1064,16 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
             // Tự động tạo hóa đơn công nợ SALE gồm đầy đủ các dòng sản phẩm (lưu chuẩn yyyy-MM-dd HH:mm:ss giờ VN)
             var invoiceNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+            var invNotes = noInstallFee ? $"Đơn hàng {orderCode} (Không tính công lắp — Giá chưa lắp)" : $"Đơn hàng lắp đặt {orderCode}";
+            var lineDescPrefix = noInstallFee ? "Thiết bị (Không tính công lắp)" : "Thiết bị & lắp đặt";
             Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,issued_at,due_at,amount_vnd,notes)
                 VALUES($no,'SALE',$c,$o,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$price,$notes)",
-                ("$no", invoiceNo), ("$c", customer), ("$o", id), ("$price", totalPrice), ("$notes", $"Đơn hàng lắp đặt {orderCode}"));
+                ("$no", invoiceNo), ("$c", customer), ("$o", id), ("$price", totalPrice), ("$notes", invNotes));
             var invoiceId = Scalar(c, "SELECT last_insert_rowid()");
             foreach (var grp in lines.GroupBy(x => (x.ProductId, x.ProductName, x.UnitPrice)))
             {
                 Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
-                    ("$i", invoiceId), ("$desc", $"Thiết bị & lắp đặt: {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.UnitPrice));
+                    ("$i", invoiceId), ("$desc", $"{lineDescPrefix}: {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.UnitPrice));
             }
 
             // Tự động tạo chứng từ công nợ chi phí công kỹ thuật lắp đặt (SERVICE) nếu đơn có công lắp > 0
