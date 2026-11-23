@@ -81,7 +81,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
     private static string Str(SqliteConnection c, string sql, params (string, object?)[] p) { using var q = Cmd(c, sql, p); return q.ExecuteScalar()?.ToString() ?? ""; }
     private static void Run(SqliteConnection c, string sql, params (string, object?)[] p) { using var q = Cmd(c, sql, p); q.ExecuteNonQuery(); }
     private T Tx<T>(long actor, Func<SqliteConnection, T> action) { using var scope = AuditRuntime.As(actor); return Tx(action); }
-    private T Tx<T>(Func<SqliteConnection, T> action) { using var c = Open(); Run(c, "BEGIN IMMEDIATE"); try { var r = action(c); Run(c, "COMMIT"); return r; } catch { Run(c, "ROLLBACK"); throw; } }
+    private T Tx<T>(Func<SqliteConnection, T> action) { using var c = Open(); Run(c, "BEGIN IMMEDIATE"); try { var r = action(c); Run(c, "COMMIT"); DemoDb.NotifyNavCountsChanged(); return r; } catch { Run(c, "ROLLBACK"); throw; } }
 
     public void Initialize()
     {

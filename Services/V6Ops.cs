@@ -52,7 +52,7 @@ public sealed class V6Ops(IWebHostEnvironment environment)
     private T Transact<T>(Func<SqliteConnection, T> action)
     {
         using var c = Open(); Execute(c, "BEGIN IMMEDIATE");
-        try { var result = action(c); Execute(c, "COMMIT"); return result; }
+        try { var result = action(c); Execute(c, "COMMIT"); DemoDb.NotifyNavCountsChanged(); return result; }
         catch { Execute(c, "ROLLBACK"); throw; }
     }
     private static bool IsMainDeveloper(SqliteConnection c, long user) =>

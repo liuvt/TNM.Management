@@ -50,12 +50,29 @@
                     {
                         <NavLink href="/catalog/buy-prices"><AppIcon Name="wallet" /> <span>Giá &amp; chương trình</span></NavLink>
                     }
-                    @if (Accounts.HasPermission(nav.User, Permissions.OrdersView)) { <NavLink href="/sales-orders"><AppIcon Name="file" /> <span>Đơn hàng & lắp đặt</span></NavLink> }
+                    @if (Accounts.HasPermission(nav.User, Permissions.OrdersView))
+                    {
+                        <NavLink href="/sales-orders" class="nav-item-with-note">
+                            <AppIcon Name="file" />
+                            <span class="nav-item-body">
+                                <span class="nav-item-title">Đơn hàng &amp; lắp đặt</span>
+                                <small class="nav-item-subnote @(openOrderCount > 0 ? "is-order-active" : "")">Đang xử lý / chờ lắp: <strong>@openOrderCount.ToString("N0")</strong></small>
+                            </span>
+                            <span class="nav-count-badge @(openOrderCount > 0 ? "badge-blue" : "")" title="@($"Đơn hàng đang xử lý / chờ lắp đặt: {openOrderCount:N0} đơn")">@openOrderCount.ToString("N0")</span>
+                        </NavLink>
+                    }
                     @if (Accounts.HasPermission(nav.User, Permissions.PurchaseView)) { <NavLink href="/purchases"><AppIcon Name="cart" /> <span>Mua hàng NCC</span></NavLink> }
                     <div class="nav-heading">Kho & thiết bị</div>
                     @if (Accounts.HasPermission(nav.User, Permissions.InventoryView) || Accounts.HasPermission(nav.User, Permissions.QuantityStockView))
                     {
-                        <NavLink href="/inventory"><AppIcon Name="layers" /> <span>Kho</span></NavLink>
+                        <NavLink href="/inventory" class="nav-item-with-note">
+                            <AppIcon Name="layers" />
+                            <span class="nav-item-body">
+                                <span class="nav-item-title">Kho</span>
+                                <small class="nav-item-subnote @(availableStockCount > 0 ? "is-stock-avail" : "is-stock-empty")">Tồn kho khả dụng: <strong>@availableStockCount.ToString("N0")</strong></small>
+                            </span>
+                            <span class="nav-count-badge @(availableStockCount > 0 ? "badge-green" : "badge-warn")" title="@($"Tổng số lượng tồn kho khả dụng hiện tại: {availableStockCount:N0}")">@availableStockCount.ToString("N0")</span>
+                        </NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.MasterDataManage))
                     {
@@ -122,22 +139,45 @@
 </div>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthStateTask { get; set; }
     private bool mobileMenuOpen;
+    private long availableStockCount;
+    private long openOrderCount;
     private int due10Count;
+    private long currentUserId;
     private string CurrentRenderedPath => "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/');
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        RefreshDue10Count();
+        if (AuthStateTask is not null)
+        {
+            try
+            {
+                var auth = await AuthStateTask;
+                currentUserId = AuthRepository.PrincipalId(auth.User);
+            }
+            catch { currentUserId = 0; }
+        }
+        RefreshNavCounts();
         Navigation.LocationChanged += OnLocationChanged;
-        DemoDb.OnDevicesChanged += OnDevicesChangedHandler;
+        DemoDb.OnNavCountsChanged += OnNavCountsChangedHandler;
     }
-    private void RefreshDue10Count()
+    private void RefreshNavCounts()
     {
-        try { due10Count = Db.Due10DevicesCount(); }
+        try
+        {
+            var s = Db.NavSidebarSummary(currentUserId);
+            availableStockCount = s.AvailableStock;
+            openOrderCount = s.OpenOrders;
+            due10Count = s.Due10Devices;
+        }
         catch { /* ignore db init timing */ }
     }
-    private void OnDevicesChangedHandler() => _ = InvokeAsync(() => { RefreshDue10Count(); StateHasChanged(); });
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(() => { mobileMenuOpen = false; RefreshDue10Count(); StateHasChanged(); });
+    private void OnNavCountsChangedHandler() => _ = InvokeAsync(() =>
+    {
+        try { RefreshNavCounts(); StateHasChanged(); }
+        catch { /* circuit disposed */ }
+    });
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) => _ = InvokeAsync(() => { mobileMenuOpen = false; RefreshNavCounts(); StateHasChanged(); });
     private void ToggleMenu() => mobileMenuOpen = !mobileMenuOpen;
     private void CloseMenu() => mobileMenuOpen = false;
     private static string Initials(string? display) => string.Join("", (display ?? "U").Split(' ', StringSplitOptions.RemoveEmptyEntries).TakeLast(2).Select(x => x[..1].ToUpperInvariant()));
@@ -145,6 +185,6 @@
     public void Dispose()
     {
         Navigation.LocationChanged -= OnLocationChanged;
-        DemoDb.OnDevicesChanged -= OnDevicesChangedHandler;
+        DemoDb.OnNavCountsChanged -= OnNavCountsChangedHandler;
     }
 }

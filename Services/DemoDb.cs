@@ -86,7 +86,13 @@ public sealed class DemoDb
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
-        try { var result = action(c,tx); tx.Commit(); return result; }
+        try
+        {
+            var result = action(c,tx);
+            tx.Commit();
+            NotifyNavCountsChanged();
+            return result;
+        }
         catch { tx.Rollback(); throw; }
     }
     private bool IsMainDeveloper(SqliteConnection c, SqliteTransaction? tx, long actorId = 0)
@@ -876,7 +882,101 @@ public sealed class DemoDb
     }
 
     public static event Action? OnDevicesChanged;
-    public static void NotifyDevicesChanged() => OnDevicesChanged?.Invoke();
+    public static event Action? OnNavCountsChanged;
+    public static void NotifyNavCountsChanged() => OnNavCountsChanged?.Invoke();
+    public static void NotifyDevicesChanged()
+    {
+        OnDevicesChanged?.Invoke();
+        OnNavCountsChanged?.Invoke();
+    }
+
+    public (long AvailableStock, long OpenOrders, int Due10Devices) NavSidebarSummary(long userId = 0)
+    {
+        var today = DateTime.Today;
+        using var c = Open();
+
+        bool restricted = false;
+        if (userId > 0)
+        {
+            var isAdm = N(c, null, @"SELECT COUNT(*) FROM app_users u
+                WHERE u.id=$u AND (u.is_owner=1 OR LOWER(u.username)='vanlt_it'
+                    OR EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND ur.deleted_at IS NULL AND r.code='ADMIN'))",
+                ("$u", userId)) > 0;
+            if (!isAdm)
+            {
+                restricted = N(c, null, "SELECT COUNT(*) FROM user_scope_settings WHERE user_id=$u AND warehouse_mode='SELECTED'", ("$u", userId)) > 0;
+            }
+        }
+
+        long availStock;
+        long openOrders;
+        if (restricted)
+        {
+            const string whScope = "SELECT warehouse_id FROM user_warehouse_scopes WHERE user_id=$u AND deleted_at IS NULL";
+            availStock = N(c, null, $@"
+                SELECT COALESCE(SUM(
+                    CASE
+                      WHEN p.is_serialized = 1 THEN
+                        (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL AND u.warehouse_id IN ({whScope}))
+                        + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.deleted_at IS NULL AND qm.warehouse_id IN ({whScope})), 0)
+                      ELSE
+                        COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.deleted_at IS NULL AND qm.warehouse_id IN ({whScope})), 0)
+                    END
+                ), 0)
+                FROM products p
+                LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
+                WHERE p.is_active=1 AND p.deleted_at IS NULL AND COALESCE(m.product_kind,'GOODS')='GOODS'",
+                ("$u", userId));
+
+            openOrders = N(c, null, $@"
+                SELECT COUNT(*) FROM v7_orders
+                WHERE status IN ('PENDING','APPROVED','DISPATCHED','REPORTED')
+                  AND deleted_at IS NULL
+                  AND (warehouse_id IS NULL OR warehouse_id IN ({whScope}))",
+                ("$u", userId));
+        }
+        else
+        {
+            availStock = N(c, null, @"
+                SELECT COALESCE(SUM(
+                    CASE
+                      WHEN p.is_serialized = 1 THEN
+                        (SELECT COUNT(*) FROM stock_units u WHERE u.product_id=p.id AND u.status='IN_STOCK' AND u.deleted_at IS NULL)
+                        + COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.deleted_at IS NULL), 0)
+                      ELSE
+                        COALESCE((SELECT SUM(qm.delta_qty) FROM quantity_movements qm WHERE qm.product_id=p.id AND qm.deleted_at IS NULL), 0)
+                    END
+                ), 0)
+                FROM products p
+                LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
+                WHERE p.is_active=1 AND p.deleted_at IS NULL AND COALESCE(m.product_kind,'GOODS')='GOODS'");
+
+            openOrders = N(c, null, @"
+                SELECT COUNT(*) FROM v7_orders
+                WHERE status IN ('PENDING','APPROVED','DISPATCHED','REPORTED')
+                  AND deleted_at IS NULL");
+        }
+
+        var dates = Query(c, @"SELECT a.expires_at
+          FROM activations a
+          JOIN stock_units u ON u.id=a.stock_unit_id
+          JOIN products p ON p.id=a.product_id
+          JOIN customers c ON c.id=a.customer_id
+          WHERE a.deleted_at IS NULL AND COALESCE(a.status,'ACTIVE')='ACTIVE'",
+          r => S(r, 0));
+        var due10 = 0;
+        foreach (var exp in dates)
+        {
+            if (DateTime.TryParse(exp, out var dt))
+            {
+                var days = (dt.Date - today).Days;
+                if (days >= 0 && days <= 10)
+                    due10++;
+            }
+        }
+
+        return (Math.Max(0, availStock), Math.Max(0, openOrders), due10);
+    }
 
     public int Due10DevicesCount()
     {
