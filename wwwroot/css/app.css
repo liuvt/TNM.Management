@@ -158,12 +158,15 @@ h1:focus,h1:focus-visible,h2:focus,h2:focus-visible,h3:focus,h3:focus-visible,la
 .nav-item-subnote.is-stock-avail strong{color:#1b653e}
 .nav-item-subnote.is-stock-empty strong{color:#c92a2a}
 .nav-item-subnote.is-order-active strong{color:#1971c2}
+.nav-item-subnote.is-due10-alert strong{color:#c92a2a}
 .nav-count-badge{font-size:10.8px;font-weight:780;padding:2px 7px;border-radius:10px;color:#68756e;background:#f1f5f3;border:1px solid #e2ebe5;font-variant-numeric:tabular-nums;margin-left:auto;flex:none}
 .nav-count-badge.badge-green{background:#ebfbee;color:#1b653e;border-color:#b2f2bb}
 .nav-count-badge.badge-blue{background:#e7f5ff;color:#1971c2;border-color:#a5d8ff}
 .nav-count-badge.badge-warn{background:#fff4e6;color:#d9480f;border-color:#ffd8a8}
+.nav-count-badge.badge-red{background:#fff0f0;color:#c92a2a;border-color:#ffc9c9;box-shadow:0 1px 4px rgba(201,42,42,.12)}
 .sidebar-nav>a.active .nav-count-badge.badge-green{background:#2b9348;color:#fff;border-color:#2b9348}
 .sidebar-nav>a.active .nav-count-badge.badge-blue{background:#1971c2;color:#fff;border-color:#1971c2}
+.sidebar-nav>a.active .nav-count-badge.badge-red{background:#c92a2a;color:#fff;border-color:#c92a2a}
 .nav-due10-badge{font-size:11px;font-weight:750;padding:1px 6px;border-radius:10px;color:#84928a;background:#f1f5f3;font-variant-numeric:tabular-nums;margin-left:auto}
 .nav-due10-badge.has-alert{background:#fff0f0;color:#c92a2a;border:1px solid #ffc9c9;box-shadow:0 1px 4px rgba(201,42,42,.12)}
 .sidebar-nav>a.active .nav-due10-badge.has-alert{background:#c92a2a;color:#fff;border-color:#c92a2a}

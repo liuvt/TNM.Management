@@ -81,10 +81,13 @@
                     @if (Accounts.HasPermission(nav.User, Permissions.QuantityCountView)) { <NavLink href="/quantity-counts"><AppIcon Name="clipboard" /> <span>Kiểm kê tồn kho</span></NavLink> }
                     @if (Accounts.HasPermission(nav.User, Permissions.DevicesView))
                     {
-                        <NavLink href="/devices">
+                        <NavLink href="/devices" class="nav-item-with-note">
                             <AppIcon Name="device" />
-                            <span style="flex:1">Thiết bị &amp; gia hạn</span>
-                            <span class="nav-due10-badge @(due10Count > 0 ? "has-alert" : "")" title="@($"Cảnh báo gia hạn: Có {due10Count} thiết bị còn hạn từ 10 ngày trở xuống (đã loại bỏ thiết bị hết hạn)")">(@due10Count)</span>
+                            <span class="nav-item-body">
+                                <span class="nav-item-title">Thiết bị &amp; gia hạn</span>
+                                <small class="nav-item-subnote @(due10Count > 0 ? "is-due10-alert" : "")">Hết hạn ≤ 10 ngày: <strong>@due10Count.ToString("N0")</strong></small>
+                            </span>
+                            <span class="nav-count-badge @(due10Count > 0 ? "badge-red" : "")" title="@($"Cảnh báo gia hạn: Có {due10Count:N0} thiết bị còn hạn từ 10 ngày trở xuống (đã loại bỏ thiết bị hết hạn)")">@due10Count.ToString("N0")</span>
                         </NavLink>
                     }
                     @if (Accounts.HasPermission(nav.User, Permissions.InventoryWarranty)) { <NavLink href="/warranties"><AppIcon Name="wrench" /> <span>Bảo hành</span></NavLink> }
