@@ -4,6 +4,7 @@ namespace TNM.Management.Services;
 
 public record V7OrderLineDraft(long ProductId, long Quantity);
 public record V7OrderLineReport(long LineId, string Imei, string PlateNo = "", string VinNo = "");
+public record V7OrderLineEdit(long LineId, long? UnitPriceOverride = null, string Imei = "", string PlateNo = "", string VinNo = "");
 public record V7OrderLine(
     long Id,
     long OrderId,
@@ -51,7 +52,9 @@ public record V7Order(
     bool Cod = false,
     long? SellerRecordId = null,
     long CostSnapshot = 0,
-    bool NoInstallFee = false)
+    bool NoInstallFee = false,
+    long CustomerId = 0,
+    bool IsAccountingLocked = false)
 {
     public string CustomerB2BDisplay => string.IsNullOrWhiteSpace(RepresentativeName) ? Customer : $"{Customer} (ĐD: {RepresentativeName})";
     public string DurationDisplay => DurationMonths == 12 ? "1 năm" : (DurationMonths > 0 && DurationMonths % 12 == 0) ? $"{DurationMonths / 12} năm" : $"{DurationMonths} tháng";
@@ -151,12 +154,13 @@ public sealed class V7Orders(IWebHostEnvironment env)
             WHERE NOT EXISTS (SELECT 1 FROM v7_order_lines l WHERE l.order_id=o.id);
             """);
 
-        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định (cho phép bổ sung IMEI hoặc Admin chuyển sang CANCELLED)
+        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định đối với user thường (cho phép Role Main điều chỉnh khi chưa chốt số, hoặc chuyển sang CANCELLED)
         Run(c, """
             DROP TRIGGER IF EXISTS trg_v7_orders_lock_completed_update;
             CREATE TRIGGER trg_v7_orders_lock_completed_update
             BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, no_install_fee, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, notes, completed_at ON v7_orders
             WHEN OLD.status = 'COMPLETED' AND NEW.status <> 'CANCELLED'
+              AND LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
             END;
@@ -165,6 +169,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             CREATE TRIGGER trg_v7_order_lines_lock_completed_update
             BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd ON v7_order_lines
             WHEN (SELECT status FROM v7_orders WHERE id = OLD.order_id) = 'COMPLETED'
+              AND LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Dòng sản phẩm của đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
             END;
@@ -173,6 +178,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             CREATE TRIGGER trg_v7_order_lines_lock_completed_insert
             BEFORE INSERT ON v7_order_lines
             WHEN (SELECT status FROM v7_orders WHERE id = NEW.order_id) = 'COMPLETED'
+              AND LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Đơn hàng đã hoàn thành, không thể thêm dòng sản phẩm mới.');
             END;
@@ -215,6 +221,55 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 {
                     Run(c, "UPDATE v7_orders SET no_install_fee=1, unit_price_vnd=$total, installer_fee_vnd=0 WHERE id=$id", ("$total", newTotal), ("$id", so24Id));
                 }
+            }
+        }
+
+        // Điều chỉnh tự động (idempotent) đơn hoàn thành SO7-000010 sang chế độ Không tính công lắp (Giá chưa lắp = 620,000đ x 20 = 12,400,000đ) & đồng bộ Hóa đơn SALE phía sau khi chưa chốt số
+        var so10NeedFix = Scalar(c, @"SELECT COALESCE((SELECT id FROM v7_orders o
+            WHERE o.code='SO7-000010' AND o.deleted_at IS NULL AND o.status='COMPLETED' AND COALESCE(o.no_install_fee,0)=0
+              AND NOT EXISTS (SELECT 1 FROM invoices iv WHERE iv.v7_order_id=o.id AND iv.deleted_at IS NULL AND COALESCE(iv.is_locked,0)=1)
+            LIMIT 1), 0)");
+        if (so10NeedFix > 0)
+        {
+            var mainActorId = Scalar(c, "SELECT COALESCE((SELECT id FROM app_users WHERE is_active=1 AND LOWER(username)='vanlt_it' LIMIT 1), 0)");
+            if (mainActorId > 0)
+            {
+                long cId = 0, dur = 12;
+                long? whId = null, empId = null, sellerRecId = null;
+                bool cod = false, deduct = true, partner = false;
+                string contact = "", phone = "", addr = "", instAt = "", notes = "", installerName = "", saleSrc = "", actAt = "";
+                using (var o10Q = Cmd(c, @"SELECT customer_id, COALESCE(contact_name,''), COALESCE(customer_phone,''), COALESCE(install_address,''),
+                    COALESCE(install_at,''), COALESCE(duration_months,12), COALESCE(notes,''), COALESCE(collect_on_delivery,0),
+                    warehouse_id, source, COALESCE(installer,''), installer_employee_id, COALESCE(deduct_stock,1),
+                    seller_record_id, COALESCE(sale_source,''), COALESCE(activated_at,'')
+                    FROM v7_orders WHERE id=$id", ("$id", so10NeedFix)))
+                using (var o10R = o10Q.ExecuteReader())
+                {
+                    if (o10R.Read())
+                    {
+                        cId = o10R.GetInt64(0);
+                        contact = o10R.GetString(1);
+                        phone = o10R.GetString(2);
+                        addr = o10R.GetString(3);
+                        instAt = o10R.GetString(4);
+                        dur = o10R.GetInt64(5);
+                        notes = o10R.GetString(6);
+                        cod = o10R.GetInt64(7) == 1;
+                        whId = o10R.IsDBNull(8) ? null : o10R.GetInt64(8);
+                        partner = o10R.GetString(9) == "PARTNER";
+                        installerName = o10R.GetString(10);
+                        empId = o10R.IsDBNull(11) ? null : o10R.GetInt64(11);
+                        deduct = o10R.GetInt64(12) == 1;
+                        sellerRecId = o10R.IsDBNull(13) ? null : o10R.GetInt64(13);
+                        saleSrc = o10R.GetString(14);
+                        actAt = o10R.GetString(15);
+                    }
+                }
+                c.Close();
+                UpdateCompletedOrderMain(
+                    mainActorId, so10NeedFix, cId, contact, phone, addr, instAt, dur, notes, cod,
+                    whId, partner, installerName, empId, deduct, noInstallFee: true, sellerRecId, saleSrc, actAt, null);
+                return;
             }
         }
     }
@@ -332,7 +387,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
             COALESCE(c.representative_name,''),
             COALESCE(o.contact_name,''),COALESCE(o.duration_months,12),COALESCE(o.deduct_stock,1),
             COALESCE(o.activated_at,''),o.warehouse_id,COALESCE(o.notes,''),COALESCE(o.collect_on_delivery,0),
-            COALESCE(o.seller_record_id, c.seller_id),COALESCE(o.unit_cost_snapshot_vnd,0),COALESCE(o.no_install_fee,0)
+            COALESCE(o.seller_record_id, c.seller_id),COALESCE(o.unit_cost_snapshot_vnd,0),COALESCE(o.no_install_fee,0),
+            o.customer_id,
+            CASE WHEN EXISTS(SELECT 1 FROM invoices iv WHERE iv.v7_order_id=o.id AND iv.deleted_at IS NULL AND COALESCE(iv.is_locked,0)=1) THEN 1 ELSE 0 END
             FROM v7_orders o JOIN customers c ON c.id=o.customer_id JOIN products p ON p.id=o.product_id
             LEFT JOIN customer_groups cg ON cg.id=c.group_id
             LEFT JOIN customer_groups pg ON pg.id=cg.parent_id
@@ -382,7 +439,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 r.GetInt64(27) == 1,
                 r.IsDBNull(28) ? null : r.GetInt64(28),
                 r.GetInt64(29),
-                r.GetInt64(30) == 1));
+                r.GetInt64(30) == 1,
+                r.GetInt64(31),
+                r.GetInt64(32) == 1));
         }
         return list;
     }
@@ -1501,40 +1560,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             Run(c, "DELETE FROM v7_orders WHERE id=$id", ("$id", id));
 
             // 7. Đồng bộ lại chứng từ Hoa hồng Seller (COMMISSION) đang mở (chưa khóa sổ)
-            using (var sq = Cmd(c, @"SELECT s.id, s.code, s.full_name, COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
-                (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                 WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
-                   AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
-                + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN customers cu ON cu.id=i.customer_id
-                   WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id) AS dev_qty,
-                (SELECT COUNT(*) FROM renewals r
-                 WHERE r.deleted_at IS NULL
-                   AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))) AS ren_cnt
-                FROM v7_sellers s WHERE s.deleted_at IS NULL"))
-            using (var sr = sq.ExecuteReader())
-            {
-                var sellers = new List<(long Id, string Code, string Name, long OrderRate, long RenRate, long DevQty, long RenCnt)>();
-                while (sr.Read())
-                    sellers.Add((sr.GetInt64(0), sr.GetString(1), sr.GetString(2), sr.GetInt64(3), sr.GetInt64(4), sr.GetInt64(5), sr.GetInt64(6)));
-                sr.Close();
-
-                foreach (var s in sellers)
-                {
-                    var openCommInvId = Scalar(c, @"SELECT COALESCE((SELECT id FROM invoices
-                        WHERE invoice_type='COMMISSION' AND status='OPEN' AND is_locked=0 AND deleted_at IS NULL
-                          AND (notes LIKE '%'||$code||'%' OR notes LIKE '%'||$name||'%') LIMIT 1), 0)",
-                        ("$code", s.Code), ("$name", s.Name));
-                    if (openCommInvId > 0)
-                    {
-                        var est = s.DevQty * s.OrderRate + s.RenCnt * s.RenRate;
-                        var desc = $"Chi hoa hồng cuối kỳ cho NV bán hàng {s.Name} ({s.Code}): {s.DevQty} thiết bị hoàn thành + {s.RenCnt} lượt gia hạn.";
-                        Run(c, "UPDATE invoices SET amount_vnd=$amt, notes=$notes WHERE id=$id",
-                            ("$amt", est), ("$notes", $"{s.Name} ({s.Code}) — {desc}"), ("$id", openCommInvId));
-                        Run(c, "UPDATE invoice_lines SET description=$desc, quantity=1, unit_price_vnd=$amt WHERE invoice_id=$id AND deleted_at IS NULL",
-                            ("$desc", desc), ("$amt", est), ("$id", openCommInvId));
-                    }
-                }
-            }
+            SyncOpenSellerCommissions(c);
 
             return 0;
         });
@@ -1543,5 +1569,595 @@ public sealed class V7Orders(IWebHostEnvironment env)
         {
             DemoDb.NotifyDevicesChanged();
         }
+    }
+
+    private static void SyncOpenSellerCommissions(SqliteConnection c)
+    {
+        using var sq = Cmd(c, @"SELECT s.id, s.code, s.full_name, COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
+            (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
+             WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+               AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
+            + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN customers cu ON cu.id=i.customer_id
+               WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.status<>'VOID' AND cu.seller_id=s.id) AS dev_qty,
+            (SELECT COUNT(*) FROM renewals r
+             WHERE r.deleted_at IS NULL
+               AND (r.seller_id=s.id OR (r.seller_id IS NULL AND (r.seller_name LIKE '%'||s.code||'%' OR r.seller_name LIKE '%'||s.full_name||'%')))) AS ren_cnt
+            FROM v7_sellers s WHERE s.deleted_at IS NULL");
+        using var sr = sq.ExecuteReader();
+        var sellers = new List<(long Id, string Code, string Name, long OrderRate, long RenRate, long DevQty, long RenCnt)>();
+        while (sr.Read())
+            sellers.Add((sr.GetInt64(0), sr.GetString(1), sr.GetString(2), sr.GetInt64(3), sr.GetInt64(4), sr.GetInt64(5), sr.GetInt64(6)));
+        sr.Close();
+
+        foreach (var s in sellers)
+        {
+            var openCommInvId = Scalar(c, @"SELECT COALESCE((SELECT id FROM invoices
+                WHERE invoice_type='COMMISSION' AND status='OPEN' AND is_locked=0 AND deleted_at IS NULL
+                  AND (notes LIKE '%'||$code||'%' OR notes LIKE '%'||$name||'%') LIMIT 1), 0)",
+                ("$code", s.Code), ("$name", s.Name));
+            if (openCommInvId > 0)
+            {
+                var est = s.DevQty * s.OrderRate + s.RenCnt * s.RenRate;
+                var desc = $"Chi hoa hồng cuối kỳ cho NV bán hàng {s.Name} ({s.Code}): {s.DevQty} thiết bị hoàn thành + {s.RenCnt} lượt gia hạn.";
+                Run(c, "UPDATE invoices SET amount_vnd=$amt, notes=$notes WHERE id=$id",
+                    ("$amt", est), ("$notes", $"{s.Name} ({s.Code}) — {desc}"), ("$id", openCommInvId));
+                Run(c, "UPDATE invoice_lines SET description=$desc, quantity=1, unit_price_vnd=$amt WHERE invoice_id=$id AND deleted_at IS NULL",
+                    ("$desc", desc), ("$amt", est), ("$id", openCommInvId));
+            }
+        }
+    }
+
+    public void UpdateCompletedOrderMain(
+        long actor,
+        long id,
+        long customerId,
+        string contactName,
+        string customerPhone,
+        string installAddress,
+        string installAt,
+        long durationMonths,
+        string notes,
+        bool cod,
+        long? warehouseId,
+        bool partner,
+        string installer,
+        long? installerEmployeeId,
+        bool deductStock,
+        bool noInstallFee,
+        long? sellerRecordId = null,
+        string? saleSource = null,
+        string? activatedDate = null,
+        IReadOnlyList<V7OrderLineEdit>? lineEdits = null)
+    {
+        Tx(actor, c => {
+            if (!IsMainDeveloper(c, actor))
+                throw new UnauthorizedAccessException("Chỉ tài khoản quản trị hệ thống cao nhất mới có quyền điều chỉnh đơn hàng đã hoàn thành.");
+
+            var st = Status(c, id);
+            if (st != "COMPLETED")
+                throw new InvalidOperationException("Đơn hàng chưa hoàn thành, vui lòng dùng thao tác lưu thông thường.");
+
+            if (Scalar(c, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$id AND deleted_at IS NULL AND COALESCE(is_locked,0)=1", ("$id", id)) > 0)
+                throw new InvalidOperationException("Đơn hàng đã có chứng từ kế toán chốt số / khóa sổ. Vui lòng mở khóa chứng từ bên Công nợ & Kế toán trước khi điều chỉnh.");
+
+            if (!deductStock && !partner)
+                throw new InvalidOperationException("Chỉ cho phép chọn 'Không trừ tồn kho' khi Đơn vị lắp đặt là Hãng lắp đặt.");
+            if (!deductStock && string.IsNullOrWhiteSpace(installer) && !(installerEmployeeId is > 0))
+                throw new InvalidOperationException("Khi chọn 'Không trừ tồn kho', bắt buộc phải có tên Hãng lắp đặt.");
+
+            long oldCustomerId, oldWarehouseId;
+            bool oldDeductStock, oldNoInstallFee;
+            string oldSource, orderCode, existingActivatedAt;
+            using (var oq = Cmd(c, @"SELECT customer_id, COALESCE(warehouse_id,0), source, COALESCE(deduct_stock,1), COALESCE(no_install_fee,0),
+                COALESCE(code,''), COALESCE(activated_at,'') FROM v7_orders WHERE id=$id", ("$id", id)))
+            using (var or = oq.ExecuteReader())
+            {
+                if (!or.Read()) throw new InvalidOperationException("Không tìm thấy đơn hàng.");
+                oldCustomerId = or.GetInt64(0);
+                oldWarehouseId = or.GetInt64(1);
+                oldSource = or.GetString(2);
+                oldDeductStock = or.GetInt64(3) == 1 && oldSource != "PARTNER" ? true : (or.GetInt64(3) == 1);
+                oldNoInstallFee = or.GetInt64(4) == 1;
+                orderCode = or.GetString(5);
+                existingActivatedAt = or.GetString(6);
+            }
+
+            var effCustomerId = customerId > 0 ? customerId : oldCustomerId;
+            if (Scalar(c, "SELECT COUNT(*) FROM customers WHERE id=$id AND deleted_at IS NULL", ("$id", effCustomerId)) == 0)
+                throw new InvalidOperationException("Khách hàng đã chọn không hợp lệ.");
+
+            var defaultWh = Scalar(c, "SELECT COALESCE((SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 1)");
+            var effWarehouse = (warehouseId is > 0 && Scalar(c, "SELECT COUNT(*) FROM warehouses WHERE id=$w AND deleted_at IS NULL", ("$w", warehouseId.Value)) > 0)
+                ? warehouseId.Value
+                : (oldWarehouseId > 0 ? oldWarehouseId : defaultWh);
+
+            var effDuration = durationMonths > 0 ? durationMonths : 12;
+            DateTime actDate = DateTime.Today;
+            var rawAct = !string.IsNullOrWhiteSpace(activatedDate) ? activatedDate.Trim() : existingActivatedAt.Trim();
+            if (!string.IsNullOrWhiteSpace(rawAct))
+            {
+                string[] actFormats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "yyyy-MM-dd HH:mm:ss", "dd/MM/yyyy HH:mm:ss"];
+                if (DateTime.TryParseExact(rawAct, actFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedAct))
+                    actDate = parsedAct.Date;
+                else if (DateTime.TryParse(rawAct, System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), System.Globalization.DateTimeStyles.None, out var parsedVi))
+                    actDate = parsedVi.Date;
+            }
+            var actDateStr = actDate.ToString("yyyy-MM-dd");
+            var expDateStr = actDate.AddMonths((int)effDuration).ToString("yyyy-MM-dd");
+
+            long? empId = installerEmployeeId is > 0 ? installerEmployeeId : null;
+            var installerName = (installer ?? "").Trim();
+            if (empId.HasValue)
+            {
+                var empName = Str(c, "SELECT full_name FROM employees WHERE id=$id AND deleted_at IS NULL", ("$id", empId.Value));
+                if (string.IsNullOrWhiteSpace(empName)) throw new InvalidOperationException("Nhân sự lắp đặt không tồn tại.");
+                if (string.IsNullOrWhiteSpace(installerName)) installerName = empName;
+            }
+            else if (string.IsNullOrWhiteSpace(installerName))
+            {
+                if (partner) throw new InvalidOperationException("Bắt buộc phải nhập tên Hãng lắp đặt.");
+                installerName = noInstallFee ? "Giao thiết bị (Không lắp đặt)" : "ĐV lắp đặt nội bộ";
+            }
+
+            var (resolvedSellerId, resolvedSrc) = ResolveOrderSeller(c, effCustomerId, actor, sellerRecordId, saleSource);
+
+            // 1. Đọc danh sách dòng hiện tại của đơn hàng
+            var dbLines = new List<(long LineId, long ProductId, string ProductName, bool IsSerialized, long Qty, long OldUnitPrice, long UnitCost, string OldImei, string OldPlate, string OldVin, long StockUnitId, string ProductKind)>();
+            using (var lq = Cmd(c, @"SELECT l.id, l.product_id, p.name, p.is_serialized, l.quantity, l.unit_price_vnd, l.unit_cost_snapshot_vnd,
+                COALESCE(l.imei,''), COALESCE(l.plate_no,''), COALESCE(l.vin_no,''), COALESCE(l.stock_unit_id,0), COALESCE(m.product_kind,'GOODS')
+                FROM v7_order_lines l JOIN products p ON p.id=l.product_id
+                LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
+                WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id)))
+            using (var lr = lq.ExecuteReader())
+            {
+                while (lr.Read())
+                    dbLines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetInt64(3) == 1, lr.GetInt64(4), lr.GetInt64(5), lr.GetInt64(6), lr.GetString(7), lr.GetString(8), lr.GetString(9), lr.GetInt64(10), lr.GetString(11)));
+            }
+
+            // 2. Đồng bộ chế độ tồn kho nếu chuyển đổi giữa Trừ kho <-> Không trừ kho (Hãng)
+            if (oldDeductStock != deductStock)
+            {
+                if (oldDeductStock && !deductStock)
+                {
+                    // Hoàn trả tồn kho đã trừ về lại kho xuất (khi chuyển sang Hãng lắp đặt - Không trừ kho)
+                    var stockIds = new HashSet<long>();
+                    using (var eq = Cmd(c, "SELECT stock_unit_id FROM v7_stock_effects WHERE order_id=$o", ("$o", id)))
+                    using (var er = eq.ExecuteReader())
+                    {
+                        while (er.Read()) if (!er.IsDBNull(0) && er.GetInt64(0) > 0) stockIds.Add(er.GetInt64(0));
+                    }
+                    foreach (var ln in dbLines) if (ln.StockUnitId > 0) stockIds.Add(ln.StockUnitId);
+
+                    Run(c, "DELETE FROM v7_stock_effects WHERE order_id=$o", ("$o", id));
+                    var affectedSaleOutTx = new HashSet<long>();
+                    var restoreWh = oldWarehouseId > 0 ? oldWarehouseId : effWarehouse;
+
+                    foreach (var sid in stockIds)
+                    {
+                        long txWh = restoreWh;
+                        using (var txq = Cmd(c, @"SELECT l.id, tx.id, COALESCE(tx.warehouse_id, 0)
+                            FROM inventory_transaction_lines l JOIN inventory_transactions tx ON tx.id=l.transaction_id
+                            WHERE l.stock_unit_id=$s AND tx.movement_type='SALE_OUT'", ("$s", sid)))
+                        using (var txr = txq.ExecuteReader())
+                        {
+                            var delIds = new List<long>();
+                            while (txr.Read())
+                            {
+                                delIds.Add(txr.GetInt64(0));
+                                affectedSaleOutTx.Add(txr.GetInt64(1));
+                                if (txr.GetInt64(2) > 0) txWh = txr.GetInt64(2);
+                            }
+                            txr.Close();
+                            foreach (var tlId in delIds) Run(c, "DELETE FROM inventory_transaction_lines WHERE id=$id", ("$id", tlId));
+                        }
+
+                        var hasAct = Scalar(c, "SELECT COUNT(*) FROM activations WHERE stock_unit_id=$s AND deleted_at IS NULL", ("$s", sid)) > 0;
+                        var unitImei = Str(c, "SELECT COALESCE(imei,'') FROM stock_units WHERE id=$s", ("$s", sid));
+                        if (!hasAct && unitImei.StartsWith("KHO-", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Run(c, "UPDATE stock_units SET status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$s",
+                                ("$w", txWh), ("$s", sid));
+                            Run(c, "UPDATE v7_order_lines SET stock_unit_id=NULL WHERE order_id=$o AND stock_unit_id=$s", ("$o", id), ("$s", sid));
+                        }
+                    }
+                    foreach (var txId in affectedSaleOutTx)
+                    {
+                        if (Scalar(c, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE transaction_id=$t", ("$t", txId)) == 0)
+                            Run(c, "DELETE FROM inventory_transactions WHERE id=$t AND movement_type='SALE_OUT'", ("$t", txId));
+                    }
+                    Run(c, "DELETE FROM quantity_movements WHERE ref_type='V7_ORDER' AND ref_id=$o", ("$o", id));
+                }
+                else if (!oldDeductStock && deductStock)
+                {
+                    // Chuyển từ Không trừ kho sang Trừ tồn kho: xuất bổ sung các dòng chưa trừ kho
+                    long? saleOutTxId = null;
+                    for (int idx = 0; idx < dbLines.Count; idx++)
+                    {
+                        var ln = dbLines[idx];
+                        if (ln.IsSerialized && ln.StockUnitId <= 0)
+                        {
+                            using var findSlot = Cmd(c, @"SELECT id, COALESCE(warehouse_id, $w) FROM stock_units
+                                WHERE product_id=$p AND status='IN_STOCK' AND deleted_at IS NULL
+                                ORDER BY CASE WHEN warehouse_id=$w THEN 0 ELSE 1 END,
+                                         CASE WHEN imei LIKE 'KHO-%' THEN 0 ELSE 1 END, id ASC LIMIT 1",
+                                ("$p", ln.ProductId), ("$w", effWarehouse));
+                            using var sr = findSlot.ExecuteReader();
+                            if (!sr.Read())
+                                throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' không đủ tồn kho để chuyển sang chế độ Trừ tồn kho.");
+                            var slotId = sr.GetInt64(0);
+                            var txWh = sr.IsDBNull(1) ? effWarehouse : sr.GetInt64(1);
+                            sr.Close();
+
+                            if (!saleOutTxId.HasValue)
+                            {
+                                var txCode = "XK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
+                                Run(c, "INSERT INTO inventory_transactions(code,movement_type,warehouse_id,customer_id,actor_user_id,notes) VALUES($code,'SALE_OUT',$w,$c,$actor,'Xuất lắp đặt đơn V7 (điều chỉnh)')",
+                                    ("$code", txCode), ("$w", txWh), ("$c", effCustomerId), ("$actor", actor));
+                                saleOutTxId = Scalar(c, "SELECT last_insert_rowid()");
+                            }
+                            Run(c, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
+                                ("$t", saleOutTxId.Value), ("$s", slotId), ("$p", ln.ProductId), ("$cost", ln.UnitCost));
+                            Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$id",
+                                ("$c", effCustomerId), ("$id", slotId));
+                            Run(c, "INSERT INTO v7_stock_effects(order_id,stock_unit_id) VALUES($o,$s)", ("$o", id), ("$s", slotId));
+                            Run(c, "UPDATE v7_order_lines SET stock_unit_id=$sid WHERE id=$lid", ("$sid", slotId), ("$lid", ln.LineId));
+                            dbLines[idx] = ln with { StockUnitId = slotId };
+                        }
+                        else if (!ln.IsSerialized && ln.ProductKind == "GOODS")
+                        {
+                            var locId = Scalar(c, @"SELECT l.id FROM warehouse_locations l
+                                WHERE l.warehouse_id=$w AND l.is_active=1 AND l.deleted_at IS NULL
+                                ORDER BY CASE WHEN l.code='MAIN' THEN 0 ELSE 1 END, l.id LIMIT 1", ("$w", effWarehouse));
+                            var curQty = locId > 0
+                                ? Scalar(c, "SELECT COALESCE(SUM(delta_qty),0) FROM quantity_movements WHERE product_id=$p AND warehouse_id=$w AND location_id=$l",
+                                    ("$p", ln.ProductId), ("$w", effWarehouse), ("$l", locId))
+                                : 0;
+                            if (locId <= 0 || curQty < ln.Qty)
+                                throw new InvalidOperationException($"Sản phẩm '{ln.ProductName}' không đủ tồn kho để trừ ({curQty}/{ln.Qty}).");
+                            Run(c, @"INSERT INTO quantity_movements(document_no,product_id,warehouse_id,location_id,delta_qty,movement_type,ref_type,ref_id,note,actor_user_id)
+                                VALUES('Q-'||lower(hex(randomblob(8))),$p,$w,$l,$d,'ISSUE','V7_ORDER',$o,'Xuất bổ sung điều chỉnh đơn SO',$u)",
+                                ("$p", ln.ProductId), ("$w", effWarehouse), ("$l", locId), ("$d", -ln.Qty), ("$o", id), ("$u", actor));
+                        }
+                    }
+                }
+            }
+
+            // Đọc lại stock_unit_id mới nhất của từng dòng
+            dbLines.Clear();
+            using (var lq2 = Cmd(c, @"SELECT l.id, l.product_id, p.name, p.is_serialized, l.quantity, l.unit_price_vnd, l.unit_cost_snapshot_vnd,
+                COALESCE(l.imei,''), COALESCE(l.plate_no,''), COALESCE(l.vin_no,''), COALESCE(l.stock_unit_id,0), COALESCE(m.product_kind,'GOODS')
+                FROM v7_order_lines l JOIN products p ON p.id=l.product_id
+                LEFT JOIN product_catalog_metadata m ON m.product_id=p.id
+                WHERE l.order_id=$o AND l.deleted_at IS NULL ORDER BY l.id", ("$o", id)))
+            using (var lr2 = lq2.ExecuteReader())
+            {
+                while (lr2.Read())
+                    dbLines.Add((lr2.GetInt64(0), lr2.GetInt64(1), lr2.GetString(2), lr2.GetInt64(3) == 1, lr2.GetInt64(4), lr2.GetInt64(5), lr2.GetInt64(6), lr2.GetString(7), lr2.GetString(8), lr2.GetString(9), lr2.GetInt64(10), lr2.GetString(11)));
+            }
+
+            // 3. Tính toán & cập nhật Đơn giá bán + Công lắp từng dòng
+            var editMap = (lineEdits ?? []).ToDictionary(x => x.LineId, x => x);
+            long totalPrice = 0;
+            long totalInstallerFee = 0;
+            var updatedLinePricing = new List<(long ProductId, string ProductName, long Qty, long UnitPrice, long InstallerFee)>();
+
+            foreach (var ln in dbLines)
+            {
+                editMap.TryGetValue(ln.LineId, out var le);
+                long newUnitPrice;
+                if (le?.UnitPriceOverride is >= 0)
+                {
+                    newUnitPrice = le.UnitPriceOverride.Value;
+                }
+                else if (noInstallFee != oldNoInstallFee || effCustomerId != oldCustomerId)
+                {
+                    newUnitPrice = QuoteOrderPrice(c, effCustomerId, ln.ProductId, includeInstallPrice: !noInstallFee).Price;
+                }
+                else
+                {
+                    newUnitPrice = ln.OldUnitPrice;
+                }
+
+                long newUnitFee = 0;
+                if (!noInstallFee && empId.HasValue)
+                {
+                    using var rq = Cmd(c, "SELECT install_rate_vnd FROM v7_installer_product_rates WHERE employee_id=$e AND product_id=$p AND deleted_at IS NULL",
+                        ("$e", empId.Value), ("$p", ln.ProductId));
+                    var rateVal = rq.ExecuteScalar();
+                    newUnitFee = rateVal is not null ? Convert.ToInt64(rateVal) : Scalar(c, "SELECT technical_fee_vnd FROM products WHERE id=$p", ("$p", ln.ProductId));
+                }
+
+                Run(c, "UPDATE v7_order_lines SET unit_price_vnd=$price, installer_fee_vnd=$fee WHERE id=$lid",
+                    ("$price", newUnitPrice), ("$fee", newUnitFee), ("$lid", ln.LineId));
+
+                totalPrice += newUnitPrice * ln.Qty;
+                totalInstallerFee += newUnitFee * ln.Qty;
+                updatedLinePricing.Add((ln.ProductId, ln.ProductName, ln.Qty, newUnitPrice, newUnitFee));
+            }
+
+            // 4. Đồng bộ IMEI / Biển số / VIN / Thiết bị kích hoạt (activations & stock_units)
+            if (lineEdits is { Count: > 0 })
+            {
+                var seenImeis = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var allImeis = new List<string>();
+                var allPlates = new List<string>();
+                var allVins = new List<string>();
+
+                foreach (var ln in dbLines)
+                {
+                    if (!ln.IsSerialized) continue;
+                    editMap.TryGetValue(ln.LineId, out var rep);
+                    var cleanImei = (rep?.Imei ?? ln.OldImei).Trim();
+                    var cleanPlate = (rep?.PlateNo ?? ln.OldPlate).Trim();
+                    var cleanVin = (rep?.VinNo ?? ln.OldVin).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(cleanImei) && !seenImeis.Add(cleanImei))
+                        throw new InvalidOperationException($"Mã IMEI '{cleanImei}' bị trùng lặp trong cùng đơn hàng.");
+
+                    if (string.IsNullOrWhiteSpace(cleanImei))
+                    {
+                        Run(c, "UPDATE v7_order_lines SET plate_no=$plate, vin_no=$vin WHERE id=$lid",
+                            ("$plate", cleanPlate), ("$vin", cleanVin), ("$lid", ln.LineId));
+                        if (!string.IsNullOrWhiteSpace(cleanPlate)) allPlates.Add(cleanPlate);
+                        if (!string.IsNullOrWhiteSpace(cleanVin)) allVins.Add(cleanVin);
+                        continue;
+                    }
+
+                    long stockUnitId = ln.StockUnitId;
+                    if (stockUnitId <= 0 && !string.IsNullOrWhiteSpace(ln.OldImei))
+                    {
+                        stockUnitId = Scalar(c, "SELECT COALESCE((SELECT id FROM stock_units WHERE imei=$imei AND deleted_at IS NULL LIMIT 1), 0)", ("$imei", ln.OldImei));
+                    }
+
+                    var existingActId = stockUnitId > 0
+                        ? Scalar(c, "SELECT COALESCE((SELECT id FROM activations WHERE stock_unit_id=$sid AND deleted_at IS NULL LIMIT 1), 0)", ("$sid", stockUnitId))
+                        : 0;
+
+                    if (existingActId > 0 && stockUnitId > 0)
+                    {
+                        if (!string.Equals(cleanImei, ln.OldImei, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND id<>$sid AND deleted_at IS NULL", ("$imei", cleanImei), ("$sid", stockUnitId)) > 0)
+                                throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại trên thiết bị khác.");
+                            Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND id<>$sid AND deleted_at IS NOT NULL", ("$imei", cleanImei), ("$sid", stockUnitId));
+                            Run(c, "UPDATE stock_units SET imei=$imei, customer_id=$c, updated_at=CURRENT_TIMESTAMP WHERE id=$sid", ("$imei", cleanImei), ("$c", effCustomerId), ("$sid", stockUnitId));
+                        }
+                        else
+                        {
+                            Run(c, "UPDATE stock_units SET customer_id=$c WHERE id=$sid", ("$c", effCustomerId), ("$sid", stockUnitId));
+                        }
+                        Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
+                            ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
+                        Run(c, "UPDATE activations SET customer_id=$c, plate_no=$plate, vin_no=$vin, activated_at=$act, expires_at=$exp WHERE id=$aid",
+                            ("$c", effCustomerId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr), ("$aid", existingActId));
+                    }
+                    else
+                    {
+                        if (Scalar(c, "SELECT COUNT(*) FROM activations a JOIN stock_units s ON s.id=a.stock_unit_id WHERE s.imei=$imei AND a.deleted_at IS NULL", ("$imei", cleanImei)) > 0)
+                            throw new InvalidOperationException($"IMEI '{cleanImei}' đã được kích hoạt ở đơn khác.");
+
+                        if (stockUnitId > 0)
+                        {
+                            var otherId = Scalar(c, "SELECT COALESCE((SELECT id FROM stock_units WHERE imei=$imei AND id<>$sid AND deleted_at IS NULL LIMIT 1), 0)",
+                                ("$imei", cleanImei), ("$sid", stockUnitId));
+                            if (otherId > 0)
+                            {
+                                var otherStatus = Str(c, "SELECT status FROM stock_units WHERE id=$id", ("$id", otherId));
+                                if (otherStatus is not ("IN_STOCK" or "CONSIGNED" or "TECHNICIAN"))
+                                    throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại và không còn ở trạng thái tồn kho khả dụng.");
+                                Run(c, "UPDATE stock_units SET status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                    ("$w", effWarehouse), ("$sid", stockUnitId));
+                                Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$oid",
+                                    ("$c", effCustomerId), ("$oid", otherId));
+                                Run(c, "UPDATE inventory_transaction_lines SET stock_unit_id=$oid WHERE stock_unit_id=$sid",
+                                    ("$oid", otherId), ("$sid", stockUnitId));
+                                Run(c, "UPDATE v7_stock_effects SET stock_unit_id=$oid WHERE order_id=$o AND stock_unit_id=$sid",
+                                    ("$oid", otherId), ("$o", id), ("$sid", stockUnitId));
+                                stockUnitId = otherId;
+                            }
+                            else
+                            {
+                                Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND id<>$sid AND deleted_at IS NOT NULL",
+                                    ("$imei", cleanImei), ("$sid", stockUnitId));
+                                Run(c, "UPDATE stock_units SET imei=$imei, status='INSTALLED', warehouse_id=NULL, customer_id=$c, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                    ("$imei", cleanImei), ("$c", effCustomerId), ("$sid", stockUnitId));
+                            }
+                        }
+                        else if (deductStock)
+                        {
+                            var matchId = Scalar(c, "SELECT COALESCE((SELECT id FROM stock_units WHERE imei=$imei AND deleted_at IS NULL LIMIT 1), 0)", ("$imei", cleanImei));
+                            if (matchId > 0)
+                            {
+                                stockUnitId = matchId;
+                                Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                    ("$c", effCustomerId), ("$sid", stockUnitId));
+                            }
+                            else
+                            {
+                                Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", cleanImei));
+                                Run(c, "INSERT INTO stock_units(product_id,imei,status,customer_id) VALUES($p,$imei,'INSTALLED',$c)",
+                                    ("$p", ln.ProductId), ("$imei", cleanImei), ("$c", effCustomerId));
+                                stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
+                            }
+                        }
+                        else
+                        {
+                            if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND deleted_at IS NULL", ("$imei", cleanImei)) > 0)
+                                throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại trong danh sách thiết bị.");
+                            Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND deleted_at IS NOT NULL", ("$imei", cleanImei));
+                            Run(c, "INSERT INTO stock_units(product_id,imei,status,customer_id) VALUES($p,$imei,'INSTALLED',$c)",
+                                ("$p", ln.ProductId), ("$imei", cleanImei), ("$c", effCustomerId));
+                            stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
+                        }
+
+                        Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
+                            ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
+                        Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
+                            VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
+                            ("$o", id), ("$s", stockUnitId), ("$c", effCustomerId), ("$p", ln.ProductId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr));
+                    }
+
+                    allImeis.Add(cleanImei);
+                    if (!string.IsNullOrWhiteSpace(cleanPlate)) allPlates.Add(cleanPlate);
+                    if (!string.IsNullOrWhiteSpace(cleanVin)) allVins.Add(cleanVin);
+                }
+
+                Run(c, "UPDATE v7_orders SET imei=$imei, plate_no=$plate, vin_no=$vin WHERE id=$id",
+                    ("$imei", allImeis.Count > 0 ? string.Join(", ", allImeis) : "CHỜ-NHẬP-IMEI"),
+                    ("$plate", string.Join(", ", allPlates.Distinct())),
+                    ("$vin", string.Join(", ", allVins.Distinct())),
+                    ("$id", id));
+            }
+            else
+            {
+                Run(c, "UPDATE activations SET customer_id=$c, activated_at=$act, expires_at=$exp WHERE v7_order_id=$o AND deleted_at IS NULL",
+                    ("$c", effCustomerId), ("$act", actDateStr), ("$exp", expDateStr), ("$o", id));
+                Run(c, "UPDATE stock_units SET customer_id=$c WHERE id IN (SELECT stock_unit_id FROM v7_order_lines WHERE order_id=$o AND stock_unit_id IS NOT NULL)",
+                    ("$c", effCustomerId), ("$o", id));
+            }
+
+            Run(c, @"UPDATE inventory_transactions SET customer_id=$c
+                WHERE movement_type='SALE_OUT'
+                  AND id IN (SELECT l.transaction_id FROM inventory_transaction_lines l JOIN v7_stock_effects e ON e.stock_unit_id=l.stock_unit_id WHERE e.order_id=$o)",
+                ("$c", effCustomerId), ("$o", id));
+
+            // 5. Cập nhật bản ghi v7_orders chính
+            var finalOrderCost = Scalar(c, "SELECT COALESCE(SUM(quantity * unit_cost_snapshot_vnd), 0) FROM v7_order_lines WHERE order_id=$id AND deleted_at IS NULL", ("$id", id));
+            Run(c, @"UPDATE v7_orders SET
+                customer_id=$cust,
+                seller_record_id=COALESCE($sellerRec, seller_record_id),
+                sale_source=CASE WHEN $src<>'' THEN $src ELSE sale_source END,
+                unit_price_vnd=$price,
+                unit_cost_snapshot_vnd=$cost,
+                source=$source,
+                warehouse_id=$wh,
+                installer=$inst,
+                installer_employee_id=$emp,
+                installer_fee_vnd=$fee,
+                no_install_fee=$noInst,
+                contact_name=$contact,
+                customer_phone=$phone,
+                duration_months=$dur,
+                deduct_stock=$deduct,
+                collect_on_delivery=$cod,
+                install_address=$addr,
+                install_at=$at,
+                notes=$notes,
+                activated_at=$act
+                WHERE id=$id",
+                ("$cust", effCustomerId),
+                ("$sellerRec", resolvedSellerId),
+                ("$src", resolvedSrc),
+                ("$price", totalPrice),
+                ("$cost", finalOrderCost),
+                ("$source", partner ? "PARTNER" : "INTERNAL"),
+                ("$wh", effWarehouse > 0 ? effWarehouse : null),
+                ("$inst", installerName),
+                ("$emp", empId),
+                ("$fee", totalInstallerFee),
+                ("$noInst", noInstallFee ? 1 : 0),
+                ("$contact", (contactName ?? "").Trim()),
+                ("$phone", (customerPhone ?? "").Trim()),
+                ("$dur", effDuration),
+                ("$deduct", deductStock ? 1 : 0),
+                ("$cod", cod ? 1 : 0),
+                ("$addr", (installAddress ?? "").Trim()),
+                ("$at", FormatInstallDateTime(installAt)),
+                ("$notes", (notes ?? "").Trim()),
+                ("$act", actDateStr),
+                ("$id", id));
+
+            // 6. Đồng bộ các luồng Kế toán / Công nợ phía sau (SALE, SERVICE, COMMISSION)
+            static void RecalcInvoiceAmountAndStatus(SqliteConnection conn, long invId, long newAmt)
+            {
+                var paid = Scalar(conn, "SELECT COALESCE(SUM(allocated_vnd), 0) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                var offset = Scalar(conn, "SELECT COALESCE(offset_vnd, 0) FROM invoices WHERE id=$i", ("$i", invId));
+                var settled = paid + offset;
+                var newStatus = newAmt <= 0 ? "PAID" : (settled <= 0 ? "OPEN" : (settled >= newAmt ? "PAID" : "PARTIAL"));
+                Run(conn, "UPDATE invoices SET amount_vnd=$amt, status=$st WHERE id=$i", ("$amt", newAmt), ("$st", newStatus), ("$i", invId));
+            }
+
+            // 6A. Hóa đơn phải thu khách hàng (SALE)
+            var saleInvId = Scalar(c, "SELECT COALESCE((SELECT id FROM invoices WHERE v7_order_id=$o AND invoice_type='SALE' AND deleted_at IS NULL AND status<>'VOID' ORDER BY id DESC LIMIT 1), 0)", ("$o", id));
+            var invNotes = noInstallFee ? $"Đơn hàng {orderCode} (Không tính công lắp — Giá chưa lắp)" : $"Đơn hàng lắp đặt {orderCode}";
+            var lineDescPrefix = noInstallFee ? "Thiết bị (Không tính công lắp)" : "Thiết bị & lắp đặt";
+            if (saleInvId > 0)
+            {
+                Run(c, "UPDATE invoices SET customer_id=$c, notes=$notes WHERE id=$i", ("$c", effCustomerId), ("$notes", invNotes), ("$i", saleInvId));
+                Run(c, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", saleInvId));
+                foreach (var grp in updatedLinePricing.GroupBy(x => (x.ProductId, x.ProductName, x.UnitPrice)))
+                {
+                    Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
+                        ("$i", saleInvId), ("$desc", $"{lineDescPrefix}: {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.UnitPrice));
+                }
+                RecalcInvoiceAmountAndStatus(c, saleInvId, totalPrice);
+            }
+            else if (totalPrice > 0)
+            {
+                var invoiceNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,issued_at,due_at,amount_vnd,notes)
+                    VALUES($no,'SALE',$c,$o,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$price,$notes)",
+                    ("$no", invoiceNo), ("$c", effCustomerId), ("$o", id), ("$price", totalPrice), ("$notes", invNotes));
+                var newInvId = Scalar(c, "SELECT last_insert_rowid()");
+                foreach (var grp in updatedLinePricing.GroupBy(x => (x.ProductId, x.ProductName, x.UnitPrice)))
+                {
+                    Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
+                        ("$i", newInvId), ("$desc", $"{lineDescPrefix}: {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.UnitPrice));
+                }
+            }
+
+            // 6B. Chứng từ công nợ chi phí công lắp kỹ thuật (SERVICE)
+            var srvInvId = Scalar(c, "SELECT COALESCE((SELECT id FROM invoices WHERE v7_order_id=$o AND invoice_type='SERVICE' AND deleted_at IS NULL AND status<>'VOID' ORDER BY id DESC LIMIT 1), 0)", ("$o", id));
+            if (totalInstallerFee > 0)
+            {
+                var partnerLabel = !string.IsNullOrWhiteSpace(installerName) ? installerName : "Nhân sự lắp đặt";
+                var srvNotes = $"{partnerLabel} — Công lắp đặt đơn {orderCode}";
+                if (srvInvId > 0)
+                {
+                    Run(c, "UPDATE invoices SET notes=$notes WHERE id=$i", ("$notes", srvNotes), ("$i", srvInvId));
+                    Run(c, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", srvInvId));
+                    foreach (var grp in updatedLinePricing.Where(x => x.InstallerFee > 0).GroupBy(x => (x.ProductId, x.ProductName, x.InstallerFee)))
+                    {
+                        Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
+                            ("$i", srvInvId), ("$desc", $"Công lắp đặt ({orderCode}): {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.InstallerFee));
+                    }
+                    RecalcInvoiceAmountAndStatus(c, srvInvId, totalInstallerFee);
+                }
+                else
+                {
+                    var srvNo = "CL-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                    Run(c, @"INSERT INTO invoices(invoice_no,invoice_type,v7_order_id,issued_at,due_at,amount_vnd,notes)
+                        VALUES($no,'SERVICE',$o,datetime('now','+7 hours'),date('now','+7 hours','+15 days'),$fee,$notes)",
+                        ("$no", srvNo), ("$o", id), ("$fee", totalInstallerFee), ("$notes", srvNotes));
+                    var newSrvId = Scalar(c, "SELECT last_insert_rowid()");
+                    foreach (var grp in updatedLinePricing.Where(x => x.InstallerFee > 0).GroupBy(x => (x.ProductId, x.ProductName, x.InstallerFee)))
+                    {
+                        Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,$q,$price)",
+                            ("$i", newSrvId), ("$desc", $"Công lắp đặt ({orderCode}): {grp.Key.ProductName}"), ("$p", grp.Key.ProductId), ("$q", grp.Sum(x => x.Qty)), ("$price", grp.Key.InstallerFee));
+                    }
+                }
+            }
+            else if (srvInvId > 0)
+            {
+                var hasSrvAlloc = Scalar(c, "SELECT COUNT(*) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", srvInvId)) > 0;
+                Run(c, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", srvInvId));
+                if (!hasSrvAlloc)
+                {
+                    Run(c, "DELETE FROM invoices WHERE id=$i", ("$i", srvInvId));
+                }
+                else
+                {
+                    Run(c, "UPDATE invoices SET amount_vnd=0, status='VOID' WHERE id=$i", ("$i", srvInvId));
+                }
+            }
+
+            // 6C. Đồng bộ chứng từ Hoa hồng Seller (COMMISSION) đang mở
+            SyncOpenSellerCommissions(c);
+
+            Event(c, id, actor, "MAIN_EDITED_COMPLETED");
+            return 0;
+        });
+
+        DemoDb.NotifyDevicesChanged();
     }
 }

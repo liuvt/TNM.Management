@@ -433,6 +433,10 @@
                                 {
                                     <small style="color:#15803d;font-weight:600">Đã hoàn thành</small>
                                 }
+                                @if(o.IsAccountingLocked)
+                                {
+                                    <div><small style="color:#6366f1;font-weight:600">🔒 Đã chốt số</small></div>
+                                }
                             }
                         </td>
                         <td class="wrap-cell">
@@ -588,7 +592,7 @@
                             {
                                 <div style="display:flex;flex-direction:column;gap:5px;min-width:148px">
                                     <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                        📝 Bổ sung IMEI (@o.MissingImeiCount)
+                                        @(isMainDev && !o.IsAccountingLocked ? $"⚙ Điều chỉnh / IMEI ({o.MissingImeiCount})" : $"📝 Bổ sung IMEI ({o.MissingImeiCount})")
                                     </button>
                                     <div style="display:flex;gap:5px">
                                         <button type="button" class="btn secondary btn-sm" style="flex:1" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
@@ -606,8 +610,8 @@
                             else if(o.IsImmutable)
                             {
                                 <div style="display:flex;flex-direction:column;gap:5px;min-width:148px">
-                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                        👁 Xem / Sửa IMEI
+                                    <button type="button" class="btn @(isMainDev && !o.IsAccountingLocked ? "" : "secondary") btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                        @(isMainDev && !o.IsAccountingLocked ? "⚙ Điều chỉnh đơn / IMEI" : "👁 Xem / Sửa IMEI")
                                     </button>
                                     @if(isMainDev)
                                     {
@@ -666,13 +670,25 @@
 
                 @if(SelectedOrder.IsImmutable)
                 {
+                    @if(CanMainEditCompleted)
+                    {
+                        <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#eff6ff;border:1px solid #93c5fd;border-left:4px solid #2563eb;border-radius:8px;color:#1e3a8a;font-weight:600">
+                            ⚙ <strong>Chế độ điều chỉnh đơn đã hoàn thành (Chưa chốt số):</strong> Cho phép chỉnh sửa lại Chế độ công lắp (Giá chưa lắp / Giá có lắp), Đơn giá bán từng dòng, Khách hàng, NV bán hàng, ĐV lắp đặt, Kho xuất và IMEI. Khi lưu, toàn bộ luồng phía sau (Hóa đơn phải thu <strong>SALE</strong>, Công nợ kỹ thuật <strong>SERVICE</strong>, Hoa hồng NV bán hàng và Thiết bị kích hoạt) sẽ tự động cập nhật đồng bộ.
+                        </div>
+                    }
+                    else if(isMainDev && SelectedOrder.IsAccountingLocked)
+                    {
+                        <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#eef2ff;border:1px solid #a5b4fc;border-radius:8px;color:#3730a3;font-weight:600">
+                            🔒 Đơn hàng <strong>@SelectedOrder.Code</strong> hiện đã chốt số / khóa sổ bên mục Công nợ &amp; Kế toán. Nếu muốn điều chỉnh lại giá hoặc thông tin đơn, vui lòng mở khóa chứng từ kế toán của đơn này trước.
+                        </div>
+                    }
                     @if(SelectedOrder.HasMissingImei)
                     {
                         <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;color:#92400e;font-weight:600">
-                            Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành &amp; @(SelectedOrder.DeductStock ? "đã trừ tồn kho" : "không trừ tồn kho (Hãng)"), hiện còn <strong>@SelectedOrder.MissingImeiCount thiết bị chờ bổ sung mã IMEI</strong>. Vui lòng nhập Số IMEI / Biển số ở bảng dưới và bấm <strong>“💾 Lưu &amp; Kích hoạt IMEI bổ sung”</strong> (hệ thống sẽ kích hoạt thiết bị mà không trừ tồn kho lần 2).
+                            Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành &amp; @(SelectedOrder.DeductStock ? "đã trừ tồn kho" : "không trừ tồn kho (Hãng)"), hiện còn <strong>@SelectedOrder.MissingImeiCount thiết bị chờ bổ sung mã IMEI</strong>. Vui lòng nhập Số IMEI / Biển số ở bảng dưới và lưu cập nhật (hệ thống kích hoạt thiết bị mà không trừ tồn kho lần 2).
                         </div>
                     }
-                    else
+                    else if(!CanMainEditCompleted)
                     {
                         <div style="margin-bottom:0.85rem;padding:0.75rem 1rem;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534;font-weight:600">
                             Đơn hàng <strong>@SelectedOrder.Code</strong> đã hoàn thành: Giá bán (@SelectedOrder.Price.ToString("N0") ₫), giá vốn (@SelectedOrder.CostSnapshot.ToString("N0") ₫), công lắp (@SelectedOrder.InstallerFee.ToString("N0") ₫), NV bán hàng (@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)) và mã IMEI (@SelectedOrder.Imei) đã kích hoạt. Bạn vẫn có thể cập nhật lại IMEI / Biển số / Thông tin phụ ở bảng dưới nếu cần.
@@ -682,7 +698,7 @@
 
                 <div class="form-grid">
                     <label>Kho điều sản phẩm *
-                        <select @bind="warehouse" disabled="@SelectedOrder.IsImmutable">
+                        <select @bind="warehouse" disabled="@IsOrderFieldsLocked">
                             <option value="0">— Chọn kho xuất —</option>
                             @foreach(var w in warehouses)
                             {
@@ -691,7 +707,7 @@
                         </select>
                     </label>
                     <label>Loại Đơn vị lắp đặt *
-                        <select value="@source" @onchange="OnEditSourceChanged" disabled="@SelectedOrder.IsImmutable">
+                        <select value="@source" @onchange="OnEditSourceChanged" disabled="@IsOrderFieldsLocked">
                             <option value="INTERNAL">ĐV lắp đặt (Nội bộ / CTV / Đại lý)</option>
                             <option value="PARTNER">Hãng lắp đặt</option>
                         </select>
@@ -699,7 +715,7 @@
                     @if(source == "INTERNAL")
                     {
                         <label>Chọn ĐV lắp đặt (đã khai báo)
-                            <select @bind="installerEmployeeId" @bind:after="OnInstallerEmployeeChanged" disabled="@SelectedOrder.IsImmutable">
+                            <select @bind="installerEmployeeId" @bind:after="OnInstallerEmployeeChanged" disabled="@IsOrderFieldsLocked">
                                 <option value="0">— Chọn nhân sự / ĐV lắp đặt —</option>
                                 @foreach(var emp in installers)
                                 {
@@ -708,13 +724,13 @@
                             </select>
                         </label>
                         <label>Tên ĐV lắp đặt *
-                            <input @bind="installer" disabled="@SelectedOrder.IsImmutable" placeholder="Tự động điền khi chọn hoặc nhập tên ĐV lắp đặt" />
+                            <input @bind="installer" disabled="@IsOrderFieldsLocked" placeholder="Tự động điền khi chọn hoặc nhập tên ĐV lắp đặt" />
                         </label>
                     }
                     else
                     {
                         <label>Chọn nhanh Hãng lắp đặt
-                            <select @onchange="OnEditManufacturerPick" disabled="@SelectedOrder.IsImmutable">
+                            <select @onchange="OnEditManufacturerPick" disabled="@IsOrderFieldsLocked">
                                 <option value="">— Chọn Hãng / NCC hoặc nhập tên bên cạnh —</option>
                                 @foreach(var s in suppliers)
                                 {
@@ -727,12 +743,12 @@
                             </select>
                         </label>
                         <label>Tên Hãng lắp đặt *
-                            <input @bind="installer" disabled="@SelectedOrder.IsImmutable" placeholder="Bắt buộc nhập tên Hãng lắp đặt" />
+                            <input @bind="installer" disabled="@IsOrderFieldsLocked" placeholder="Bắt buộc nhập tên Hãng lắp đặt" />
                         </label>
                     }
 
                     <label class="checkbox-row" style="padding:0.5rem 0.75rem;background:@(editNoInstallFee ? "#fff7ed" : "#eff6ff");border:1px solid @(editNoInstallFee ? "#fdba74" : "#93c5fd");border-radius:8px">
-                        <input type="checkbox" @bind="editNoInstallFee" disabled="@SelectedOrder.IsImmutable" />
+                        <input type="checkbox" @bind="editNoInstallFee" @bind:after="OnEditNoInstallFeeChanged" disabled="@IsOrderFieldsLocked" />
                         <span>
                             <strong>Không tính công lắp (Giá chưa lắp)</strong>
                             <small style="display:block;color:#475569">
@@ -744,7 +760,7 @@
                     </label>
 
                     <label class="checkbox-row" style="padding:0.5rem 0.75rem;background:@(noDeductStock ? "#fff7ed" : "#f0fdf4");border:1px solid @(noDeductStock ? "#fdba74" : "#86efac");border-radius:8px">
-                        <input type="checkbox" checked="@noDeductStock" disabled="@SelectedOrder.IsImmutable" @onchange="OnEditNoDeductChanged" />
+                        <input type="checkbox" checked="@noDeductStock" disabled="@IsOrderFieldsLocked" @onchange="OnEditNoDeductChanged" />
                         <span>
                             <strong>Không trừ tồn kho</strong>
                             <small style="display:block;color:#475569">
@@ -757,16 +773,30 @@
                 </div>
 
                 <div style="margin-top:0.85rem;padding:0.75rem;background:#f8fafc;border:1px solid var(--border,#e2e8f0);border-radius:8px">
-                    <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, nhân viên bán hàng &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
+                    <h3 style="font-size:0.9rem;margin-bottom:0.5rem">Thông tin khách, nhân viên bán hàng &amp; lịch lắp đặt của đơn <strong>@SelectedOrder.Code</strong> @(CanMainEditCompleted ? "(Cho phép điều chỉnh & tự động cập nhật luồng sau)" : SelectedOrder.IsImmutable ? "(Đã hoàn thành)" : "(CSKH có thể cập nhật)")</h3>
                     <div class="form-grid">
+                        @if(CanMainEditCompleted)
+                        {
+                            <label>Đơn vị / Khách hàng (HTX / Đại lý / Khách lẻ) *
+                                <select @bind="editCustomerId" @bind:after="OnEditCustomerChanged">
+                                    @foreach(var c in customers)
+                                    {
+                                        <option value="@c.Id">@c.Code — @c.B2BDisplayName</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="checkbox-row" style="align-self:end;padding-bottom:6px">
+                                <input type="checkbox" @bind="editCod" /> Thu hộ tiền mặt khi lắp đặt
+                            </label>
+                        }
                         <label>Họ tên khách (Chủ xe / Người liên hệ)
-                            <input @bind="editContactName" disabled="@SelectedOrder.IsImmutable" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
+                            <input @bind="editContactName" disabled="@IsOrderFieldsLocked" placeholder="VD: Lâm Hằng ( xe Đỗ Văn Hội)" />
                         </label>
                         <label>Số điện thoại khách
-                            <input @bind="editCustomerPhone" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 0886287429" />
+                            <input @bind="editCustomerPhone" disabled="@IsOrderFieldsLocked" placeholder="VD: 0886287429" />
                         </label>
                         <label>Nhân viên bán hàng
-                            <select @bind="editSellerId" @bind:after="OnEditSellerChanged" disabled="@SelectedOrder.IsImmutable">
+                            <select @bind="editSellerId" @bind:after="OnEditSellerChanged" disabled="@IsOrderFieldsLocked">
                                 <option value="0">— Chọn nhân viên bán hàng —</option>
                                 @foreach(var sl in sellerChoices)
                                 {
@@ -775,10 +805,10 @@
                             </select>
                         </label>
                         <label>Nguồn KH / Ghi chú NV bán hàng
-                            <input @bind="editSaleSource" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi nhận người bán..." />
+                            <input @bind="editSaleSource" disabled="@IsOrderFieldsLocked" placeholder="Ghi nhận người bán..." />
                         </label>
                         <label>Thời hạn
-                            <select @bind="editDurationMonths" disabled="@SelectedOrder.IsImmutable">
+                            <select @bind="editDurationMonths" disabled="@IsOrderFieldsLocked">
                                 <option value="12">1 năm (12 tháng)</option>
                                 <option value="24">2 năm (24 tháng)</option>
                                 <option value="36">3 năm (36 tháng)</option>
@@ -786,13 +816,13 @@
                             </select>
                         </label>
                         <label>Thời gian lắp đặt
-                            <input @bind="editInstallAt" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 15g00 thứ 3 ( 20/10/2026)" />
+                            <input @bind="editInstallAt" disabled="@IsOrderFieldsLocked" placeholder="VD: 15g00 thứ 3 ( 20/10/2026)" />
                         </label>
                         <label>Địa chỉ lắp đặt
-                            <input @bind="editAddress" disabled="@SelectedOrder.IsImmutable" placeholder="VD: 55 đường 30/4" />
+                            <input @bind="editAddress" disabled="@IsOrderFieldsLocked" placeholder="VD: 55 đường 30/4" />
                         </label>
                         <label>Ghi chú đơn hàng
-                            <input @bind="editNotes" disabled="@SelectedOrder.IsImmutable" placeholder="Ghi chú..." />
+                            <input @bind="editNotes" disabled="@IsOrderFieldsLocked" placeholder="Ghi chú..." />
                         </label>
                     </div>
                 </div>
@@ -823,16 +853,24 @@
                             var totalDevicesInOrder = SelectedOrder.Lines.Sum(l => l.Quantity);
                             var serializedTotalInOrder = SelectedOrder.Lines.Where(l => l.IsSerialized).Sum(l => l.Quantity);
                             var imeiEnteredInOrder = SelectedOrder.Lines.Count(l => l.IsSerialized && !string.IsNullOrWhiteSpace(l.Imei));
-                            var editCustId = customers.FirstOrDefault(c => c.Code == SelectedOrder.CustomerCode)?.Id ?? 0;
+                            var editCustId = editCustomerId > 0 ? editCustomerId : (SelectedOrder.CustomerId > 0 ? SelectedOrder.CustomerId : (customers.FirstOrDefault(c => c.Code == SelectedOrder.CustomerCode)?.Id ?? 0));
                             var priceModeChanged = !SelectedOrder.IsImmutable && editNoInstallFee != SelectedOrder.NoInstallFee && editCustId > 0;
-                            var displayOrderTotal = priceModeChanged
-                                ? SelectedOrder.Lines.Sum(l => Orders.PreviewUnitPrice(editCustId, l.ProductId, includeInstallPrice: !editNoInstallFee) * l.Quantity)
-                                : SelectedOrder.Price;
+                            var displayOrderTotal = CanMainEditCompleted
+                                ? SelectedOrder.Lines.Sum(l => GetLinePriceInput(l) * l.Quantity)
+                                : priceModeChanged
+                                    ? SelectedOrder.Lines.Sum(l => Orders.PreviewUnitPrice(editCustId, l.ProductId, includeInstallPrice: !editNoInstallFee) * l.Quantity)
+                                    : SelectedOrder.Price;
                         }
                         <div class="tnm-mt-summary-banner" style="margin-bottom:10px">
                             <div class="tnm-mt-sum-primary">
                                 <span>📦 Tổng số lượng thiết bị / sản phẩm trong đơn:</span>
                                 <strong>@totalDevicesInOrder.ToString("N0")</strong>
+                                @if (CanMainEditCompleted)
+                                {
+                                    <button type="button" class="btn secondary btn-sm" style="margin-left:8px" data-confirm="none" @onclick="RequoteCompletedLinesFromGroup">
+                                        🔄 Áp lại giá theo Bảng giá nhóm KH (@(editNoInstallFee ? "Giá chưa lắp" : "Giá có lắp"))
+                                    </button>
+                                }
                             </div>
                             <div class="tnm-mt-sum-meta">
                                 <span>Số dòng mặt hàng: <strong>@totalOrderLines.ToString("N0") dòng</strong></span>
@@ -841,7 +879,7 @@
                                     <span>· Đã nhập IMEI: <strong style="color:#0f766e">@imeiEnteredInOrder / @serializedTotalInOrder thiết bị</strong></span>
                                 }
                                 <span>· Chế độ giá: <strong style="color:@(editNoInstallFee ? "#c2410c" : "#0369a1")">@(editNoInstallFee ? "Giá chưa lắp (Không công lắp)" : "Giá có lắp")</strong></span>
-                                <span>· Tổng tiền đơn: <strong style="color:#0284c7">@displayOrderTotal.ToString("N0") ₫</strong>@(priceModeChanged ? " (Dự kiến sau lưu)" : "")</span>
+                                <span>· Tổng tiền đơn: <strong style="color:#0284c7">@displayOrderTotal.ToString("N0") ₫</strong>@((priceModeChanged || (CanMainEditCompleted && displayOrderTotal != SelectedOrder.Price)) ? $" (Cũ: {SelectedOrder.Price:N0} ₫)" : "")</span>
                             </div>
                         </div>
                         <div class="table-wrap">
@@ -852,10 +890,15 @@
                                     {
                                         var rep = GetOrCreateLineReport(ln);
                                         var prodInfo = products.FirstOrDefault(p => p.Id == ln.ProductId);
-                                        var displayLinePrice = priceModeChanged
-                                            ? Orders.PreviewUnitPrice(editCustId, ln.ProductId, includeInstallPrice: !editNoInstallFee)
-                                            : ln.UnitPrice;
-                                        var displayLineFee = editNoInstallFee ? 0L : ln.InstallerFee;
+                                        var displayLinePrice = CanMainEditCompleted
+                                            ? GetLinePriceInput(ln)
+                                            : priceModeChanged
+                                                ? Orders.PreviewUnitPrice(editCustId, ln.ProductId, includeInstallPrice: !editNoInstallFee)
+                                                : ln.UnitPrice;
+                                        var displayLineFee = editNoInstallFee
+                                            ? 0L
+                                            : (installerEmployeeId > 0 ? Catalog.QuoteInstallerRate(installerEmployeeId, ln.ProductId) : ln.InstallerFee);
+                                        var sameProdCount = SelectedOrder.Lines.Count(x => x.ProductId == ln.ProductId);
                                         <tr>
                                             <td><span class="tnm-mt-stt-badge">@stt</span></td>
                                             <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
@@ -871,10 +914,25 @@
                                             </td>
                                             <td><strong>@ln.Quantity</strong></td>
                                             <td>
-                                                <strong>@displayLinePrice.ToString("N0") ₫</strong>
-                                                @if(priceModeChanged && displayLinePrice != ln.UnitPrice)
+                                                @if(CanMainEditCompleted)
                                                 {
-                                                    <small style="display:block;color:#c2410c">Cũ: @ln.UnitPrice.ToString("N0") ₫</small>
+                                                    <div style="display:flex;flex-direction:column;gap:3px;min-width:128px">
+                                                        <input type="number" min="0" step="1000" value="@displayLinePrice" @onchange="e => SetLinePriceInput(ln, e.Value?.ToString(), applySameProduct: false)" style="font-weight:700;padding:4px 7px" />
+                                                        @if(sameProdCount > 1)
+                                                        {
+                                                            <button type="button" class="btn secondary btn-sm" style="font-size:11px;padding:2px 6px" data-confirm="none" @onclick="() => ApplyPriceToSameProduct(ln.ProductId, displayLinePrice)">
+                                                                Áp cho @sameProdCount dòng @ln.ProductSku
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <strong>@displayLinePrice.ToString("N0") ₫</strong>
+                                                    @if(priceModeChanged && displayLinePrice != ln.UnitPrice)
+                                                    {
+                                                        <small style="display:block;color:#c2410c">Cũ: @ln.UnitPrice.ToString("N0") ₫</small>
+                                                    }
                                                 }
                                             </td>
                                             <td>@displayLineFee.ToString("N0") ₫</td>
@@ -915,9 +973,18 @@
                     }
                     else if(SelectedOrder.IsImmutable)
                     {
-                        <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật IMEI đơn đã hoàn thành" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật / bổ sung IMEI và biển số cho đơn đã hoàn thành {SelectedOrder.Code} không?")" @onclick="SaveCompletedOrderImeis">
-                            💾 @(SelectedOrder.HasMissingImei ? $"Lưu & Kích hoạt IMEI bổ sung ({SelectedOrder.MissingImeiCount} thiết bị)" : "Lưu cập nhật IMEI / Biển số / Ngày kích hoạt")
-                        </button>
+                        @if(CanMainEditCompleted)
+                        {
+                            <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Lưu điều chỉnh đơn hoàn thành &amp; Đồng bộ luồng sau" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu điều chỉnh đơn hoàn thành {SelectedOrder.Code} và cập nhật đồng bộ sang Hóa đơn công nợ (SALE / SERVICE), Hoa hồng NV bán hàng và Thiết bị kích hoạt không?")" @onclick="SaveMainCompletedOrder">
+                                💾 Lưu điều chỉnh đơn hoàn thành &amp; Đồng bộ Công nợ / Thiết bị
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật IMEI đơn đã hoàn thành" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật / bổ sung IMEI và biển số cho đơn đã hoàn thành {SelectedOrder.Code} không?")" @onclick="SaveCompletedOrderImeis">
+                                💾 @(SelectedOrder.HasMissingImei ? $"Lưu & Kích hoạt IMEI bổ sung ({SelectedOrder.MissingImeiCount} thiết bị)" : "Lưu cập nhật IMEI / Biển số / Ngày kích hoạt")
+                            </button>
+                        }
                         @if(isMainDev)
                         {
                             <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Hủy &amp; Xóa cứng đơn đã hoàn thành" data-confirm-msg="@($"Bạn có chắc chắn muốn hủy và xóa cứng đơn đã hoàn thành {SelectedOrder.Code}, hoàn trả tồn kho và xóa toàn bộ chứng từ kế toán liên quan không?")" @onclick="Cancel">
@@ -1121,14 +1188,17 @@
     private string createSource = "INTERNAL", createInstallerName = "";
 
     // Edit / Process form state
-    private long selected, warehouse, installerEmployeeId, editDurationMonths = 12, editSellerId;
+    private long selected, warehouse, installerEmployeeId, editDurationMonths = 12, editSellerId, editCustomerId;
     private bool noDeductStock, editNoInstallFee, editCod, showOrderModal;
     private string installer = "", source = "INTERNAL", message = "";
     private string editContactName = "", editCustomerPhone = "", editInstallAt = "", editAddress = "", editNotes = "", editSaleSource = "";
     private DateTime activationDateInput = DateTime.Today;
+    private readonly Dictionary<long, long> linePriceInputs = [];
 
     private CustomerVm? SelectedCustomer => customers.FirstOrDefault(x => x.Id == customer);
     private V7Order? SelectedOrder => orders.FirstOrDefault(x => x.Id == selected);
+    private bool CanMainEditCompleted => isMainDev && SelectedOrder is { IsImmutable: true, IsAccountingLocked: false };
+    private bool IsOrderFieldsLocked => SelectedOrder is not null && SelectedOrder.IsImmutable && !CanMainEditCompleted;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1436,6 +1506,7 @@
         var o = SelectedOrder;
         if (o is not null)
         {
+            editCustomerId = o.CustomerId > 0 ? o.CustomerId : (customers.FirstOrDefault(c => c.Code == o.CustomerCode)?.Id ?? 0);
             warehouse = o.WarehouseId ?? (warehouses.FirstOrDefault()?.Id ?? 0);
             installerEmployeeId = o.InstallerEmployeeId ?? 0;
             installer = o.Installer ?? "";
@@ -1462,12 +1533,75 @@
     private void SyncSelectedOrderLines()
     {
         lineReports.Clear();
+        linePriceInputs.Clear();
         var o = SelectedOrder;
         if (o is null) return;
         foreach (var ln in o.Lines)
         {
             var defaultVin = !string.IsNullOrWhiteSpace(ln.VinNo) ? ln.VinNo : o.ContactName;
             lineReports[ln.Id] = new LineReportInput { Imei = ln.Imei ?? "", PlateNo = ln.PlateNo ?? "", VinNo = defaultVin ?? "" };
+            linePriceInputs[ln.Id] = ln.UnitPrice;
+        }
+    }
+
+    private long GetLinePriceInput(V7OrderLine ln) =>
+        linePriceInputs.TryGetValue(ln.Id, out var val) ? val : ln.UnitPrice;
+
+    private void SetLinePriceInput(V7OrderLine ln, string? rawVal, bool applySameProduct)
+    {
+        if (long.TryParse((rawVal ?? "").Trim(), out var parsed) && parsed >= 0)
+        {
+            linePriceInputs[ln.Id] = parsed;
+            if (applySameProduct && SelectedOrder is not null)
+            {
+                foreach (var other in SelectedOrder.Lines.Where(x => x.ProductId == ln.ProductId))
+                    linePriceInputs[other.Id] = parsed;
+            }
+        }
+    }
+
+    private void ApplyPriceToSameProduct(long productId, long unitPrice)
+    {
+        if (SelectedOrder is null) return;
+        foreach (var ln in SelectedOrder.Lines.Where(x => x.ProductId == productId))
+            linePriceInputs[ln.Id] = Math.Max(0, unitPrice);
+    }
+
+    private void RequoteCompletedLinesFromGroup()
+    {
+        var o = SelectedOrder;
+        if (o is null) return;
+        var effCustId = editCustomerId > 0 ? editCustomerId : (o.CustomerId > 0 ? o.CustomerId : (customers.FirstOrDefault(c => c.Code == o.CustomerCode)?.Id ?? 0));
+        if (effCustId <= 0) return;
+        foreach (var ln in o.Lines)
+        {
+            linePriceInputs[ln.Id] = Orders.PreviewUnitPrice(effCustId, ln.ProductId, includeInstallPrice: !editNoInstallFee);
+        }
+    }
+
+    private void OnEditNoInstallFeeChanged()
+    {
+        if (CanMainEditCompleted)
+        {
+            RequoteCompletedLinesFromGroup();
+        }
+    }
+
+    private void OnEditCustomerChanged()
+    {
+        var c = customers.FirstOrDefault(x => x.Id == editCustomerId);
+        if (c is not null)
+        {
+            if (c.SellerId is > 0)
+            {
+                editSellerId = c.SellerId.Value;
+                var sl = sellerChoices.FirstOrDefault(s => s.Id == c.SellerId.Value);
+                if (sl is not null) editSaleSource = sl.Name;
+            }
+            if (CanMainEditCompleted)
+            {
+                RequoteCompletedLinesFromGroup();
+            }
         }
     }
 
@@ -1634,6 +1768,46 @@
         var payload = lineReports.Select(kv => new V7OrderLineReport(kv.Key, kv.Value.Imei, kv.Value.PlateNo, kv.Value.VinNo)).ToList();
         Orders.ReportLines(actor, selected, payload, allowMissingImei: true);
         return $"Đã lưu thông tin Số IMEI & Thông tin phụ từ ĐV lắp đặt gửi về cho đơn SO7-{selected:000000}.";
+    });
+
+    private Task SaveMainCompletedOrder() => Act(actor =>
+    {
+        if (selected <= 0) throw new InvalidOperationException("Vui lòng chọn đơn hàng.");
+        var o = SelectedOrder ?? throw new InvalidOperationException("Không tìm thấy đơn hàng.");
+        var effCustId = editCustomerId > 0 ? editCustomerId : o.CustomerId;
+        var actDateStr = activationDateInput.ToString("yyyy-MM-dd");
+        var lineEdits = o.Lines.Select(ln =>
+        {
+            var rep = GetOrCreateLineReport(ln);
+            var priceVal = GetLinePriceInput(ln);
+            return new V7OrderLineEdit(ln.Id, priceVal, rep.Imei, rep.PlateNo, rep.VinNo);
+        }).ToList();
+
+        Orders.UpdateCompletedOrderMain(
+            actor,
+            selected,
+            effCustId,
+            editContactName,
+            editCustomerPhone,
+            editAddress,
+            editInstallAt,
+            editDurationMonths,
+            editNotes,
+            editCod,
+            warehouse > 0 ? warehouse : null,
+            source == "PARTNER",
+            installer,
+            installerEmployeeId > 0 ? installerEmployeeId : null,
+            !noDeductStock,
+            editNoInstallFee,
+            editSellerId > 0 ? editSellerId : null,
+            editSaleSource,
+            actDateStr,
+            lineEdits);
+
+        showOrderModal = false;
+        var newTotal = lineEdits.Sum(le => (le.UnitPriceOverride ?? 0) * (o.Lines.FirstOrDefault(x => x.Id == le.LineId)?.Quantity ?? 1));
+        return $"Đã cập nhật đơn hoàn thành {o.Code} ({(editNoInstallFee ? "Không tính công lắp — Giá chưa lắp" : "Giá có lắp")}, tổng tiền: {newTotal:N0} ₫) và đồng bộ toàn bộ Hóa đơn công nợ (SALE / SERVICE), Hoa hồng NV bán hàng & Thiết bị kích hoạt!";
     });
 
     private Task SaveCompletedOrderImeis() => Act(actor =>

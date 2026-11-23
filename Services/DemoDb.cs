@@ -2957,19 +2957,22 @@ public sealed class DemoDb
             // 2A. Đối soát đơn hàng đã hoàn thành (v7_orders COMPLETED) nhưng chưa có chứng từ SALE / SERVICE
             var completedOrders = QueryTx(c, t, @"
                 SELECT o.id, o.code, o.customer_id, o.unit_price_vnd, COALESCE(o.installer_fee_vnd,0), COALESCE(o.installer,''),
-                       COALESCE(NULLIF(substr(o.completed_at,1,10),''), NULLIF(substr(o.created_at,1,10),''), date('now'))
+                       COALESCE(NULLIF(substr(o.completed_at,1,10),''), NULLIF(substr(o.created_at,1,10),''), date('now')),
+                       COALESCE(o.no_install_fee,0)
                 FROM v7_orders o
                 WHERE o.status='COMPLETED' AND o.deleted_at IS NULL",
-                r => (Id: L(r, 0), Code: S(r, 1), CustId: L(r, 2), TotalPrice: L(r, 3), Fee: L(r, 4), Installer: S(r, 5), IssuedDate: S(r, 6)));
+                r => (Id: L(r, 0), Code: S(r, 1), CustId: L(r, 2), TotalPrice: L(r, 3), Fee: L(r, 4), Installer: S(r, 5), IssuedDate: S(r, 6), NoInst: L(r, 7) == 1));
 
             foreach (var ord in completedOrders)
             {
                 if (ord.TotalPrice > 0 && N(c, t, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND invoice_type='SALE' AND deleted_at IS NULL AND status<>'VOID'", ("$o", ord.Id)) == 0)
                 {
                     var invNo = "HD-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                    var ordNote = ord.NoInst ? $"Đơn hàng {ord.Code} (Không tính công lắp — Giá chưa lắp)" : $"Đơn hàng lắp đặt {ord.Code}";
+                    var ordDescPrefix = ord.NoInst ? "Thiết bị (Không tính công lắp)" : "Thiết bị & lắp đặt";
                     Exec(c, t, @"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,issued_at,due_at,amount_vnd,notes)
                         VALUES($no,'SALE',$c,$o,$issued,date($issued,'+30 days'),$amt,$note)",
-                        ("$no", invNo), ("$c", ord.CustId), ("$o", ord.Id), ("$issued", ord.IssuedDate), ("$amt", ord.TotalPrice), ("$note", $"Đơn hàng lắp đặt {ord.Code}"));
+                        ("$no", invNo), ("$c", ord.CustId), ("$o", ord.Id), ("$issued", ord.IssuedDate), ("$amt", ord.TotalPrice), ("$note", ordNote));
                     var invId = N(c, t, "SELECT last_insert_rowid()");
                     var ordLines = QueryTx(c, t, @"
                         SELECT l.product_id, p.name, SUM(l.quantity), l.unit_price_vnd
@@ -2982,12 +2985,12 @@ public sealed class DemoDb
                     {
                         Exec(c, t, @"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd)
                             VALUES($i,$d,$p,$q,$u)",
-                            ("$i", invId), ("$d", $"Thiết bị & lắp đặt: {ln.Name}"), ("$p", ln.ProdId), ("$q", ln.Qty), ("$u", ln.Price));
+                            ("$i", invId), ("$d", $"{ordDescPrefix}: {ln.Name}"), ("$p", ln.ProdId), ("$q", ln.Qty), ("$u", ln.Price));
                     }
                     saleCreated++;
                 }
 
-                if (ord.Fee > 0 && N(c, t, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND invoice_type='SERVICE' AND deleted_at IS NULL AND status<>'VOID'", ("$o", ord.Id)) == 0)
+                if (!ord.NoInst && ord.Fee > 0 && N(c, t, "SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND invoice_type='SERVICE' AND deleted_at IS NULL AND status<>'VOID'", ("$o", ord.Id)) == 0)
                 {
                     var srvNo = "CL-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                     var partnerLabel = !string.IsNullOrWhiteSpace(ord.Installer) ? ord.Installer : "Nhân sự lắp đặt";
