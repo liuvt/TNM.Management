@@ -3649,14 +3649,15 @@ public sealed class DemoDb
                 r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), Sys: L(r, 3) == 1, Dir: S(r, 4)), ("$id", id)).SingleOrDefault();
             if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy khoản thu/chi.");
             var dirLabel = cur.Dir == "IN" ? "khoản thu" : "khoản chi";
-            if (cur.Sys) throw new InvalidOperationException($"Đây là {dirLabel} mặc định gắn với luồng công nợ hệ thống, không thể xóa (chỉ có thể đổi tên hiển thị hoặc ghi chú).");
 
             var usedCount = N(c, t, "SELECT COUNT(*) FROM payments WHERE expense_category_id=$id AND deleted_at IS NULL", ("$id", id));
-            if (usedCount > 0)
+            if (usedCount > 0 || cur.Sys)
             {
                 Exec(c, t, "UPDATE expense_categories SET is_active=0 WHERE id=$id", ("$id", id));
-                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", id, $"Ngừng sử dụng {dirLabel} {cur.Code} — {cur.Name} (đã có {usedCount} phiếu)");
-                return $"Danh mục '{cur.Name}' đã phát sinh {usedCount} phiếu giao dịch nên được chuyển sang trạng thái Ngừng sử dụng để bảo toàn lịch sử.";
+                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", id, $"Ngừng sử dụng {dirLabel} {cur.Code} — {cur.Name} (đã map {usedCount} phiếu)");
+                return usedCount > 0
+                    ? $"Khoản '{cur.Name}' đang map với {usedCount} phiếu Thu/Chi bên Sổ quỹ nên đã chuyển sang Ngừng sử dụng (ẩn khi lập phiếu mới, giữ nguyên lịch sử đã map)."
+                    : $"Đã ẩn {dirLabel} mặc định '{cur.Name}' khỏi danh sách chọn khi lập phiếu (có thể bấm Sửa để bật lại bất kỳ lúc nào).";
             }
 
             if (IsMainDeveloper(c, t))

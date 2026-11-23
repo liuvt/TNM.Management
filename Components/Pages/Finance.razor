@@ -237,14 +237,15 @@
 @* ==================== DIALOG LẬP PHIẾU THU / PHIẾU CHI MỚI (SỔ QUỸ) ==================== *@
 @if (canPay && showPay)
 {
+  var targetEnt = SelectedPayCategory?.TargetEntity ?? "FREE";
   <div class="so-modal-overlay" @onclick="() => showPay = false">
     <div class="so-modal-dialog" style="max-width:840px" @onclick:stopPropagation="true">
       <div class="so-modal-header">
         <div>
-          <div class="eyebrow">QUẢN LÝ THU / CHI SỔ QUỸ · ĐỒNG BỘ DANH MỤC CÁC KHOẢN</div>
+          <div class="eyebrow">QUẢN LÝ THU / CHI SỔ QUỸ · ĐỒNG BỘ DANH MỤC QUẢN LÝ THU/CHI</div>
           <h2>@(payDirection == "IN" ? "Lập Phiếu Thu mới vào Sổ quỹ (+)" : "Lập Phiếu Chi mới vào Sổ quỹ (−)")</h2>
           <p>
-            Chọn đúng <strong>Khoản Thu (+)</strong> hoặc <strong>Khoản Chi (−)</strong> từ danh mục hệ thống (hoặc tạo nhanh khoản mới ngay trong hộp thoại).
+            Chọn loại <strong>Khoản Thu (+)</strong> hoặc <strong>Khoản Chi (−)</strong> do kế toán khai báo tại mục <em>Quản lý Thu/Chi</em> để ghi nhận vào Sổ quỹ.
           </p>
         </div>
         <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showPay = false">✕ Đóng</button>
@@ -255,34 +256,6 @@
         {
           <div style="margin-bottom:0.85rem;padding:0.7rem 0.95rem;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-weight:600;font-size:12.5px">
             @modalError
-          </div>
-        }
-
-        @if (showInlineNewCashCat)
-        {
-          <div style="margin-bottom:0.9rem;padding:0.8rem 1rem;background:@(payDirection == "IN" ? "#f0fdf4" : "#f0f9ff");border:1px solid @(payDirection == "IN" ? "#86efac" : "#bae6fd");border-left:4px solid @(payDirection == "IN" ? "#15803d" : "#0284c7");border-radius:8px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.45rem">
-              <strong style="color:@(payDirection == "IN" ? "#15803d" : "#0369a1")">+ Tạo nhanh @(payDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") mới</strong>
-              <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showInlineNewCashCat = false">Đóng</button>
-            </div>
-            <div class="form-grid">
-              <label>Tên @(payDirection == "IN" ? "khoản thu" : "khoản chi") mới *
-                <input @bind="inlineCashCatName" placeholder="@(payDirection == "IN" ? "VD: Thu tiền đặt cọc / Thu bán lẻ..." : "VD: Chi phí vận chuyển / Chi văn phòng...")" />
-              </label>
-              <label>Nhóm phân loại
-                <input @bind="inlineCashCatGroup" placeholder="@(payDirection == "IN" ? "VD: 1. Thu bán hàng & Lắp đặt" : "VD: 4. Văn phòng & Quản lý")" />
-              </label>
-              <div style="grid-column:span 2;display:flex;justify-content:flex-end">
-                <button type="button"
-                        class="btn btn-sm"
-                        data-confirm="add"
-                        data-confirm-title="@($"Xác nhận Thêm mới {(payDirection == "IN" ? "Khoản Thu" : "Khoản Chi")}")"
-                        data-confirm-msg="@($"Bạn có chắc chắn muốn tạo mới {(payDirection == "IN" ? "khoản thu" : "khoản chi")} '{(string.IsNullOrWhiteSpace(inlineCashCatName) ? "mới" : inlineCashCatName)}' và chọn ngay vào phiếu đang lập không?")"
-                        @onclick="SaveInlineCashCatInFinance">
-                  + Lưu &amp; Chọn ngay khoản này
-                </button>
-              </div>
-            </div>
           </div>
         }
 
@@ -303,10 +276,8 @@
 
           <label style="grid-column:span 2">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <span>2. Chọn @(payDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") * (@PayCategoriesForModal.Count khoản khả dụng)</span>
-              <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="ToggleInlineNewCashCat">
-                @(showInlineNewCashCat ? "Ẩn tạo nhanh" : $"+ Tạo nhanh Khoản {(payDirection == "IN" ? "Thu" : "Chi")} mới")
-              </button>
+              <span>2. Chọn loại @(payDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") * (@PayCategoriesForModal.Count khoản khả dụng)</span>
+              <a href="/expenses" style="font-size:12px;font-weight:600;color:#0284c7;text-decoration:underline">⚙ Quản lý danh mục Khoản Thu/Chi →</a>
             </div>
             <select value="@payCategoryId"
                     @onchange="OnPayCategorySelectChanged"
@@ -331,10 +302,59 @@
 
           @if (invoiceId <= 0)
           {
-            <label>Đối tác (Khách hàng / Nhà cung cấp / NV bán hàng) *
-              <input @bind="directPartnerName" placeholder="Nhập tên Khách hàng, Nhà cung cấp hoặc đối tác..." />
+            @if (targetEnt == "CUSTOMER")
+            {
+              <label>Chọn Khách hàng / Đại lý / HTX
+                <select @bind="payDirectCustomerId" @bind:after="OnDirectPartnerEntityPicked">
+                  <option value="0">— Chọn Khách hàng hoặc nhập bên cạnh —</option>
+                  @foreach (var cu in customers)
+                  {
+                    <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName</option>
+                  }
+                </select>
+              </label>
+            }
+            else if (targetEnt == "SUPPLIER")
+            {
+              <label>Chọn Nhà cung cấp
+                <select @bind="payDirectSupplierId" @bind:after="OnDirectPartnerEntityPicked">
+                  <option value="0">— Chọn Nhà cung cấp hoặc nhập bên cạnh —</option>
+                  @foreach (var s in suppliers)
+                  {
+                    <option value="@s.Id">@s.Name</option>
+                  }
+                </select>
+              </label>
+            }
+            else if (targetEnt == "INSTALLER")
+            {
+              <label>Chọn Kỹ thuật / Nhân sự
+                <select @bind="payDirectEmployeeId" @bind:after="OnDirectPartnerEntityPicked">
+                  <option value="0">— Chọn Kỹ thuật / Nhân sự hoặc nhập bên cạnh —</option>
+                  @foreach (var tech in technicians)
+                  {
+                    <option value="@tech.Id">@tech.Name</option>
+                  }
+                </select>
+              </label>
+            }
+            else if (targetEnt == "SELLER")
+            {
+              <label>Chọn Nhân viên bán hàng
+                <select @bind="payDirectSellerId" @bind:after="OnDirectPartnerEntityPicked">
+                  <option value="0">— Chọn Nhân viên bán hàng hoặc nhập bên cạnh —</option>
+                  @foreach (var sl in sellerChoices)
+                  {
+                    <option value="@sl.Id">@sl.Code — @sl.Name</option>
+                  }
+                </select>
+              </label>
+            }
+
+            <label style="grid-column:span @(targetEnt == "FREE" ? "1" : "1")">Đối tác @(payDirection == "IN" ? "(Người nộp tiền)" : "(Người nhận tiền)") *
+              <input @bind="directPartnerName" placeholder="Tên Khách hàng, Nhà cung cấp hoặc đối tác..." />
             </label>
-            <label>Diễn giải khoản @(payDirection == "IN" ? "Thu" : "Chi") *
+            <label style="grid-column:span @(targetEnt == "FREE" ? "1" : "2")">Diễn giải khoản @(payDirection == "IN" ? "Thu" : "Chi") *
               <input @bind="directPayNote" placeholder="Nhập nội dung diễn giải chi tiết..." />
             </label>
           }
@@ -957,25 +977,32 @@ else if (activeTab == "PAYMENTS")
                       MatchedCount="@FilteredPayments.Count()"
                       TotalCount="@payments.Count"
                       UnitLabel="phiếu giao dịch">
-      <select class="search-input" style="min-width:175px" @bind="cashBookFundFilter" @bind:after="() => paymentPager.Reset()">
+      <select class="search-input" style="min-width:170px" @bind="cashBookFundFilter" @bind:after="() => paymentPager.Reset()">
         <option value="">— Mọi Sổ quỹ (TM + NH) —</option>
         <option value="CASH">Quỹ Tiền mặt</option>
         <option value="BANK">Quỹ Ngân hàng</option>
       </select>
-      <select class="search-input" style="min-width:190px" @bind="cashBookDirFilter" @bind:after="() => paymentPager.Reset()">
+      <select class="search-input" style="min-width:175px" @bind="cashBookDirFilter" @bind:after="() => { if (cashBookCatFilter > 0 && cashCategories.FirstOrDefault(c => c.Id == cashBookCatFilter)?.Direction != cashBookDirFilter && !string.IsNullOrWhiteSpace(cashBookDirFilter)) cashBookCatFilter = 0; paymentPager.Reset(); }">
         <option value="">— Mọi Khoản Thu &amp; Chi —</option>
-        <option value="IN">Khoản Thu (+): Thu khách / Công nợ</option>
-        <option value="OUT">Khoản Chi (-): Nhập hàng / Chi trả</option>
+        <option value="IN">Khoản Thu (+)</option>
+        <option value="OUT">Khoản Chi (−)</option>
+      </select>
+      <select class="search-input" style="min-width:210px" @bind="cashBookCatFilter" @bind:after="() => paymentPager.Reset()">
+        <option value="0">— Mọi Loại khoản Thu/Chi —</option>
+        @foreach (var cat in cashCategories.Where(c => string.IsNullOrWhiteSpace(cashBookDirFilter) || c.Direction == cashBookDirFilter))
+        {
+          <option value="@cat.Id">@(cat.IsIncome ? "[THU]" : "[CHI]") @cat.Name</option>
+        }
       </select>
       <input class="search-input"
-             style="min-width:240px;flex:1"
+             style="min-width:220px;flex:1"
              @bind="search"
              @bind:event="oninput"
              @bind:after="() => paymentPager.Reset()"
              placeholder="Tìm số phiếu, đối tác, chứng từ..." />
-      @if (!string.IsNullOrWhiteSpace(cashBookFundFilter) || !string.IsNullOrWhiteSpace(cashBookDirFilter) || !string.IsNullOrWhiteSpace(search))
+      @if (!string.IsNullOrWhiteSpace(cashBookFundFilter) || !string.IsNullOrWhiteSpace(cashBookDirFilter) || cashBookCatFilter > 0 || !string.IsNullOrWhiteSpace(search))
       {
-        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { cashBookFundFilter = ""; cashBookDirFilter = ""; search = ""; paymentPager.Reset(); }'>✕ Xóa từ khóa</button>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => { cashBookFundFilter = ""; cashBookDirFilter = ""; cashBookCatFilter = 0; search = ""; paymentPager.Reset(); }'>✕ Xóa từ khóa</button>
       }
     </DateTimeRangeBar>
 
@@ -1752,6 +1779,9 @@ else
 @code {
   private sealed record PeriodPillVm(string Key, int Year, int Month, string Label, int InvoiceCount, long CustomerBalanceVnd, long SupplierBalanceVnd);
 
+  [SupplyParameterFromQuery(Name = "tab")] public string? QueryTab { get; set; }
+  [SupplyParameterFromQuery(Name = "catId")] public long? QueryCatId { get; set; }
+
   private string activeTab = "DEBT_REPORT";
   private readonly PagerState invLinePager = new();
   private readonly PagerState partnerDebtPager = new();
@@ -1761,9 +1791,9 @@ else
   private readonly PagerState snapshotPager = new();
   private readonly PagerState otherSellerPager = new();
   private readonly PagerState invoicePager = new();
-  private bool showPay, showCreate, showEditPaymentModal, showInlineNewCashCat, isMainDev;
-  private string modalError = "", inlineCashCatName = "", inlineCashCatGroup = "";
-  private long editPayId, editPayAmount, editPayCategoryId, editInvoiceId;
+  private bool showPay, showCreate, showEditPaymentModal, isMainDev;
+  private string modalError = "";
+  private long editPayId, editPayAmount, editPayCategoryId, editInvoiceId, cashBookCatFilter;
   private string editPayNo = "", editPayDir = "IN", editPayMethod = "BANK", editPayPartner = "", editPayNotes = "", editInvoiceCode = "";
   private DateTime editPayDt = VnDateTimeHelper.NowVn;
 
@@ -1788,6 +1818,7 @@ else
   private List<CustomerVm> customers = [];
   private List<ProductVm> products = [];
   private List<(long Id, string Name)> suppliers = [];
+  private List<(long Id, string Name)> technicians = [];
   private List<SellerChoiceVm> sellerChoices = [];
   private List<CompletedOrderSnapshotVm> completedSnapshots = [];
   private List<SellerPeriodStatVm> sellerStats = [];
@@ -1797,6 +1828,7 @@ else
   // Form Phiếu Thu / Phiếu Chi Sổ quỹ
   private string payDirection = "IN", method = "BANK", directPartnerName = "", directPayNote = "";
   private long payCategoryId, invoiceId, amount = 100_000;
+  private long payDirectCustomerId, payDirectSupplierId, payDirectEmployeeId, payDirectSellerId;
 
   // Form lập chứng từ công nợ mới
   private string newType = "COMMISSION", newPartnerLabel = "", newDescription = "";
@@ -2176,8 +2208,9 @@ else
     .Where(MatchesPaymentTime)
     .Where(x => string.IsNullOrWhiteSpace(cashBookFundFilter) || x.Method == cashBookFundFilter)
     .Where(x => string.IsNullOrWhiteSpace(cashBookDirFilter) || x.Direction == cashBookDirFilter)
+    .Where(x => cashBookCatFilter <= 0 || x.CategoryId == cashBookCatFilter)
     .Where(x => string.IsNullOrWhiteSpace(search) ||
-      (x.PaymentNo + " " + x.InvoiceNo + " " + x.Partner + " " + x.Method + " " + x.Notes + " " + x.DisplayTimestamp)
+      (x.PaymentNo + " " + x.InvoiceNo + " " + x.Partner + " " + x.Method + " " + x.CategoryName + " " + x.Notes + " " + x.DisplayTimestamp)
         .Contains(search, StringComparison.OrdinalIgnoreCase));
 
   private CashBookSummaryVm FilteredCashBook => DemoDb.ComputeCashBookSummary(FilteredPayments);
@@ -2202,6 +2235,7 @@ else
     customers = Db.Customers();
     products = Db.Products();
     suppliers = Db.Suppliers();
+    technicians = Db.Technicians();
     sellerChoices = Db.SellerChoices();
     if (suppliers.Count > 0) newSupplierId = suppliers[0].Id;
     if (customers.Count > 0) newCustomerId = customers[0].Id;
@@ -2212,6 +2246,14 @@ else
     }
     newType = canSupplier ? "PURCHASE" : canOther ? "COMMISSION" : "SALE";
     Reload();
+
+    if (!string.IsNullOrWhiteSpace(QueryTab))
+      activeTab = QueryTab.Trim().ToUpperInvariant();
+    if (QueryCatId is > 0)
+    {
+      cashBookCatFilter = QueryCatId.Value;
+      activeTab = "PAYMENTS";
+    }
   }
 
   private void SetTab(string tab)
@@ -2222,41 +2264,32 @@ else
   private void OpenNewPayModal(string dir)
   {
     modalError = "";
-    showInlineNewCashCat = false;
     payDirection = dir is "OUT" ? "OUT" : "IN";
+    payDirectCustomerId = 0;
+    payDirectSupplierId = 0;
+    payDirectEmployeeId = 0;
+    payDirectSellerId = 0;
+    directPartnerName = "";
+    directPayNote = "";
     OnPayDirectionChanged();
     showCreate = false;
     showEditPaymentModal = false;
     showPay = true;
   }
 
-  private void ToggleInlineNewCashCat()
+  private void OnDirectPartnerEntityPicked()
   {
-    showInlineNewCashCat = !showInlineNewCashCat;
-    if (showInlineNewCashCat)
+    var ent = SelectedPayCategory?.TargetEntity ?? "FREE";
+    if (ent == "CUSTOMER" && payDirectCustomerId > 0)
+      directPartnerName = customers.FirstOrDefault(c => c.Id == payDirectCustomerId)?.B2BDisplayName ?? "";
+    else if (ent == "SUPPLIER" && payDirectSupplierId > 0)
+      directPartnerName = suppliers.FirstOrDefault(s => s.Id == payDirectSupplierId).Name ?? "";
+    else if (ent == "INSTALLER" && payDirectEmployeeId > 0)
+      directPartnerName = technicians.FirstOrDefault(t => t.Id == payDirectEmployeeId).Name ?? "";
+    else if (ent == "SELLER" && payDirectSellerId > 0)
     {
-      inlineCashCatName = "";
-      inlineCashCatGroup = payDirection == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
-    }
-  }
-
-  private async Task SaveInlineCashCatInFinance()
-  {
-    try
-    {
-      modalError = "";
-      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
-      var target = payDirection == "IN" ? "CUSTOMER" : "FREE";
-      var newId = Db.SaveExpenseCategory(null, null, inlineCashCatName, inlineCashCatGroup, target, "", 25, true, payDirection);
-      cashCategories = Db.ExpenseCategories(includeInactive: true);
-      payCategoryId = newId;
-      invoiceId = 0;
-      inlineCashCatName = "";
-      showInlineNewCashCat = false;
-    }
-    catch (Exception ex)
-    {
-      modalError = "Lỗi: " + ex.Message;
+      var sl = sellerChoices.FirstOrDefault(s => s.Id == payDirectSellerId);
+      if (sl is not null) directPartnerName = $"{sl.Code} — {sl.Name}";
     }
   }
 
@@ -2427,17 +2460,26 @@ else
 
   private void OnPayDirectionChanged()
   {
-    showInlineNewCashCat = false;
+    payDirectCustomerId = 0;
+    payDirectSupplierId = 0;
+    payDirectEmployeeId = 0;
+    payDirectSellerId = 0;
     payCategoryId = PayCategoriesForModal.FirstOrDefault()?.Id ?? 0;
+    if (SelectedPayCategory is not null && !string.IsNullOrWhiteSpace(SelectedPayCategory.DefaultNote))
+      directPayNote = SelectedPayCategory.DefaultNote;
     SyncSelectedPayInvoice();
   }
 
   private void OnPayCategorySelectChanged(ChangeEventArgs e)
   {
     payCategoryId = long.TryParse(e.Value?.ToString(), out var cid) ? cid : 0;
-    if (SelectedPayCategory is not null && !string.IsNullOrWhiteSpace(SelectedPayCategory.DefaultNote) && string.IsNullOrWhiteSpace(directPayNote))
+    payDirectCustomerId = 0;
+    payDirectSupplierId = 0;
+    payDirectEmployeeId = 0;
+    payDirectSellerId = 0;
+    if (SelectedPayCategory is not null)
     {
-      directPayNote = SelectedPayCategory.DefaultNote;
+      directPayNote = SelectedPayCategory.DefaultNote ?? "";
     }
     SyncSelectedPayInvoice();
   }
@@ -2542,7 +2584,6 @@ else
   private void QuickPay(InvoiceVm inv)
   {
     modalError = "";
-    showInlineNewCashCat = false;
     payDirection = inv.IsReceivable ? "IN" : "OUT";
     var targetCode = inv.Type switch
     {
@@ -2591,6 +2632,7 @@ else
       modalError = "";
       Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
       long? chosenCatId = payCategoryId > 0 ? payCategoryId : null;
+      var chosenCatName = SelectedPayCategory?.Name ?? "";
       if (invoiceId > 0)
       {
         var item = Db.Invoices().FirstOrDefault(x => x.Id == invoiceId)
@@ -2599,17 +2641,43 @@ else
         Db.PayInvoice(invoiceId, amount, method, chosenCatId);
         showPay = false;
         Reload();
-        message = $"Đã ghi Sổ quỹ ({(method == "CASH" ? "Tiền mặt" : "Ngân hàng")}) — {(item.IsReceivable ? "Khoản Thu" : "Khoản Chi")} [{SelectedPayCategory?.Name}] {Money(amount)} cho chứng từ {item.Code}.";
+        message = $"Đã ghi Sổ quỹ ({(method == "CASH" ? "Tiền mặt" : "Ngân hàng")}) — {(item.IsReceivable ? "Khoản Thu" : "Khoản Chi")} [{chosenCatName}] {Money(amount)} cho chứng từ {item.Code}.";
       }
       else
       {
-        var catType = SelectedPayCategory?.Code == "CHI_NCC" ? "PURCHASE" : "OTHER";
-        Db.RecordDirectCashBookEntry(payDirection, method, catType, amount, directPartnerName, directPayNote, null, chosenCatId);
+        var ent = SelectedPayCategory?.TargetEntity ?? "FREE";
+        if (payCategoryId > 0)
+        {
+          Db.SaveExpenseVoucher(
+            null,
+            payCategoryId,
+            method,
+            amount,
+            null,
+            directPartnerName,
+            ent == "SUPPLIER" && payDirectSupplierId > 0 ? payDirectSupplierId : null,
+            ent == "CUSTOMER" && payDirectCustomerId > 0 ? payDirectCustomerId : null,
+            ent == "SELLER" && payDirectSellerId > 0 ? payDirectSellerId : null,
+            ent == "INSTALLER" && payDirectEmployeeId > 0 ? payDirectEmployeeId : null,
+            null,
+            null,
+            "",
+            directPayNote,
+            payDirection);
+        }
+        else
+        {
+          Db.RecordDirectCashBookEntry(payDirection, method, "OTHER", amount, directPartnerName, directPayNote, null, null);
+        }
         directPartnerName = "";
         directPayNote = "";
+        payDirectCustomerId = 0;
+        payDirectSupplierId = 0;
+        payDirectEmployeeId = 0;
+        payDirectSellerId = 0;
         showPay = false;
         Reload();
-        message = $"Đã ghi trực tiếp vào Sổ quỹ ({(method == "CASH" ? "Tiền mặt" : "Ngân hàng")}): {(payDirection == "IN" ? "Khoản Thu" : "Khoản Chi")} [{SelectedPayCategory?.Name}] {Money(amount)}.";
+        message = $"Đã ghi trực tiếp vào Sổ quỹ ({(method == "CASH" ? "Tiền mặt" : "Ngân hàng")}): {(payDirection == "IN" ? "Khoản Thu" : "Khoản Chi")} [{chosenCatName}] {Money(amount)}.";
       }
     }
     catch (Exception ex)
