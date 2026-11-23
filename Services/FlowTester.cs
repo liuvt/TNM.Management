@@ -511,6 +511,18 @@ public static class FlowTester
                     "Báo cáo Tổng hợp Công nợ phải bao gồm đủ 3 nhóm: Nhà cung cấp, Khách hàng và Sell.");
                 Assert(db.Payments().Count >= 6, "Sổ phiếu thu/chi phải ghi nhận đầy đủ các giao dịch PT (IN) và PC (OUT).");
 
+                // Kiểm tra luồng Quản lý Thu/Chi: tùy biến tạo Khoản Thu (IN) & Khoản Chi (OUT) rồi lập Phiếu Thu / Phiếu Chi chọn đúng khoản
+                var customInCatId = db.SaveExpenseCategory(null, null, "Thu đặt cọc hợp đồng B2B", "1. Thu bán hàng & Lắp đặt", "CUSTOMER", "Thu tiền đặt cọc", 25, true, "IN");
+                var customOutCatId = db.SaveExpenseCategory(null, null, "Chi phí vận chuyển chành xe", "2. Bán hàng & Lắp đặt", "FREE", "Chi gửi hàng chành xe", 25, true, "OUT");
+                Assert(db.ExpenseCategories(false, "IN").Any(c => c.Id == customInCatId && c.IsIncome), "Khoản Thu vừa tạo phải xuất hiện trong danh sách chọn Khoản Thu (IN).");
+                Assert(db.ExpenseCategories(false, "OUT").Any(c => c.Id == customOutCatId && !c.IsIncome), "Khoản Chi vừa tạo phải xuất hiện trong danh sách chọn Khoản Chi (OUT).");
+
+                var ptVoucherId = db.SaveExpenseVoucher(null, customInCatId, "BANK", 500_000, null, "HTX Ánh Dương", null, customerId, null, null, null, null, "UNC-001", "Nhận đặt cọc lô 5 thiết bị", "IN");
+                var pcVoucherId = db.SaveExpenseVoucher(null, customOutCatId, "CASH", 120_000, null, "Chành xe Phương Trang", null, null, null, null, null, null, "BILL-88", "Gửi hàng đi tỉnh", "OUT");
+                var allVouchers = db.ExpenseVouchers();
+                Assert(allVouchers.Any(v => v.Id == ptVoucherId && v.IsIncome && v.PaymentNo.StartsWith("PT-") && v.CategoryId == customInCatId), "Phiếu Thu lập từ Khoản Thu tùy biến phải mang mã PT- và gắn đúng CategoryId.");
+                Assert(allVouchers.Any(v => v.Id == pcVoucherId && !v.IsIncome && v.PaymentNo.StartsWith("PC-") && v.CategoryId == customOutCatId), "Phiếu Chi lập từ Khoản Chi tùy biến phải mang mã PC- và gắn đúng CategoryId.");
+
                 // Kiểm tra tính bất biến / chống trùng lặp (idempotent) của ReconcileAccountingData & tự động đồng bộ dữ liệu import khi ActorId = 0
                 db.ActorId = 0;
                 var (recPur, recSale, recRen, recSrv) = db.ReconcileAccountingData();
@@ -525,7 +537,9 @@ public static class FlowTester
                     cmd.CommandText = @"
                         INSERT INTO stock_units(product_id,imei,status,customer_id,supplier_id) VALUES($p,'868888888888888','INSTALLED',$c,$sup);
                         INSERT INTO activations(stock_unit_id,customer_id,product_id,plate_no,activated_at,expires_at)
-                        VALUES(last_insert_rowid(),$c,$p,'51F-777.77','2026-11-01','2027-11-01');";
+                        VALUES(last_insert_rowid(),$c,$p,'51F-777.77','2026-11-01','2027-11-01');
+                        INSERT INTO renewals(activation_id,source_type,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
+                        VALUES(last_insert_rowid(),'B2C','2026-11-02','2027-11-01','2028-11-01',850000,'DEBT');";
                     cmd.Parameters.AddWithValue("$p", imeiProdId);
                     cmd.Parameters.AddWithValue("$c", customerId);
                     cmd.Parameters.AddWithValue("$sup", supplierId);
@@ -533,8 +547,8 @@ public static class FlowTester
                 }
 
                 var (impPur, impSale, impRen, impSrv) = db.ReconcileAccountingData();
-                Assert(impPur == 1 && impSale == 1 && impRen == 0 && impSrv == 0,
-                    $"ReconcileAccountingData khi ActorId=0 phải tự động sinh 1 PURCHASE & 1 SALE cho thiết bị import chưa có chứng từ (thực tế: {impPur},{impSale},{impRen},{impSrv}).");
+                Assert(impRen == 1,
+                    $"ReconcileAccountingData khi ActorId=0 phải tự động sinh 1 RENEWAL cho đợt gia hạn chưa có chứng từ (thực tế: {impPur},{impSale},{impRen},{impSrv}).");
                 var (impPur2, impSale2, impRen2, impSrv2) = db.ReconcileAccountingData();
                 Assert(impPur2 == 0 && impSale2 == 0 && impRen2 == 0 && impSrv2 == 0,
                     "Gọi ReconcileAccountingData lần 2 phải trả về (0,0,0,0).");

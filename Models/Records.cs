@@ -106,7 +106,7 @@ public record InvoiceLineVm(long Id, long InvoiceId, string Description, string 
     public long LineTotal => Quantity * UnitPrice;
     public OrderSnapshotLineVm Parsed => OrderSnapshotLineVm.FromDescription(ProductSku, Description, Quantity, UnitPrice);
 }
-public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0, long? InvoiceId = null, bool IsLocked = false)
+public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0, long? InvoiceId = null, bool IsLocked = false, long? CategoryId = null, string CategoryName = "")
 {
     public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(PaidAt, false);
     public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(PaidAt, false);
@@ -140,8 +140,11 @@ public record ExpenseCategoryVm(
     bool IsSystem,
     bool IsActive,
     long VoucherCount = 0,
-    long TotalAmountVnd = 0)
+    long TotalAmountVnd = 0,
+    string Direction = "OUT")
 {
+    public bool IsIncome => Direction == "IN";
+    public string DirectionLabel => Direction == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)";
     public string TargetEntityLabel => TargetEntity switch
     {
         "SUPPLIER" => "Nhà cung cấp",
@@ -176,8 +179,11 @@ public record ExpenseVoucherVm(
     string ReferenceDoc,
     string Notes,
     bool IsLocked,
-    string CreatedByName)
+    string CreatedByName,
+    string Direction = "OUT")
 {
+    public bool IsIncome => Direction == "IN";
+    public string DirectionLabel => Direction == "IN" ? "Phiếu Thu (+)" : "Phiếu Chi (−)";
     public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(PaidAt, false);
     public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(PaidAt, false);
     public string PeriodKey => TimestampDt.HasValue ? TimestampDt.Value.ToString("yyyy-MM") : (!string.IsNullOrWhiteSpace(PaidAt) && PaidAt.Length >= 7 && PaidAt[4] == '-' ? PaidAt[..7] : VnDateTimeHelper.TodayVn.ToString("yyyy-MM"));

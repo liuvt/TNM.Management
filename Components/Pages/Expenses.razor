@@ -1,32 +1,36 @@
 @page "/expenses"
+@page "/thu-chi"
 @attribute [Authorize(Policy = Permissions.FinanceView)]
 @inject DemoDb Db
 @inject InputCatalog Catalog
 @inject PermissionGate Gate
 @inject IJSRuntime JS
 
-<PageTitle>Quản lý Khoản chi · TNM.Management</PageTitle>
+<PageTitle>Quản lý Thu/Chi · TNM.Management</PageTitle>
 
 <div class="page-head">
     <div>
-        <div class="eyebrow">TÀI CHÍNH &amp; BÁO CÁO / QUẢN LÝ KHOẢN CHI &amp; CHI PHÍ TÙY BIẾN</div>
-        <h1>Quản lý Khoản chi — Phiếu chi &amp; Danh mục chi phí</h1>
+        <div class="eyebrow">TÀI CHÍNH &amp; BÁO CÁO / QUẢN LÝ THU / CHI &amp; DANH MỤC CÁC KHOẢN</div>
+        <h1>Quản lý Thu/Chi — Phiếu Thu, Phiếu Chi &amp; Danh mục các khoản</h1>
         <p>
-            Quản lý tập trung toàn bộ các khoản chi liên kết trực tiếp với dữ liệu hiện tại (<strong>Nhà cung cấp, Kỹ thuật lắp đặt, Nhân viên bán hàng, Khách hàng/HTX, Đơn hàng &amp; Chứng từ công nợ</strong>) đồng thời cho phép Kế toán <strong>tùy biến tạo mới không giới hạn các loại khoản chi</strong> vận hành. Mọi phiếu chi tự động đồng bộ tức thì vào <strong>Sổ quỹ</strong> và <strong>Báo cáo Công nợ</strong>.
+            Quản lý tập trung toàn bộ <strong>Khoản Thu (+)</strong> và <strong>Khoản Chi (−)</strong> liên kết trực tiếp với dữ liệu hiện tại (<strong>Khách hàng/HTX, Nhà cung cấp, Kỹ thuật lắp đặt, Nhân viên bán hàng, Đơn hàng &amp; Chứng từ công nợ</strong>), đồng thời cho phép Kế toán <strong>tùy biến tạo mới các khoản Thu / khoản Chi</strong> để chọn chính xác khi lập phiếu. Mọi giao dịch tự động đồng bộ tức thì vào <strong>Sổ quỹ</strong> và <strong>Báo cáo Công nợ</strong>.
         </p>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         @if (canEdit)
         {
-            <button type="button" class="btn" data-confirm="none" @onclick="OpenCreateVoucherModal">
-                + Tạo Khoản chi mới
+            <button type="button" class="btn" style="background:#15803d;border-color:#15803d" data-confirm="none" @onclick='() => OpenCreateVoucherModal("IN")'>
+                + Lập Phiếu Thu (+)
             </button>
-            <button type="button" class="btn secondary" data-confirm="none" @onclick="OpenNewCategoryModal">
-                + Tạo Loại khoản chi
+            <button type="button" class="btn" data-confirm="none" @onclick='() => OpenCreateVoucherModal("OUT")'>
+                + Lập Phiếu Chi (−)
+            </button>
+            <button type="button" class="btn secondary" data-confirm="none" @onclick='() => OpenNewCategoryModal(filterDirection == "IN" ? "IN" : "OUT")'>
+                + Tạo Khoản Thu / Chi
             </button>
         }
-        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportExpensesExcel">
-            📥 Xuất Excel Khoản chi (@FilteredVouchers.Count)
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportVouchersExcel">
+            📥 Xuất Excel Thu/Chi (@FilteredVouchers.Count)
         </button>
         <a class="btn secondary" href="/finance">↗ Công nợ &amp; Sổ quỹ</a>
     </div>
@@ -36,7 +40,7 @@
 <section class="erp-master-period">
     <div class="erp-master-top">
         <DateTimeRangeBar CompactHeader="true"
-                          LabelText="📅 Kỳ Khoản chi:"
+                          LabelText="📅 Kỳ Thu/Chi:"
                           From="rangeFrom"
                           To="rangeTo"
                           AvailableYears="AvailableYears"
@@ -45,7 +49,7 @@
                 <select class="erp-preset-select"
                         value="@periodMonth"
                         @onchange="OnQuickMonthSelect"
-                        title="Chọn nhanh Tháng khoản chi">
+                        title="Chọn nhanh Tháng Thu/Chi">
                     <option value="0">🗓️ Mọi tháng</option>
                     @for (var m = 1; m <= 12; m++)
                     {
@@ -65,7 +69,7 @@
     {
         <div class="erp-master-QuickRow">
             <button type="button" class="erp-preset-pill @(!HasTimeFilter ? "active" : "")" data-confirm="none" @onclick="ResetPeriodFilter">
-                Tất cả các kỳ (@vouchers.Count phiếu · @Money(vouchers.Sum(x => x.AmountVnd)))
+                Tất cả các kỳ (@vouchers.Count phiếu)
             </button>
             @foreach (var yr in AvailableYears)
             {
@@ -80,142 +84,144 @@
             <span style="color:#cbd5e1;padding:0 2px">|</span>
             @foreach (var p in AvailablePeriods)
             {
-                var isSel = IsExactPeriodSelected(p.Year, p.Month);
                 <button type="button"
-                        class="erp-preset-pill @(isSel ? "active" : "")"
+                        class="erp-preset-pill @(IsExactPeriodSelected(p.Year, p.Month) ? "active" : "")"
                         data-confirm="none"
                         @onclick="() => SelectPeriod(p.Year, p.Month)">
-                    🗓️ @p.Label · @p.Count phiếu (@Money(p.TotalVnd))
+                    @p.Label · +@Money(p.InVnd) / -@Money(p.OutVnd)
                 </button>
             }
         </div>
     }
 </section>
 
-@* ==================== THẺ TỔNG HỢP KHOẢN CHI & TỒN QUỸ ==================== *@
-@{
-    var periodRows = PeriodVouchers;
-    var totalOut = periodRows.Sum(x => x.AmountVnd);
-    var cashOut = periodRows.Where(x => x.Method == "CASH").Sum(x => x.AmountVnd);
-    var bankOut = periodRows.Where(x => x.Method == "BANK").Sum(x => x.AmountVnd);
-    var supGroupOut = periodRows.Where(x => x.CategoryGroup.StartsWith("1.") || x.CategoryCode == "CHI_NCC").Sum(x => x.AmountVnd);
-    var salesTechOut = periodRows.Where(x => x.CategoryGroup.StartsWith("2.") && x.CategoryCode != "CHI_NCC").Sum(x => x.AmountVnd);
-    var opsOtherOut = Math.Max(0, totalOut - supGroupOut - salesTechOut);
-}
-<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
-    <div class="stat" style="border-left:4px solid #dc2626">
-        <small>1. Tổng Khoản Chi (@(HasTimeFilter ? "Trong kỳ lọc" : "Toàn thời gian"))</small>
-        <strong style="color:#dc2626">-@Money(totalOut)</strong>
-        <span>Số lượng: <b>@periodRows.Count phiếu chi</b></span>
-        <span style="font-size:11px;color:#475569">TM: <b>@Money(cashOut)</b> · NH: <b>@Money(bankOut)</b></span>
-    </div>
-    <div class="stat" style="border-left:4px solid #d97706">
-        <small>2. Chi Giá vốn, Nhập hàng NCC &amp; SIM/Server</small>
-        <strong class="orange">@Money(supGroupOut)</strong>
-        <span><b>@periodRows.Count(x => x.CategoryGroup.StartsWith("1.") || x.CategoryCode == "CHI_NCC") phiếu</b> · Cấn trừ công nợ &amp; mua hàng</span>
-    </div>
-    <div class="stat" style="border-left:4px solid #7c3aed">
-        <small>3. Chi Bán hàng, Công lắp &amp; Hoa hồng</small>
-        <strong style="color:#7c3aed">@Money(salesTechOut)</strong>
-        <span><b>@periodRows.Count(x => x.CategoryGroup.StartsWith("2.") && x.CategoryCode != "CHI_NCC") phiếu</b> · Kỹ thuật, NV bán hàng, vận chuyển</span>
-    </div>
-    <div class="stat" style="border-left:4px solid #0f766e;background:#f0fdfa">
-        <small>4. Chi Nhân sự, Văn phòng &amp; Khác · Tồn Sổ quỹ</small>
-        <strong style="color:#0f766e">@Money(opsOtherOut)</strong>
-        <span>Tồn Sổ quỹ hiện tại: <b style="color:@(cashBook.TotalBalanceVnd >= 0 ? "#15803d" : "#dc2626")">@Money(cashBook.TotalBalanceVnd)</b></span>
-        <span style="font-size:11px;color:#475569">Quỹ TM: <b>@Money(cashBook.CashBalanceVnd)</b> · Quỹ NH: <b>@Money(cashBook.BankBalanceVnd)</b></span>
-    </div>
-</div>
-
-@* ==================== THANH TAB ĐIỀU HƯỚNG ==================== *@
-<div class="erp-nav-bar">
-    <div class="erp-segmented-tabs" role="tablist">
-        <button type="button" class="erp-seg-tab @(activeTab == "VOUCHERS" ? "active" : "")" data-confirm="none" @onclick='() => activeTab = "VOUCHERS"'>
-            <span>📑 Danh sách Khoản chi (Phiếu chi)</span>
-            <span class="erp-seg-badge">@FilteredVouchers.Count</span>
-        </button>
-        <button type="button" class="erp-seg-tab @(activeTab == "SUMMARY" ? "active" : "")" data-confirm="none" @onclick='() => activeTab = "SUMMARY"'>
-            <span>📊 Tổng hợp theo Loại khoản chi</span>
-            <span class="erp-seg-badge">@CategorySummaryRows.Count</span>
-        </button>
-        <button type="button" class="erp-seg-tab @(activeTab == "CATEGORIES" ? "active" : "")" data-confirm="none" @onclick='() => activeTab = "CATEGORIES"'>
-            <span>🗂️ Danh mục Loại khoản chi (Tùy biến)</span>
-            <span class="erp-seg-badge">@allCategories.Count</span>
-        </button>
-    </div>
-
-    @if (canEdit)
-    {
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn btn-sm" data-confirm="none" @onclick="OpenCreateVoucherModal">+ Tạo Khoản chi mới</button>
-            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="OpenNewCategoryModal">+ Thêm Loại khoản chi</button>
-        </div>
-    }
-</div>
-
 @if (!string.IsNullOrWhiteSpace(message))
 {
-    <div class="panel-note" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:@(message.StartsWith("Lỗi:") ? "#fef2f2" : "#f0fdf4");border:1px solid @(message.StartsWith("Lỗi:") ? "#fecaca" : "#86efac");color:@(message.StartsWith("Lỗi:") ? "#b91c1c" : "#166534");font-weight:600">
+    <div class="alert @(message.StartsWith("Lỗi") ? "alert-danger" : "alert-ok")" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:@(message.StartsWith("Lỗi") ? "#fef2f2" : "#f0fdf4");border:1px solid @(message.StartsWith("Lỗi") ? "#fecaca" : "#86efac");color:@(message.StartsWith("Lỗi") ? "#b91c1c" : "#166534");font-weight:600">
         @message
     </div>
 }
 
-@* ==================== TAB 1: DANH SÁCH KHOẢN CHI (PHIẾU CHI) ==================== *@
+@* ==================== THẺ KPI TỔNG QUAN THU / CHI / CHÊNH LỆCH / TỒN SỔ QUỸ ==================== *@
+@{
+    var pInList = PeriodVouchers.Where(x => x.IsIncome).ToList();
+    var pOutList = PeriodVouchers.Where(x => !x.IsIncome).ToList();
+    var totalIn = pInList.Sum(x => x.AmountVnd);
+    var cashIn = pInList.Where(x => x.Method == "CASH").Sum(x => x.AmountVnd);
+    var bankIn = pInList.Where(x => x.Method == "BANK").Sum(x => x.AmountVnd);
+    var totalOut = pOutList.Sum(x => x.AmountVnd);
+    var cashOut = pOutList.Where(x => x.Method == "CASH").Sum(x => x.AmountVnd);
+    var bankOut = pOutList.Where(x => x.Method == "BANK").Sum(x => x.AmountVnd);
+    var netDiff = totalIn - totalOut;
+}
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-bottom:16px">
+    <div class="stat" style="border-left:4px solid #15803d;cursor:pointer" @onclick='() => SetDirectionQuickFilter("IN")'>
+        <small>1. Tổng Khoản Thu @(HasTimeFilter ? $"({ActivePeriodLabel})" : "(Toàn hệ thống)")</small>
+        <strong style="color:#15803d">+@Money(totalIn)</strong>
+        <span>@pInList.Count phiếu thu · TM: <b>@Money(cashIn)</b> · NH: <b>@Money(bankIn)</b></span>
+    </div>
+    <div class="stat" style="border-left:4px solid #dc2626;cursor:pointer" @onclick='() => SetDirectionQuickFilter("OUT")'>
+        <small>2. Tổng Khoản Chi @(HasTimeFilter ? $"({ActivePeriodLabel})" : "(Toàn hệ thống)")</small>
+        <strong style="color:#dc2626">-@Money(totalOut)</strong>
+        <span>@pOutList.Count phiếu chi · TM: <b>@Money(cashOut)</b> · NH: <b>@Money(bankOut)</b></span>
+    </div>
+    <div class="stat" style="border-left:4px solid #0284c7;cursor:pointer" @onclick='() => SetDirectionQuickFilter("")'>
+        <small>3. Chênh lệch Thu − Chi @(HasTimeFilter ? "(Trong kỳ)" : "(Lũy kế)")</small>
+        <strong style="color:@(netDiff >= 0 ? "#0284c7" : "#dc2626")">@(netDiff >= 0 ? "+" : "")@Money(netDiff)</strong>
+        <span>Tổng @PeriodVouchers.Count phiếu giao dịch Thu &amp; Chi</span>
+    </div>
+    <div class="stat" style="border-left:4px solid #0f766e;background:#f0fdfa">
+        <small>4. Tồn Sổ quỹ hiện tại (TM + NH)</small>
+        <strong style="color:@(cashBook.TotalBalanceVnd >= 0 ? "#0f766e" : "#dc2626")">@Money(cashBook.TotalBalanceVnd)</strong>
+        <span>TM: <b>@Money(cashBook.CashBalanceVnd)</b> · NH: <b>@Money(cashBook.BankBalanceVnd)</b></span>
+    </div>
+</div>
+
+@* ==================== THANH CHUYỂN TAB ==================== *@
+<div class="erp-nav-bar" style="margin-bottom:14px">
+    <div class="erp-segmented-tabs" role="tablist">
+        <button type="button" class="erp-seg-tab @(activeTab == "VOUCHERS" ? "active" : "")" data-confirm="none" @onclick='() => activeTab = "VOUCHERS"'>
+            <span>📒 Sổ Phiếu Thu / Chi</span>
+            <span class="erp-seg-badge">@FilteredVouchers.Count</span>
+        </button>
+        <button type="button" class="erp-seg-tab @(activeTab == "SUMMARY" ? "active" : "")" data-confirm="none" @onclick='() => activeTab = "SUMMARY"'>
+            <span>📊 Tổng hợp theo Khoản Thu / Chi</span>
+            <span class="erp-seg-badge">@CategorySummaryRows.Count</span>
+        </button>
+        <button type="button" class="erp-seg-tab @(activeTab == "CATEGORIES" ? "active" : "")" data-confirm="none" @onclick='() => activeTab = "CATEGORIES"'>
+            <span>⚙️ Danh mục các Khoản Thu / Chi (Tùy biến)</span>
+            <span class="erp-seg-badge">@allCategories.Count</span>
+        </button>
+    </div>
+</div>
+
+@* ==================== TAB 1: SỔ PHIẾU THU / CHI ==================== *@
 @if (activeTab == "VOUCHERS")
 {
     <section class="panel">
-        <div class="panel-head">
+        <div class="panel-head" style="margin-bottom:12px">
             <div>
-                <h2>Sổ chi tiết các Khoản chi (@ActivePeriodLabel)</h2>
-                <p>Đang hiển thị <strong>@FilteredVouchers.Count</strong> / @PeriodVouchers.Count phiếu chi · Tổng chi theo bộ lọc: <strong style="color:#dc2626">-@Money(FilteredVouchers.Sum(x => x.AmountVnd))</strong>. Nhấp đúp (double-click) vào dòng bất kỳ để xem chi tiết phiếu.</p>
+                <h2>Danh sách Phiếu Thu &amp; Phiếu Chi</h2>
+                <p>Nhấp đúp vào dòng bất kỳ hoặc bấm <strong>Xem</strong> để mở bảng chi tiết phiếu giao dịch.</p>
             </div>
+            @if (canEdit)
+            {
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button type="button" class="btn btn-sm" style="background:#15803d;border-color:#15803d" data-confirm="none" @onclick='() => OpenCreateVoucherModal("IN")'>+ Lập Phiếu Thu (+)</button>
+                    <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => OpenCreateVoucherModal("OUT")'>+ Lập Phiếu Chi (−)</button>
+                </div>
+            }
         </div>
 
-        @* Thanh lọc nhanh theo Loại khoản chi phát sinh *@
-        @if (PeriodVouchers.Count > 0)
-        {
-            <div class="device-summary-bar" style="margin-bottom:12px">
-                <button type="button" class="device-summary-item total @(filterCategoryId == 0 ? "active" : "")" data-confirm="none" @onclick="() => SetCategoryChipFilter(0)">
-                    <span>Tất cả khoản chi:</span>
-                    <strong>@PeriodVouchers.Count (@Money(PeriodVouchers.Sum(x => x.AmountVnd)))</strong>
+        @* Bộ lọc nhanh Loại giao dịch + Danh mục các khoản *@
+        <div class="erp-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+            <div class="erp-age-pills" title="Lọc nhanh Khoản Thu / Khoản Chi">
+                <button type="button" class="erp-age-btn @(string.IsNullOrWhiteSpace(filterDirection) ? "active" : "")" data-confirm="none" @onclick='() => SetDirectionQuickFilter("")'>
+                    Tất cả (@PeriodVouchers.Count)
                 </button>
-                @foreach (var grp in PeriodVouchers.GroupBy(x => (Id: x.CategoryId ?? 0, x.CategoryName)).OrderByDescending(g => g.Sum(i => i.AmountVnd)))
-                {
-                    var cid = grp.Key.Id;
-                    <button type="button" class="device-summary-item @(filterCategoryId == cid && cid > 0 ? "active" : "")" data-confirm="none" @onclick="() => SetCategoryChipFilter(cid)">
-                        <span>@grp.Key.CategoryName:</span>
-                        <strong class="text-blue">@grp.Count() (@Money(grp.Sum(i => i.AmountVnd)))</strong>
-                    </button>
-                }
+                <button type="button" class="erp-age-btn @(filterDirection == "IN" ? "active" : "")" data-confirm="none" @onclick='() => SetDirectionQuickFilter("IN")'>
+                    🟢 Khoản Thu (@pInList.Count)
+                </button>
+                <button type="button" class="erp-age-btn @(filterDirection == "OUT" ? "active" : "")" data-confirm="none" @onclick='() => SetDirectionQuickFilter("OUT")'>
+                    🟠 Khoản Chi (@pOutList.Count)
+                </button>
             </div>
-        }
 
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
-            <input class="search-input" style="flex:1;min-width:240px" @bind="searchText" @bind:event="oninput" @bind:after="() => voucherPager.Reset()" placeholder="🔍 Tìm Mã phiếu chi, Loại chi, Người nhận, NCC, NV bán hàng, Mã đơn, Chứng từ, Nội dung..." />
-            <select class="search-input" style="min-width:195px" @bind="filterGroup" @bind:after="() => voucherPager.Reset()">
-                <option value="">— Tất cả Nhóm chi phí —</option>
-                @foreach (var g in CategoryGroups)
+            <input type="search"
+                   @bind="searchText"
+                   @bind:event="oninput"
+                   @bind:after="() => voucherPager.Reset()"
+                   placeholder="Tìm mã PT/PC, tên khoản, đối tác, chứng từ, nội dung..."
+                   style="min-width:230px;flex:1" />
+
+            <select value="@filterGroup" @onchange="OnFilterGroupChanged" style="min-width:190px">
+                <option value="">— Tất cả Nhóm khoản —</option>
+                @foreach (var grp in FilterableGroups)
                 {
-                    <option value="@g">@g</option>
+                    <option value="@grp">@grp</option>
                 }
             </select>
-            <select class="search-input" style="min-width:205px" @bind="filterCategoryId" @bind:after="() => voucherPager.Reset()">
-                <option value="0">— Tất cả Loại khoản chi —</option>
-                @foreach (var c in allCategories)
+
+            <select value="@filterCategoryId" @onchange="OnFilterCategoryChanged" style="min-width:215px">
+                <option value="0">— Tất cả Khoản @(filterDirection == "IN" ? "Thu" : filterDirection == "OUT" ? "Chi" : "Thu & Chi") —</option>
+                @foreach (var c in FilterableCategories)
                 {
-                    <option value="@c.Id">@c.Name</option>
+                    <option value="@c.Id">@(c.IsIncome ? "[THU]" : "[CHI]") @c.Name</option>
                 }
             </select>
-            <select class="search-input" style="min-width:155px" @bind="filterMethod" @bind:after="() => voucherPager.Reset()">
-                <option value="">— Mọi Nguồn quỹ —</option>
-                <option value="CASH">Quỹ Tiền mặt</option>
+
+            <select @bind="filterMethod" @bind:after="() => voucherPager.Reset()" style="min-width:150px">
+                <option value="">— Mọi nguồn quỹ —</option>
                 <option value="BANK">Quỹ Ngân hàng</option>
+                <option value="CASH">Quỹ Tiền mặt</option>
             </select>
-            <select class="search-input" style="min-width:170px" @bind="filterLinkMode" @bind:after="() => voucherPager.Reset()">
-                <option value="">— Mọi Hình thức chi —</option>
-                <option value="DEBT_LINKED">Cấn trừ Chứng từ công nợ</option>
-                <option value="DIRECT">Chi trực tiếp (Ngoài công nợ)</option>
+
+            <select @bind="filterLinkMode" @bind:after="() => voucherPager.Reset()" style="min-width:165px">
+                <option value="">— Công nợ &amp; Trực tiếp —</option>
+                <option value="DEBT_LINKED">Có cấn trừ Công nợ</option>
+                <option value="DIRECT">Thu / Chi trực tiếp</option>
             </select>
+
             @if (HasVoucherFilter)
             {
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ClearVoucherFilters">Xóa lọc</button>
@@ -228,27 +234,25 @@
                 <thead>
                     <tr>
                         <th>STT</th>
-                        <th>Mã phiếu chi</th>
-                        <th>Ngày giờ chi</th>
-                        <th>Loại khoản chi &amp; Nhóm</th>
-                        <th>Người nhận / Đối tượng liên kết</th>
+                        <th>Mã phiếu</th>
+                        <th>Loại phiếu</th>
+                        <th>Ngày giờ GD</th>
+                        <th>Khoản Thu / Khoản Chi &amp; Nhóm</th>
+                        <th>Đối tác (Người nộp / Người nhận)</th>
                         <th>Tham chiếu / Chứng từ</th>
                         <th>Nguồn quỹ</th>
-                        <th>Số tiền chi</th>
+                        <th>Số tiền</th>
                         <th>Diễn giải chi tiết</th>
                         <th>Trạng thái</th>
-                        @if (canEdit)
-                        {
-                            <th>Thao tác</th>
-                        }
+                        <th>Thao tác</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (pagedVouchers.Count == 0)
                     {
                         <tr>
-                            <td colspan="@(canEdit ? 11 : 10)" style="text-align:center;padding:28px;color:#64748b">
-                                Chưa có khoản chi nào khớp điều kiện lọc. Bấm <strong>“+ Tạo Khoản chi mới”</strong> để ghi nhận khoản chi đầu tiên.
+                            <td colspan="12" style="text-align:center;padding:28px;color:#64748b">
+                                Chưa có phiếu Thu/Chi nào khớp điều kiện lọc. Bấm <strong>“+ Lập Phiếu Thu (+)”</strong> hoặc <strong>“+ Lập Phiếu Chi (−)”</strong> để ghi nhận giao dịch.
                             </td>
                         </tr>
                     }
@@ -259,6 +263,11 @@
                             <td>
                                 <div><strong>@v.PaymentNo</strong></div>
                                 <small style="color:#64748b">@v.CreatedByName</small>
+                            </td>
+                            <td>
+                                <span class="chip @(v.IsIncome ? "green-chip" : "orange-chip")">
+                                    @(v.IsIncome ? "Phiếu Thu (+)" : "Phiếu Chi (−)")
+                                </span>
                             </td>
                             <td>@v.DisplayTimestamp</td>
                             <td class="wrap-cell">
@@ -272,7 +281,7 @@
                             <td class="wrap-cell">
                                 @if (!string.IsNullOrWhiteSpace(v.InvoiceNo))
                                 {
-                                    <div><span class="chip orange-chip">CT Công nợ: @v.InvoiceNo</span></div>
+                                    <div><span class="chip @(v.IsIncome ? "blue-chip" : "orange-chip")">CT Công nợ: @v.InvoiceNo</span></div>
                                 }
                                 else if (!string.IsNullOrWhiteSpace(v.ReferenceDoc))
                                 {
@@ -291,7 +300,14 @@
                                 <span class="chip @(v.Method == "CASH" ? "green-chip" : "blue-chip")">@v.MethodLabel</span>
                             </td>
                             <td>
-                                <strong style="color:#dc2626;font-size:13.5px">-@Money(v.AmountVnd)</strong>
+                                @if (v.IsIncome)
+                                {
+                                    <strong style="color:#15803d;font-size:13.5px">+@Money(v.AmountVnd)</strong>
+                                }
+                                else
+                                {
+                                    <strong style="color:#dc2626;font-size:13.5px">-@Money(v.AmountVnd)</strong>
+                                }
                             </td>
                             <td class="wrap-cell">@(string.IsNullOrWhiteSpace(v.Notes) ? "—" : v.Notes)</td>
                             <td>
@@ -304,28 +320,42 @@
                                     <span class="chip green-chip">Đã ghi quỹ</span>
                                 }
                             </td>
-                            @if (canEdit)
-                            {
-                                <td class="catalog-row-actions">
-                                    <div style="display:flex;gap:5px;flex-wrap:wrap">
+                            <td class="catalog-row-actions">
+                                <div style="display:flex;gap:5px;flex-wrap:wrap">
+                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" onclick="window.tnmOpenRowDetail(this)">
+                                        Xem
+                                    </button>
+                                    @if (canEdit)
+                                    {
                                         @if (!v.IsLocked || isMainDev)
                                         {
                                             <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenEditVoucherModal(v)">
                                                 Sửa
                                             </button>
                                         }
-                                        <button type="button" class="btn secondary btn-sm" data-confirm="edit" data-confirm-title="@(v.IsLocked ? "Xác nhận Mở khóa phiếu chi" : "Xác nhận Chốt số phiếu chi")" data-confirm-msg="@($"Bạn có chắc chắn muốn {(v.IsLocked ? "mở khóa" : "chốt số / khóa sổ")} phiếu chi {v.PaymentNo} ({Money(v.AmountVnd)}) không?")" @onclick="() => ToggleVoucherLock(v)">
+                                        <button type="button"
+                                                class="btn secondary btn-sm"
+                                                data-confirm="edit"
+                                                data-confirm-title="@(v.IsLocked ? $"Xác nhận Mở khóa {(v.IsIncome ? "Phiếu Thu" : "Phiếu Chi")}" : $"Xác nhận Chốt số {(v.IsIncome ? "Phiếu Thu" : "Phiếu Chi")}")"
+                                                data-confirm-msg="@($"Bạn có chắc chắn muốn {(v.IsLocked ? "mở khóa" : "chốt số / khóa sổ")} {(v.IsIncome ? "Phiếu Thu" : "Phiếu Chi")} {v.PaymentNo} ({Money(v.AmountVnd)}) không?")"
+                                                @onclick="() => ToggleVoucherLock(v)">
                                             @(v.IsLocked ? "🔓 Mở" : "🔒 Chốt")
                                         </button>
                                         @if (!v.IsLocked || isMainDev)
                                         {
-                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa phiếu khoản chi" data-confirm-msg="@(isMainDev ? $"Bạn có chắc chắn muốn XÓA CỨNG phiếu chi {v.PaymentNo} ({Money(v.AmountVnd)} — {v.PayeeName}) và hoàn lại số dư Sổ quỹ / Công nợ liên quan không?" : $"Bạn có chắc chắn muốn xóa phiếu chi {v.PaymentNo} ({Money(v.AmountVnd)} — {v.PayeeName}) khỏi Sổ quỹ và khôi phục số dư công nợ liên quan không?")" @onclick="() => DeleteVoucher(v.Id)">
+                                            <button type="button"
+                                                    class="btn secondary btn-sm"
+                                                    style="color:#dc2626;border-color:#fecaca"
+                                                    data-confirm="delete"
+                                                    data-confirm-title="@($"Xác nhận Xóa {(v.IsIncome ? "Phiếu Thu" : "Phiếu Chi")}")"
+                                                    data-confirm-msg="@($"Bạn có chắc chắn muốn xóa {(v.IsIncome ? "Phiếu Thu" : "Phiếu Chi")} {v.PaymentNo} ({Money(v.AmountVnd)} — {v.PayeeName}) khỏi Sổ quỹ và cập nhật lại số dư công nợ liên quan không?")"
+                                                    @onclick="() => DeleteVoucher(v.Id)">
                                                 Xóa
                                             </button>
                                         }
-                                    </div>
-                                </td>
-                            }
+                                    }
+                                </div>
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -335,14 +365,18 @@
     </section>
 }
 
-@* ==================== TAB 2: TỔNG HỢP THEO LOẠI KHOẢN CHI ==================== *@
+@* ==================== TAB 2: TỔNG HỢP THEO KHOẢN THU / KHOẢN CHI ==================== *@
 @if (activeTab == "SUMMARY")
 {
     <section class="panel">
         <div class="panel-head">
             <div>
-                <h2>Báo cáo cơ cấu Khoản chi theo Nhóm &amp; Loại chi phí (@ActivePeriodLabel)</h2>
-                <p>Tổng cộng: <strong>@PeriodVouchers.Count phiếu chi</strong> · Tổng chi trong kỳ: <strong style="color:#dc2626">-@Money(totalOut)</strong>.</p>
+                <h2>Báo cáo cơ cấu theo từng Khoản Thu &amp; Khoản Chi (@ActivePeriodLabel)</h2>
+                <p>
+                    Tổng Thu: <strong style="color:#15803d">+@Money(totalIn)</strong> (@pInList.Count phiếu) &nbsp;·&nbsp;
+                    Tổng Chi: <strong style="color:#dc2626">-@Money(totalOut)</strong> (@pOutList.Count phiếu) &nbsp;·&nbsp;
+                    Chênh lệch: <strong style="color:@(netDiff >= 0 ? "#0284c7" : "#dc2626")">@(netDiff >= 0 ? "+" : "")@Money(netDiff)</strong>.
+                </p>
             </div>
         </div>
         @{ var pagedSum = summaryPager.Slice(CategorySummaryRows, out var totalSumRows); }
@@ -351,33 +385,44 @@
                 <thead>
                     <tr>
                         <th>STT</th>
-                        <th>Nhóm chi phí</th>
-                        <th>Mã loại</th>
-                        <th>Tên loại khoản chi</th>
-                        <th>Số phiếu chi</th>
-                        <th>Chi Tiền mặt</th>
-                        <th>Chi Ngân hàng</th>
-                        <th>Tổng số tiền chi</th>
-                        <th>Tỷ trọng (%)</th>
+                        <th>Tính chất</th>
+                        <th>Nhóm khoản</th>
+                        <th>Mã khoản</th>
+                        <th>Tên khoản Thu / Chi</th>
+                        <th>Số phiếu</th>
+                        <th>Quỹ Tiền mặt</th>
+                        <th>Quỹ Ngân hàng</th>
+                        <th>Tổng phát sinh</th>
+                        <th>Tỷ trọng cùng chiều</th>
                         <th>Thao tác</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var (stt, row) in pagedSum)
                     {
-                        var pct = totalOut > 0 ? (row.TotalVnd * 100.0 / totalOut) : 0;
+                        var denom = row.Direction == "IN" ? totalIn : totalOut;
+                        var pct = denom > 0 ? (row.TotalVnd * 100.0 / denom) : 0;
                         <tr>
                             <td><strong>@stt</strong></td>
+                            <td>
+                                <span class="chip @(row.Direction == "IN" ? "green-chip" : "orange-chip")">
+                                    @(row.Direction == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")
+                                </span>
+                            </td>
                             <td><span class="chip">@row.GroupName</span></td>
                             <td><strong>@row.CategoryCode</strong></td>
                             <td><strong>@row.CategoryName</strong></td>
                             <td><strong>@row.Count phiếu</strong></td>
                             <td>@Money(row.CashVnd)</td>
                             <td>@Money(row.BankVnd)</td>
-                            <td><strong style="color:#dc2626">-@Money(row.TotalVnd)</strong></td>
+                            <td>
+                                <strong style="color:@(row.Direction == "IN" ? "#15803d" : "#dc2626")">
+                                    @(row.Direction == "IN" ? "+" : "-")@Money(row.TotalVnd)
+                                </strong>
+                            </td>
                             <td><strong>@pct.ToString("0.0")%</strong></td>
                             <td>
-                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => JumpToCategoryVouchers(row.CategoryId)">
+                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => JumpToCategoryVouchers(row.CategoryId, row.Direction)">
                                     Xem @row.Count phiếu →
                                 </button>
                             </td>
@@ -390,31 +435,58 @@
     </section>
 }
 
-@* ==================== TAB 3: DANH MỤC LOẠI KHOẢN CHI (TÙY BIẾN) ==================== *@
+@* ==================== TAB 3: DANH MỤC CÁC KHOẢN THU / CHI (TÙY BIẾN) ==================== *@
 @if (activeTab == "CATEGORIES")
 {
     <section class="panel">
         <div class="panel-head">
             <div>
-                <h2>Danh mục Loại khoản chi — Kế toán tùy biến mở rộng</h2>
-                <p>Khai báo các loại khoản chi theo nhu cầu quản trị thực tế của doanh nghiệp và cấu hình đối tượng dữ liệu gợi ý mặc định khi lập phiếu chi.</p>
+                <h2>Danh mục các Khoản Thu &amp; Khoản Chi — Kế toán tùy biến mở rộng</h2>
+                <p>Khai báo rõ từng <strong>Khoản Thu (+)</strong> và <strong>Khoản Chi (−)</strong> để khi Lập Phiếu Thu hoặc Phiếu Chi có thể chọn (select) chính xác ngay lập tức.</p>
             </div>
             @if (canEdit)
             {
-                <button type="button" class="btn" data-confirm="none" @onclick="OpenNewCategoryModal">+ Tạo Loại khoản chi mới</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button type="button" class="btn btn-sm" style="background:#15803d;border-color:#15803d" data-confirm="none" @onclick='() => OpenNewCategoryModal("IN")'>
+                        + Tạo Khoản Thu mới (+)
+                    </button>
+                    <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => OpenNewCategoryModal("OUT")'>
+                        + Tạo Khoản Chi mới (−)
+                    </button>
+                </div>
             }
         </div>
 
-        @{ var pagedCats = categoryPager.Slice(allCategories, out var totalCats); }
+        <div class="erp-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+            <div class="erp-age-pills">
+                <button type="button" class="erp-age-btn @(string.IsNullOrWhiteSpace(catTabDirFilter) ? "active" : "")" data-confirm="none" @onclick='() => { catTabDirFilter = ""; categoryPager.Reset(); }'>
+                    Tất cả các khoản (@allCategories.Count)
+                </button>
+                <button type="button" class="erp-age-btn @(catTabDirFilter == "IN" ? "active" : "")" data-confirm="none" @onclick='() => { catTabDirFilter = "IN"; categoryPager.Reset(); }'>
+                    🟢 Danh mục Khoản Thu (@allCategories.Count(x => x.IsIncome))
+                </button>
+                <button type="button" class="erp-age-btn @(catTabDirFilter == "OUT" ? "active" : "")" data-confirm="none" @onclick='() => { catTabDirFilter = "OUT"; categoryPager.Reset(); }'>
+                    🟠 Danh mục Khoản Chi (@allCategories.Count(x => !x.IsIncome))
+                </button>
+            </div>
+        </div>
+
+        @{
+            var visibleCats = allCategories
+                .Where(c => string.IsNullOrWhiteSpace(catTabDirFilter) || c.Direction == catTabDirFilter)
+                .ToList();
+            var pagedCats = categoryPager.Slice(visibleCats, out var totalCats);
+        }
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
                         <th>STT</th>
+                        <th>Loại khoản</th>
                         <th>Thứ tự</th>
-                        <th>Mã loại chi</th>
-                        <th>Tên loại khoản chi</th>
-                        <th>Nhóm chi phí</th>
+                        <th>Mã khoản</th>
+                        <th>Tên khoản Thu / Chi</th>
+                        <th>Nhóm phân loại</th>
                         <th>Map dữ liệu mặc định</th>
                         <th>Diễn giải gợi ý</th>
                         <th>Phát sinh lũy kế</th>
@@ -430,6 +502,11 @@
                     {
                         <tr style="@(!cat.IsActive ? "opacity:0.65" : "")">
                             <td><strong>@stt</strong></td>
+                            <td>
+                                <span class="chip @(cat.IsIncome ? "green-chip" : "orange-chip")">
+                                    @cat.DirectionLabel
+                                </span>
+                            </td>
                             <td>@cat.SortOrder</td>
                             <td>
                                 <strong>@cat.Code</strong>
@@ -444,7 +521,9 @@
                             <td class="wrap-cell">@(string.IsNullOrWhiteSpace(cat.DefaultNote) ? "—" : cat.DefaultNote)</td>
                             <td>
                                 <div><strong>@cat.VoucherCount phiếu</strong></div>
-                                <small style="color:#dc2626;font-weight:600">@Money(cat.TotalAmountVnd)</small>
+                                <small style="color:@(cat.IsIncome ? "#15803d" : "#dc2626");font-weight:600">
+                                    @(cat.IsIncome ? "+" : "-")@Money(cat.TotalAmountVnd)
+                                </small>
                             </td>
                             <td>
                                 <span class="chip @(cat.IsActive ? "green-chip" : "orange-chip")">@(cat.IsActive ? "Đang dùng" : "Ngừng dùng")</span>
@@ -453,11 +532,23 @@
                             {
                                 <td class="catalog-row-actions">
                                     <div style="display:flex;gap:5px;flex-wrap:wrap">
-                                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => QuickCreateVoucherForCategory(cat)">+ Chi khoản này</button>
+                                        <button type="button"
+                                                class="btn btn-sm"
+                                                style="@(cat.IsIncome ? "background:#15803d;border-color:#15803d" : "")"
+                                                data-confirm="none"
+                                                @onclick="() => QuickCreateVoucherForCategory(cat)">
+                                            @(cat.IsIncome ? "+ Lập Phiếu Thu" : "+ Lập Phiếu Chi")
+                                        </button>
                                         <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenEditCategoryModal(cat)">Sửa</button>
                                         @if (!cat.IsSystem)
                                         {
-                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa loại khoản chi" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa / ngừng sử dụng loại khoản chi '{cat.Name}' ({cat.Code}) không?")" @onclick="() => RemoveCategory(cat.Id)">
+                                            <button type="button"
+                                                    class="btn secondary btn-sm"
+                                                    style="color:#dc2626;border-color:#fecaca"
+                                                    data-confirm="delete"
+                                                    data-confirm-title="@($"Xác nhận Xóa {(cat.IsIncome ? "Khoản Thu" : "Khoản Chi")}")"
+                                                    data-confirm-msg="@($"Bạn có chắc chắn muốn xóa / ngừng sử dụng {(cat.IsIncome ? "khoản thu" : "khoản chi")} '{cat.Name}' ({cat.Code}) không?")"
+                                                    @onclick="() => RemoveCategory(cat.Id)">
                                                 Xóa
                                             </button>
                                         }
@@ -473,16 +564,38 @@
     </section>
 }
 
-@* ==================== MODAL TẠO / SỬA PHIẾU KHOẢN CHI ==================== *@
+@* ==================== DATALISTS GỢI Ý NHÓM THU / NHÓM CHI ==================== *@
+<datalist id="income-groups-datalist">
+    @foreach (var g in IncomeCategoryGroups)
+    {
+        <option value="@g"></option>
+    }
+</datalist>
+<datalist id="expense-groups-datalist">
+    @foreach (var g in ExpenseCategoryGroups)
+    {
+        <option value="@g"></option>
+    }
+</datalist>
+
+@* ==================== DIALOG LẬP / CHỈNH SỬA PHIẾU THU / PHIẾU CHI ==================== *@
 @if (showVoucherModal)
 {
     <div class="so-modal-overlay" @onclick="CloseVoucherModal">
         <div class="so-modal-dialog" style="max-width:860px" @onclick:stopPropagation="true">
             <div class="so-modal-header">
                 <div>
-                    <div class="eyebrow">PHIẾU KHOẢN CHI SỔ QUỸ &amp; CẤN TRỪ CÔNG NỢ</div>
-                    <h2 style="margin:0.15rem 0 0 0">@(editVoucherId > 0 ? $"Chỉnh sửa Khoản chi: {editVoucherNo}" : "Lập Khoản chi mới (Map dữ liệu hiện tại / Chi phí tùy biến)")</h2>
-                    <p style="margin:0.2rem 0 0 0;font-size:0.86rem;color:#64748b">Chọn loại khoản chi, gắn đối tượng hoặc chứng từ công nợ trong hệ thống (hoặc chi trực tiếp ngoài công nợ). Hệ thống tự động ghi vào Sổ quỹ Tiền mặt / Ngân hàng.</p>
+                    <div class="eyebrow">QUẢN LÝ THU / CHI SỔ QUỸ &amp; CẤN TRỪ CÔNG NỢ</div>
+                    <h2 style="margin:0.15rem 0 0 0;color:@(formDirection == "IN" ? "#15803d" : "#0f172a")">
+                        @(editVoucherId > 0
+                            ? $"Chỉnh sửa {(formDirection == "IN" ? "Phiếu Thu" : "Phiếu Chi")}: {editVoucherNo}"
+                            : formDirection == "IN"
+                                ? "Lập Phiếu Thu mới (+) — Chọn đúng Khoản Thu & Đối tác"
+                                : "Lập Phiếu Chi mới (−) — Chọn đúng Khoản Chi & Đối tác")
+                    </h2>
+                    <p style="margin:0.2rem 0 0 0;font-size:0.86rem;color:#64748b">
+                        Chọn loại phiếu <strong>Thu (+)</strong> hoặc <strong>Chi (−)</strong>, chọn khoản tương ứng trong danh mục (hoặc tạo nhanh khoản mới ngay bên dưới) và ghi nhận vào Sổ quỹ Tiền mặt / Ngân hàng.
+                    </p>
                 </div>
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseVoucherModal">✕ Đóng</button>
             </div>
@@ -495,32 +608,65 @@
                     </div>
                 }
 
-                @* Tạo nhanh Loại khoản chi ngay trong hộp thoại *@
+                @* Chọn nhanh Loại phiếu Thu (+) hoặc Chi (−) *@
+                <div style="display:flex;gap:8px;margin-bottom:0.9rem;padding:6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+                    <button type="button"
+                            data-confirm="none"
+                            @onclick='() => SetFormDirection("IN")'
+                            style="flex:1;padding:9px 14px;border-radius:8px;font-weight:700;cursor:pointer;border:1px solid @(formDirection == "IN" ? "#15803d" : "transparent");background:@(formDirection == "IN" ? "#15803d" : "transparent");color:@(formDirection == "IN" ? "#fff" : "#334155")">
+                        🟢 PHIẾU THU (+) — Ghi nhận Khoản Thu vào Sổ quỹ
+                    </button>
+                    <button type="button"
+                            data-confirm="none"
+                            @onclick='() => SetFormDirection("OUT")'
+                            style="flex:1;padding:9px 14px;border-radius:8px;font-weight:700;cursor:pointer;border:1px solid @(formDirection == "OUT" ? "#c2410c" : "transparent");background:@(formDirection == "OUT" ? "#c2410c" : "transparent");color:@(formDirection == "OUT" ? "#fff" : "#334155")">
+                        🟠 PHIẾU CHI (−) — Ghi nhận Khoản Chi từ Sổ quỹ
+                    </button>
+                </div>
+
+                @* Tạo nhanh Khoản Thu / Khoản Chi ngay trong Dialog Lập Phiếu *@
                 @if (showInlineNewCat)
                 {
-                    <div style="margin-bottom:1rem;padding:0.85rem 1rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:4px solid #0284c7;border-radius:8px">
+                    <div style="margin-bottom:1rem;padding:0.85rem 1rem;background:@(inlineCatDirection == "IN" ? "#f0fdf4" : "#f0f9ff");border:1px solid @(inlineCatDirection == "IN" ? "#86efac" : "#bae6fd");border-left:4px solid @(inlineCatDirection == "IN" ? "#15803d" : "#0284c7");border-radius:8px">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-                            <strong style="color:#0369a1">+ Tạo nhanh Loại khoản chi tùy biến mới</strong>
+                            <strong style="color:@(inlineCatDirection == "IN" ? "#15803d" : "#0369a1")">
+                                + Tạo nhanh @(inlineCatDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") mới &amp; tự động chọn vào phiếu
+                            </strong>
                             <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showInlineNewCat = false">Đóng</button>
                         </div>
                         <div class="form-grid">
-                            <label>Tên loại khoản chi mới *
-                                <input @bind="inlineCatName" placeholder="VD: Chi phí đăng kiểm / Chi phí trà nước kho..." />
+                            <label>Tính chất khoản *
+                                <select @bind="inlineCatDirection" @bind:after="OnInlineDirectionChanged">
+                                    <option value="IN">Khoản Thu (+)</option>
+                                    <option value="OUT">Khoản Chi (−)</option>
+                                </select>
                             </label>
-                            <label>Nhóm chi phí
-                                <input list="expense-groups-datalist" @bind="inlineCatGroup" placeholder="Chọn hoặc nhập nhóm chi phí mới..." />
+                            <label>Tên @(inlineCatDirection == "IN" ? "khoản thu" : "khoản chi") mới *
+                                <input @bind="inlineCatName" placeholder="@(inlineCatDirection == "IN" ? "VD: Thu tiền bán phụ kiện / Thu đặt cọc..." : "VD: Chi phí đăng kiểm / Chi phí trà nước kho...")" />
+                            </label>
+                            <label>Nhóm phân loại
+                                <input list="@(inlineCatDirection == "IN" ? "income-groups-datalist" : "expense-groups-datalist")"
+                                       @bind="inlineCatGroup"
+                                       placeholder="Chọn hoặc gõ nhóm mới..." />
                             </label>
                             <label>Đối tượng liên kết mặc định
                                 <select @bind="inlineCatTarget">
-                                    <option value="FREE">Nhập tự do / Chi vận hành</option>
+                                    <option value="CUSTOMER">Khách hàng / Đại lý / HTX</option>
                                     <option value="SUPPLIER">Nhà cung cấp</option>
                                     <option value="INSTALLER">Kỹ thuật / Nhân sự lắp đặt</option>
                                     <option value="SELLER">Nhân viên bán hàng</option>
-                                    <option value="CUSTOMER">Khách hàng / Đại lý / HTX</option>
+                                    <option value="FREE">Nhập tự do / Vận hành chung</option>
                                 </select>
                             </label>
-                            <div style="display:flex;align-items:flex-end">
-                                <button type="button" class="btn btn-sm" data-confirm="add" data-confirm-title="Xác nhận Thêm mới Loại khoản chi" data-confirm-msg="@($"Bạn có chắc chắn muốn tạo mới loại khoản chi '{(string.IsNullOrWhiteSpace(inlineCatName) ? "mới" : inlineCatName)}' không?")" @onclick="SaveInlineCategory">+ Lưu &amp; Chọn loại chi này</button>
+                            <div style="grid-column:span 2;display:flex;justify-content:flex-end">
+                                <button type="button"
+                                        class="btn btn-sm"
+                                        data-confirm="add"
+                                        data-confirm-title="@($"Xác nhận Thêm mới {(inlineCatDirection == "IN" ? "Khoản Thu" : "Khoản Chi")}")"
+                                        data-confirm-msg="@($"Bạn có chắc chắn muốn tạo mới {(inlineCatDirection == "IN" ? "khoản thu" : "khoản chi")} '{(string.IsNullOrWhiteSpace(inlineCatName) ? "mới" : inlineCatName)}' và chọn ngay vào phiếu đang lập không?")"
+                                        @onclick="SaveInlineCategory">
+                                    + Lưu &amp; Chọn ngay khoản này
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -528,32 +674,36 @@
 
                 <div class="form-grid">
                     <label style="grid-column:span 2">
-                        <div style="display:flex;justify-content:space-between;align-items:center">
-                            <span>1. Loại khoản chi *</span>
-                            <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="() => showInlineNewCat = !showInlineNewCat">
-                                @(showInlineNewCat ? "Ẩn tạo loại chi" : "+ Tạo nhanh Loại khoản chi mới")
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                            <span>1. Chọn @(formDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") * (@ActiveCategoriesForForm.Count khoản khả dụng)</span>
+                            <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="ToggleInlineNewCat">
+                                @(showInlineNewCat ? "Ẩn khung tạo nhanh" : $"+ Tạo nhanh Khoản {(formDirection == "IN" ? "Thu" : "Chi")} mới")
                             </button>
                         </div>
-                        <select @bind="formCategoryId" @bind:after="OnFormCategoryChanged">
-                            @foreach (var grp in ActiveCategoriesForForm.GroupBy(x => x.GroupName))
+                        <select value="@formCategoryId"
+                                @onchange="OnFormCategorySelectChanged"
+                                @key="@($"vcat-{formDirection}-{ActiveCategoriesForForm.Count}-{formCategoryId}")"
+                                style="font-weight:600">
+                            @if (ActiveCategoriesForForm.Count == 0)
                             {
-                                <optgroup label="@grp.Key">
-                                    @foreach (var c in grp)
-                                    {
-                                        <option value="@c.Id">@c.Name (@c.Code)</option>
-                                    }
-                                </optgroup>
+                                <option value="0">— Chưa có khoản nào, bấm "+ Tạo nhanh" để thêm —</option>
+                            }
+                            @foreach (var c in ActiveCategoriesForForm)
+                            {
+                                <option value="@c.Id" selected="@(c.Id == formCategoryId)">
+                                    [@c.GroupName] @c.Name (@c.Code)
+                                </option>
                             }
                         </select>
                     </label>
 
                     <label>2. Liên kết dữ liệu đối tượng trong hệ thống
                         <select @bind="formTargetType" @bind:after="OnFormTargetTypeChanged">
-                            <option value="FREE">Nhập tự do (Đối tác ngoài / Chi vận hành)</option>
+                            <option value="CUSTOMER">Khách hàng / Đại lý / HTX (@customers.Count KH)</option>
                             <option value="SUPPLIER">Nhà cung cấp (@suppliers.Count NCC)</option>
                             <option value="INSTALLER">Kỹ thuật / ĐV lắp đặt (@installers.Count NS)</option>
                             <option value="SELLER">Nhân viên bán hàng (@sellers.Count NV)</option>
-                            <option value="CUSTOMER">Khách hàng / Đại lý / HTX (@customers.Count KH)</option>
+                            <option value="FREE">Nhập tự do (Đối tác ngoài / Vận hành)</option>
                         </select>
                     </label>
 
@@ -607,26 +757,26 @@
                     }
                     else
                     {
-                        <label>Người nhận tiền / Đơn vị thụ hưởng *
-                            <input @bind="formPayeeName" placeholder="VD: Điện lực, Viettel, Chủ nhà, Chành xe Phương Trang..." />
+                        <label>@(formDirection == "IN" ? "Người nộp tiền / Đối tác *" : "Người nhận tiền / Đơn vị thụ hưởng *")
+                            <input @bind="formPayeeName" placeholder="@(formDirection == "IN" ? "VD: Khách lẻ mua mặt hàng, Ngân hàng trả lãi..." : "VD: Điện lực, Viettel, Chủ nhà, Chành xe...")" />
                         </label>
                     }
 
                     @if (formTargetType != "FREE")
                     {
-                        <label>Tên người nhận hiển thị trên Phiếu Chi
+                        <label>Tên đối tác hiển thị trên @(formDirection == "IN" ? "Phiếu Thu" : "Phiếu Chi")
                             <input @bind="formPayeeName" placeholder="Tự động điền theo đối tượng đã chọn hoặc sửa tay..." />
                         </label>
                     }
 
                     <label style="grid-column:span @(formTargetType == "FREE" ? "2" : "1")">
-                        3. Gắn cấn trừ Chứng từ Công nợ phải trả (Tùy chọn)
+                        3. Gắn cấn trừ Chứng từ Công nợ @(formDirection == "IN" ? "Phải thu" : "Phải trả") (Tùy chọn)
                         <select @bind="formInvoiceId" @bind:after="OnFormInvoicePicked">
-                            <option value="0">— Chi trực tiếp vào Sổ quỹ (Không cấn trừ chứng từ công nợ) —</option>
-                            @foreach (var inv in MatchingPayableInvoices)
+                            <option value="0">— @(formDirection == "IN" ? "Thu trực tiếp vào Sổ quỹ (Không cấn trừ công nợ)" : "Chi trực tiếp vào Sổ quỹ (Không cấn trừ công nợ)") —</option>
+                            @foreach (var inv in MatchingInvoicesForForm)
                             {
                                 var maxAvail = GetAvailableInvoiceBalance(inv);
-                                <option value="@inv.Id">[@PayableTypeLabel(inv.Type)] @inv.Code — @inv.Customer (Còn nợ: @Money(maxAvail))</option>
+                                <option value="@inv.Id">[@InvoiceShortTypeLabel(inv.Type)] @inv.Code — @inv.Customer (Còn nợ: @Money(maxAvail))</option>
                             }
                         </select>
                     </label>
@@ -641,16 +791,16 @@
                         </select>
                     </label>
 
-                    <label>4. Nguồn quỹ thanh toán *
+                    <label>4. Nguồn quỹ @(formDirection == "IN" ? "nhận tiền" : "thanh toán") *
                         <select @bind="formMethod">
                             <option value="BANK">Quỹ Ngân hàng / Chuyển khoản (Tồn: @Money(cashBook.BankBalanceVnd))</option>
                             <option value="CASH">Quỹ Tiền mặt (Tồn: @Money(cashBook.CashBalanceVnd))</option>
                         </select>
                     </label>
 
-                    <label>5. Số tiền Khoản chi (VND) *
+                    <label>5. Số tiền @(formDirection == "IN" ? "Thu (+)" : "Chi (−)") (VND) *
                         <div style="display:flex;gap:6px;align-items:center">
-                            <input type="number" min="1" step="10000" @bind="formAmountVnd" style="flex:1;font-weight:700;color:#dc2626" />
+                            <input type="number" min="1" step="10000" @bind="formAmountVnd" style="flex:1;font-weight:700;color:@(formDirection == "IN" ? "#15803d" : "#dc2626")" />
                             @if (SelectedFormInvoice is not null)
                             {
                                 var avail = GetAvailableInvoiceBalance(SelectedFormInvoice);
@@ -661,23 +811,33 @@
                         </div>
                     </label>
 
-                    <label>Ngày giờ chi *
+                    <label>Ngày giờ giao dịch *
                         <input type="datetime-local" @bind="formPaidAtDt" />
                     </label>
 
                     <label>Số hóa đơn / Mã chứng từ gốc tham chiếu
-                        <input @bind="formReferenceDoc" placeholder="VD: Số HĐ VAT, mã bill vận chuyển, mã PO..." />
+                        <input @bind="formReferenceDoc" placeholder="VD: Mã UNC ngân hàng, số HĐ VAT, mã bill..." />
                     </label>
 
-                    <label style="grid-column:span 2">6. Nội dung / Diễn giải khoản chi *
-                        <textarea rows="2" @bind="formNotes" placeholder="Nhập chi tiết nội dung khoản chi để đối soát Sổ quỹ & báo cáo kế toán..."></textarea>
+                    <label style="grid-column:span 2">6. Nội dung / Diễn giải @(formDirection == "IN" ? "khoản thu" : "khoản chi") *
+                        <textarea rows="2" @bind="formNotes" placeholder="Nhập chi tiết nội dung giao dịch để đối soát Sổ quỹ & báo cáo kế toán..."></textarea>
                     </label>
                 </div>
             </div>
 
             <div class="so-modal-footer">
-                <button type="button" class="btn" data-confirm="@(editVoucherId > 0 ? "edit" : "add")" data-confirm-title="@(editVoucherId > 0 ? "Xác nhận Cập nhật phiếu khoản chi" : "Xác nhận Ghi nhận khoản chi mới")" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu phiếu khoản chi số tiền {Money(formAmountVnd)} từ {(formMethod == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng")} không?")" @onclick="SaveVoucher">
-                    💾 @(editVoucherId > 0 ? "Lưu cập nhật Khoản chi" : "+ Ghi nhận Khoản chi vào Sổ quỹ")
+                <button type="button"
+                        class="btn"
+                        style="@(formDirection == "IN" ? "background:#15803d;border-color:#15803d" : "")"
+                        data-confirm="@(editVoucherId > 0 ? "edit" : "add")"
+                        data-confirm-title="@(editVoucherId > 0 ? $"Xác nhận Cập nhật {(formDirection == "IN" ? "Phiếu Thu" : "Phiếu Chi")}" : $"Xác nhận Lập {(formDirection == "IN" ? "Phiếu Thu" : "Phiếu Chi")} mới")"
+                        data-confirm-msg="@($"Bạn có chắc chắn muốn {(editVoucherId > 0 ? "lưu cập nhật" : "ghi nhận")} {(formDirection == "IN" ? "Phiếu Thu (+)" : "Phiếu Chi (−)")} [{SelectedFormCategoryName}] số tiền {Money(formAmountVnd)} vào {(formMethod == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng")} không?")"
+                        @onclick="SaveVoucher">
+                    💾 @(editVoucherId > 0
+                        ? $"Lưu cập nhật {(formDirection == "IN" ? "Phiếu Thu" : "Phiếu Chi")}"
+                        : formDirection == "IN"
+                            ? "+ Ghi nhận Phiếu Thu (+) vào Sổ quỹ"
+                            : "+ Ghi nhận Phiếu Chi (−) vào Sổ quỹ")
                 </button>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseVoucherModal">Đóng</button>
             </div>
@@ -685,22 +845,22 @@
     </div>
 }
 
-@* ==================== MODAL TẠO / SỬA LOẠI KHOẢN CHI ==================== *@
-<datalist id="expense-groups-datalist">
-    @foreach (var g in CategoryGroups)
-    {
-        <option value="@g"></option>
-    }
-</datalist>
-
+@* ==================== DIALOG TẠO / SỬA KHOẢN THU / KHOẢN CHI ==================== *@
 @if (showCategoryModal)
 {
     <div class="so-modal-overlay" @onclick="CloseCategoryModal">
-        <div class="so-modal-dialog" style="max-width:640px" @onclick:stopPropagation="true">
+        <div class="so-modal-dialog" style="max-width:660px" @onclick:stopPropagation="true">
             <div class="so-modal-header">
                 <div>
-                    <div class="eyebrow">TÙY BIẾN DANH MỤC LOẠI KHOẢN CHI</div>
-                    <h2 style="margin:0.15rem 0 0 0">@(editCatId > 0 ? $"Chỉnh sửa Loại khoản chi: {catCode}" : "Tạo Loại khoản chi tùy biến mới")</h2>
+                    <div class="eyebrow">TÙY BIẾN DANH MỤC CÁC KHOẢN THU / CHI</div>
+                    <h2 style="margin:0.15rem 0 0 0">
+                        @(editCatId > 0
+                            ? $"Chỉnh sửa {(catDirection == "IN" ? "Khoản Thu" : "Khoản Chi")}: {catCode}"
+                            : $"Tạo {(catDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")} tùy biến mới")
+                    </h2>
+                    <p style="margin:0.2rem 0 0 0;font-size:0.85rem;color:#64748b">
+                        Khoản được tạo sẽ xuất hiện ngay trong danh sách chọn khi lập @(catDirection == "IN" ? "Phiếu Thu (+)" : "Phiếu Chi (−)") ở cả trang Quản lý Thu/Chi và Công nợ &amp; Sổ quỹ.
+                    </p>
                 </div>
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseCategoryModal">✕ Đóng</button>
             </div>
@@ -711,38 +871,80 @@
                         @modalError
                     </div>
                 }
+
+                @* Nút chọn rõ Khoản Thu (+) hay Khoản Chi (−) *@
+                <div style="display:flex;gap:8px;margin-bottom:0.9rem;padding:5px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+                    <button type="button"
+                            disabled="@catIsSystem"
+                            data-confirm="none"
+                            @onclick='() => SetCatModalDirection("IN")'
+                            style="flex:1;padding:8px 12px;border-radius:8px;font-weight:700;cursor:@(catIsSystem ? "not-allowed" : "pointer");border:1px solid @(catDirection == "IN" ? "#15803d" : "transparent");background:@(catDirection == "IN" ? "#15803d" : "transparent");color:@(catDirection == "IN" ? "#fff" : "#334155")">
+                        🟢 KHOẢN THU (+) — Dùng khi Lập Phiếu Thu
+                    </button>
+                    <button type="button"
+                            disabled="@catIsSystem"
+                            data-confirm="none"
+                            @onclick='() => SetCatModalDirection("OUT")'
+                            style="flex:1;padding:8px 12px;border-radius:8px;font-weight:700;cursor:@(catIsSystem ? "not-allowed" : "pointer");border:1px solid @(catDirection == "OUT" ? "#c2410c" : "transparent");background:@(catDirection == "OUT" ? "#c2410c" : "transparent");color:@(catDirection == "OUT" ? "#fff" : "#334155")">
+                        🟠 KHOẢN CHI (−) — Dùng khi Lập Phiếu Chi
+                    </button>
+                </div>
+
                 <div class="form-grid">
-                    <label style="grid-column:span 2">Tên loại khoản chi *
-                        <input @bind="catName" placeholder="VD: Chi phí hoa hồng CTV ngoài / Chi phí bảo trì máy chủ..." />
+                    <label style="grid-column:span 2">Tên @(catDirection == "IN" ? "khoản thu" : "khoản chi") *
+                        <input @bind="catName" placeholder="@(catDirection == "IN" ? "VD: Thu tiền lắp đặt lẻ / Thu cọc hợp đồng / Thu hoàn ứng..." : "VD: Chi hoa hồng CTV ngoài / Chi bảo trì máy chủ...")" />
                     </label>
-                    <label>Mã loại khoản chi (Để trống tự sinh)
-                        <input @bind="catCode" disabled="@catIsSystem" placeholder="VD: CHI_CTV_NGOAI" />
+                    <label>Mã khoản (Để trống tự sinh @(catDirection == "IN" ? "THU_..." : "CHI_..."))
+                        <input @bind="catCode" disabled="@catIsSystem" placeholder="@(catDirection == "IN" ? "VD: THU_COC_HD" : "VD: CHI_CTV_NGOAI")" />
                     </label>
                     <label>Thứ tự ưu tiên hiển thị
                         <input type="number" min="1" max="999" @bind="catSortOrder" />
                     </label>
-                    <label style="grid-column:span 2">Nhóm chi phí (Chọn sẵn hoặc tự gõ nhóm mới) *
-                        <input list="expense-groups-datalist" @bind="catGroupName" placeholder="VD: 4. Văn phòng & Quản lý" />
+                    <label style="grid-column:span 2">Nhóm phân loại (Chọn sẵn hoặc tự gõ nhóm mới) *
+                        <input list="@(catDirection == "IN" ? "income-groups-datalist" : "expense-groups-datalist")"
+                               @bind="catGroupName"
+                               placeholder="@(catDirection == "IN" ? "VD: 1. Thu bán hàng & Lắp đặt" : "VD: 4. Văn phòng & Quản lý")" />
                     </label>
                     <label style="grid-column:span 2">Đối tượng dữ liệu liên kết mặc định khi lập phiếu
                         <select @bind="catTargetEntity">
-                            <option value="FREE">Nhập tự do / Chi phí vận hành chung</option>
+                            <option value="CUSTOMER">Khách hàng / Đại lý / HTX (Map danh sách KH &amp; Công nợ phải thu)</option>
                             <option value="SUPPLIER">Nhà cung cấp (Map danh sách NCC &amp; Công nợ mua hàng)</option>
                             <option value="INSTALLER">Kỹ thuật / Nhân sự (Map danh sách ĐV lắp đặt &amp; Công lắp)</option>
                             <option value="SELLER">Nhân viên bán hàng (Map danh sách NV bán hàng &amp; Hoa hồng)</option>
-                            <option value="CUSTOMER">Khách hàng / Đại lý / HTX (Map danh sách KH)</option>
+                            <option value="FREE">Nhập tự do / Giao dịch vận hành chung</option>
                         </select>
                     </label>
                     <label style="grid-column:span 2">Nội dung diễn giải gợi ý mặc định
-                        <input @bind="catDefaultNote" placeholder="Gợi ý tự điền vào ô nội dung khi kế toán chọn loại chi này..." />
+                        <input @bind="catDefaultNote" placeholder="Gợi ý tự điền vào ô diễn giải khi kế toán chọn khoản này..." />
                     </label>
                     <label class="checkbox-row" style="grid-column:span 2">
-                        <input type="checkbox" @bind="catIsActive" /> Đang kích hoạt sử dụng khi lập phiếu chi
+                        <input type="checkbox" @bind="catIsActive" /> Đang kích hoạt (Hiển thị trong danh sách chọn khi lập phiếu)
                     </label>
                 </div>
             </div>
             <div class="so-modal-footer">
-                <button type="button" class="btn" data-confirm="@(editCatId > 0 ? "edit" : "add")" data-confirm-title="@(editCatId > 0 ? "Xác nhận Cập nhật Loại khoản chi" : "Xác nhận Thêm mới Loại khoản chi")" data-confirm-msg="@($"Bạn có chắc chắn muốn {(editCatId > 0 ? "lưu cập nhật" : "thêm mới")} loại khoản chi '{catName}' không?")" @onclick="SaveCategoryModal">💾 @(editCatId > 0 ? "Lưu cập nhật Loại khoản chi" : "+ Thêm Loại khoản chi")</button>
+                <button type="button"
+                        class="btn"
+                        style="@(catDirection == "IN" ? "background:#15803d;border-color:#15803d" : "")"
+                        data-confirm="@(editCatId > 0 ? "edit" : "add")"
+                        data-confirm-title="@(editCatId > 0 ? $"Xác nhận Cập nhật {(catDirection == "IN" ? "Khoản Thu" : "Khoản Chi")}" : $"Xác nhận Thêm mới {(catDirection == "IN" ? "Khoản Thu" : "Khoản Chi")}")"
+                        data-confirm-msg="@($"Bạn có chắc chắn muốn {(editCatId > 0 ? "lưu cập nhật" : "thêm mới")} {(catDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")} '{catName}' không?")"
+                        @onclick="SaveCategoryModal">
+                    💾 @(editCatId > 0
+                        ? $"Lưu cập nhật {(catDirection == "IN" ? "Khoản Thu" : "Khoản Chi")}"
+                        : $"+ Thêm {(catDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")}")
+                </button>
+                @if (editCatId == 0)
+                {
+                    <button type="button"
+                            class="btn secondary"
+                            data-confirm="add"
+                            data-confirm-title="@($"Xác nhận Thêm {(catDirection == "IN" ? "Khoản Thu" : "Khoản Chi")} & Mở lập phiếu")"
+                            data-confirm-msg="@($"Tạo mới {(catDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")} '{catName}' và mở ngay hộp thoại Lập Phiếu với khoản này được chọn sẵn?")"
+                            @onclick="SaveCategoryAndOpenVoucher">
+                        ⚡ Lưu &amp; Lập phiếu ngay
+                    </button>
+                }
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseCategoryModal">Đóng</button>
             </div>
         </div>
@@ -750,7 +952,7 @@
 }
 
 @code {
-    private sealed record CategorySummaryRow(long CategoryId, string CategoryCode, string CategoryName, string GroupName, int Count, long CashVnd, long BankVnd, long TotalVnd);
+    private sealed record CategorySummaryRow(long CategoryId, string Direction, string CategoryCode, string CategoryName, string GroupName, int Count, long CashVnd, long BankVnd, long TotalVnd);
 
     private readonly PagerState voucherPager = new();
     private readonly PagerState summaryPager = new();
@@ -762,7 +964,7 @@
 
     private List<ExpenseCategoryVm> allCategories = [];
     private List<ExpenseVoucherVm> vouchers = [];
-    private List<InvoiceVm> payableInvoices = [];
+    private List<InvoiceVm> allOpenOrLinkedInvoices = [];
     private CashBookSummaryVm cashBook = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private List<(long Id, string Name)> suppliers = [];
@@ -776,28 +978,32 @@
     private int periodYear = 0, periodMonth = 0;
 
     // Voucher table filter state
-    private string searchText = "", filterGroup = "", filterMethod = "", filterLinkMode = "";
+    private string filterDirection = "", searchText = "", filterGroup = "", filterMethod = "", filterLinkMode = "", catTabDirFilter = "";
     private long filterCategoryId = 0;
+    private long lastCreatedCategoryId = 0;
 
     // Voucher Modal state
     private bool showVoucherModal, showInlineNewCat;
     private long editVoucherId = 0;
-    private string editVoucherNo = "";
+    private string editVoucherNo = "", formDirection = "OUT";
     private long formCategoryId, formSupplierId, formEmployeeId, formSellerId, formCustomerId, formOrderId, formInvoiceId;
     private long formAmountVnd = 0;
     private string formTargetType = "FREE", formMethod = "BANK", formPayeeName = "", formReferenceDoc = "", formNotes = "";
     private DateTime formPaidAtDt = DateTime.Now;
-    private string inlineCatName = "", inlineCatGroup = "4. Văn phòng & Quản lý", inlineCatTarget = "FREE";
+
+    // Inline quick-create category inside voucher modal
+    private string inlineCatDirection = "OUT", inlineCatName = "", inlineCatGroup = "4. Văn phòng & Quản lý", inlineCatTarget = "FREE";
 
     // Category Modal state
     private bool showCategoryModal, catIsSystem, catIsActive = true;
     private long editCatId = 0;
     private int catSortOrder = 100;
-    private string catCode = "", catName = "", catGroupName = "4. Văn phòng & Quản lý", catTargetEntity = "FREE", catDefaultNote = "";
+    private string catDirection = "OUT", catCode = "", catName = "", catGroupName = "4. Văn phòng & Quản lý", catTargetEntity = "FREE", catDefaultNote = "";
 
     private bool HasTimeFilter => rangeFrom.HasValue || rangeTo.HasValue;
 
     private bool HasVoucherFilter =>
+        !string.IsNullOrWhiteSpace(filterDirection) ||
         !string.IsNullOrWhiteSpace(searchText) ||
         !string.IsNullOrWhiteSpace(filterGroup) ||
         filterCategoryId > 0 ||
@@ -823,13 +1029,30 @@
         .OrderByDescending(y => y)
         .ToList();
 
-    private List<(string Key, string Label, int Year, int Month, int Count, long TotalVnd)> AvailablePeriods => vouchers
+    private List<(string Key, string Label, int Year, int Month, int Count, long InVnd, long OutVnd)> AvailablePeriods => vouchers
         .GroupBy(x => (x.PeriodKey, x.PeriodLabel, x.PeriodYear, x.PeriodMonth))
         .OrderByDescending(g => g.Key.PeriodKey)
-        .Select(g => (g.Key.PeriodKey, g.Key.PeriodLabel, g.Key.PeriodYear, g.Key.PeriodMonth, g.Count(), g.Sum(i => i.AmountVnd)))
+        .Select(g => (
+            g.Key.PeriodKey,
+            g.Key.PeriodLabel,
+            g.Key.PeriodYear,
+            g.Key.PeriodMonth,
+            g.Count(),
+            g.Where(i => i.IsIncome).Sum(i => i.AmountVnd),
+            g.Where(i => !i.IsIncome).Sum(i => i.AmountVnd)))
         .ToList();
 
-    private List<string> CategoryGroups => allCategories
+    private List<string> IncomeCategoryGroups => allCategories
+        .Where(x => x.IsIncome)
+        .Select(x => x.GroupName)
+        .Concat(["1. Thu bán hàng & Lắp đặt", "2. Thu gia hạn & Dịch vụ", "3. Thu hoàn ứng & Đối tác", "4. Thu tài chính & Khác"])
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x)
+        .ToList();
+
+    private List<string> ExpenseCategoryGroups => allCategories
+        .Where(x => !x.IsIncome)
         .Select(x => x.GroupName)
         .Concat(["1. Giá vốn & Nhập hàng NCC", "2. Bán hàng & Lắp đặt", "3. Nhân sự & Tiền lương", "4. Văn phòng & Quản lý", "5. Chi phí Khác"])
         .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -837,9 +1060,27 @@
         .OrderBy(x => x)
         .ToList();
 
-    private List<ExpenseCategoryVm> ActiveCategoriesForForm => allCategories
-        .Where(x => x.IsActive || x.Id == formCategoryId)
+    private List<ExpenseCategoryVm> FilterableCategories => allCategories
+        .Where(x => string.IsNullOrWhiteSpace(filterDirection) || x.Direction == filterDirection)
+        .Where(x => string.IsNullOrWhiteSpace(filterGroup) || string.Equals(x.GroupName, filterGroup, StringComparison.OrdinalIgnoreCase))
         .ToList();
+
+    private List<string> FilterableGroups => allCategories
+        .Where(x => string.IsNullOrWhiteSpace(filterDirection) || x.Direction == filterDirection)
+        .Select(x => x.GroupName)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x)
+        .ToList();
+
+    // Chỉ lấy đúng các Khoản Thu (khi lập Phiếu Thu) hoặc Khoản Chi (khi lập Phiếu Chi)
+    private List<ExpenseCategoryVm> ActiveCategoriesForForm => allCategories
+        .Where(x => x.Direction == formDirection && (x.IsActive || x.Id == formCategoryId))
+        .OrderBy(x => x.SortOrder)
+        .ThenBy(x => x.Id)
+        .ToList();
+
+    private string SelectedFormCategoryName => ActiveCategoriesForForm.FirstOrDefault(x => x.Id == formCategoryId)?.Name ?? "Chưa chọn khoản";
 
     private List<ExpenseVoucherVm> PeriodVouchers => vouchers
         .Where(x => x.MatchesRange(rangeFrom, rangeTo))
@@ -850,9 +1091,10 @@
         .ToList();
 
     private List<CategorySummaryRow> CategorySummaryRows => PeriodVouchers
-        .GroupBy(x => (Id: x.CategoryId ?? 0, x.CategoryCode, x.CategoryName, x.CategoryGroup))
+        .GroupBy(x => (Id: x.CategoryId ?? 0, x.Direction, x.CategoryCode, x.CategoryName, x.CategoryGroup))
         .Select(g => new CategorySummaryRow(
             g.Key.Id,
+            g.Key.Direction,
             g.Key.CategoryCode,
             g.Key.CategoryName,
             g.Key.CategoryGroup,
@@ -860,35 +1102,55 @@
             g.Where(i => i.Method == "CASH").Sum(i => i.AmountVnd),
             g.Where(i => i.Method == "BANK").Sum(i => i.AmountVnd),
             g.Sum(i => i.AmountVnd)))
-        .OrderByDescending(r => r.TotalVnd)
+        .OrderBy(r => r.Direction == "IN" ? 0 : 1)
+        .ThenByDescending(r => r.TotalVnd)
         .ToList();
 
-    private InvoiceVm? SelectedFormInvoice => payableInvoices.FirstOrDefault(x => x.Id == formInvoiceId);
+    private InvoiceVm? SelectedFormInvoice => allOpenOrLinkedInvoices.FirstOrDefault(x => x.Id == formInvoiceId);
 
-    private IEnumerable<InvoiceVm> MatchingPayableInvoices
+    private IEnumerable<InvoiceVm> MatchingInvoicesForForm
     {
         get
         {
-            var openList = payableInvoices.Where(x => !x.IsReceivable && x.Status != "VOID" && (GetAvailableInvoiceBalance(x) > 0 || x.Id == formInvoiceId));
+            var baseList = allOpenOrLinkedInvoices
+                .Where(x => x.Status != "VOID"
+                         && (formDirection == "IN" ? x.IsReceivable : !x.IsReceivable)
+                         && (GetAvailableInvoiceBalance(x) > 0 || x.Id == formInvoiceId));
+
+            if (formDirection == "IN")
+            {
+                if (formTargetType == "CUSTOMER" && formCustomerId > 0)
+                {
+                    var cust = customers.FirstOrDefault(c => c.Id == formCustomerId);
+                    if (cust is not null)
+                    {
+                        return baseList.Where(i => i.Id == formInvoiceId ||
+                            i.Customer.Contains(cust.Name, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrWhiteSpace(cust.Code) && i.Customer.Contains(cust.Code, StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
+                return baseList;
+            }
+
             if (formTargetType == "SUPPLIER" && formSupplierId > 0)
             {
                 var supName = suppliers.FirstOrDefault(s => s.Id == formSupplierId).Name ?? "";
                 if (!string.IsNullOrWhiteSpace(supName))
-                    return openList.Where(i => i.Id == formInvoiceId || (i.Type is "PURCHASE" or "SUPPLIER" && i.Customer.Contains(supName, StringComparison.OrdinalIgnoreCase)));
+                    return baseList.Where(i => i.Id == formInvoiceId || (i.Type is "PURCHASE" or "SUPPLIER" && i.Customer.Contains(supName, StringComparison.OrdinalIgnoreCase)));
             }
             else if (formTargetType == "INSTALLER" && formEmployeeId > 0)
             {
                 var empName = installers.FirstOrDefault(e => e.Id == formEmployeeId)?.Name ?? "";
                 if (!string.IsNullOrWhiteSpace(empName))
-                    return openList.Where(i => i.Id == formInvoiceId || (i.Type == "SERVICE" && (i.Customer.Contains(empName, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(empName, StringComparison.OrdinalIgnoreCase))));
+                    return baseList.Where(i => i.Id == formInvoiceId || (i.Type == "SERVICE" && (i.Customer.Contains(empName, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(empName, StringComparison.OrdinalIgnoreCase))));
             }
             else if (formTargetType == "SELLER" && formSellerId > 0)
             {
                 var sl = sellers.FirstOrDefault(s => s.Id == formSellerId);
                 if (sl is not null)
-                    return openList.Where(i => i.Id == formInvoiceId || (i.Type == "COMMISSION" && (i.Customer.Contains(sl.Code, StringComparison.OrdinalIgnoreCase) || i.Customer.Contains(sl.Name, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(sl.Code, StringComparison.OrdinalIgnoreCase))));
+                    return baseList.Where(i => i.Id == formInvoiceId || (i.Type == "COMMISSION" && (i.Customer.Contains(sl.Code, StringComparison.OrdinalIgnoreCase) || i.Customer.Contains(sl.Name, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(sl.Code, StringComparison.OrdinalIgnoreCase))));
             }
-            return openList;
+            return baseList;
         }
     }
 
@@ -911,7 +1173,7 @@
     {
         allCategories = Db.ExpenseCategories(includeInactive: true);
         vouchers = Db.ExpenseVouchers();
-        payableInvoices = Db.Invoices().Where(x => !x.IsReceivable && x.Status != "VOID").ToList();
+        allOpenOrLinkedInvoices = Db.Invoices().Where(x => x.Status != "VOID").ToList();
         cashBook = Db.CashBookSummary();
     }
 
@@ -929,6 +1191,8 @@
 
     private bool MatchVoucherFilter(ExpenseVoucherVm v)
     {
+        if (!string.IsNullOrWhiteSpace(filterDirection) && v.Direction != filterDirection)
+            return false;
         if (!string.IsNullOrWhiteSpace(filterGroup) && !string.Equals(v.CategoryGroup, filterGroup, StringComparison.OrdinalIgnoreCase))
             return false;
         if (filterCategoryId > 0 && v.CategoryId != filterCategoryId)
@@ -943,11 +1207,42 @@
         if (!string.IsNullOrWhiteSpace(searchText))
         {
             var q = searchText.Trim();
-            var hay = $"{v.PaymentNo} {v.CategoryCode} {v.CategoryName} {v.CategoryGroup} {v.PayeeName} {v.LinkedEntityLabel} {v.InvoiceNo} {v.OrderCode} {v.ReferenceDoc} {v.Notes} {v.MethodLabel}";
+            var hay = $"{v.PaymentNo} {v.DirectionLabel} {v.CategoryCode} {v.CategoryName} {v.CategoryGroup} {v.PayeeName} {v.LinkedEntityLabel} {v.InvoiceNo} {v.OrderCode} {v.ReferenceDoc} {v.Notes} {v.MethodLabel}";
             if (!hay.Contains(q, StringComparison.OrdinalIgnoreCase))
                 return false;
         }
         return true;
+    }
+
+    private void SetDirectionQuickFilter(string dir)
+    {
+        filterDirection = dir;
+        if (!string.IsNullOrWhiteSpace(dir) && filterCategoryId > 0)
+        {
+            var curCat = allCategories.FirstOrDefault(c => c.Id == filterCategoryId);
+            if (curCat is not null && curCat.Direction != dir)
+                filterCategoryId = 0;
+        }
+        if (!string.IsNullOrWhiteSpace(dir) && !string.IsNullOrWhiteSpace(filterGroup) && !FilterableGroups.Contains(filterGroup, StringComparer.OrdinalIgnoreCase))
+        {
+            filterGroup = "";
+        }
+        activeTab = "VOUCHERS";
+        voucherPager.Reset();
+    }
+
+    private void OnFilterGroupChanged(ChangeEventArgs e)
+    {
+        filterGroup = e.Value?.ToString() ?? "";
+        if (filterCategoryId > 0 && !FilterableCategories.Any(c => c.Id == filterCategoryId))
+            filterCategoryId = 0;
+        voucherPager.Reset();
+    }
+
+    private void OnFilterCategoryChanged(ChangeEventArgs e)
+    {
+        filterCategoryId = long.TryParse(e.Value?.ToString(), out var cid) ? cid : 0;
+        voucherPager.Reset();
     }
 
     private void OnRangeChanged((DateTime? From, DateTime? To) r)
@@ -978,7 +1273,7 @@
         periodYear = year;
         periodMonth = month;
         rangeFrom = new DateTime(year, month, 1, 0, 0, 0);
-        rangeTo = new DateTime(year, month, DateTime.DaysInMonth(year, month), 23, 59, 59);
+        rangeTo = rangeFrom.Value.AddMonths(1).AddSeconds(-1);
         voucherPager.Reset();
         summaryPager.Reset();
     }
@@ -993,34 +1288,28 @@
         summaryPager.Reset();
     }
 
-    private bool IsExactPeriodSelected(int year, int month) =>
-        rangeFrom.HasValue && rangeTo.HasValue &&
-        rangeFrom.Value.Year == year && rangeFrom.Value.Month == month && rangeFrom.Value.Day == 1 &&
-        rangeTo.Value.Year == year && rangeTo.Value.Month == month && rangeTo.Value.Day == DateTime.DaysInMonth(year, month);
-
-    private bool IsFullYearSelected(int year) =>
-        rangeFrom.HasValue && rangeTo.HasValue &&
-        rangeFrom.Value == new DateTime(year, 1, 1, 0, 0, 0) &&
-        rangeTo.Value.Date == new DateTime(year, 12, 31);
-
     private void ResetPeriodFilter()
     {
-        rangeFrom = null;
-        rangeTo = null;
         periodYear = 0;
         periodMonth = 0;
+        rangeFrom = null;
+        rangeTo = null;
         voucherPager.Reset();
         summaryPager.Reset();
     }
 
-    private void SetCategoryChipFilter(long cid)
+    private bool IsFullYearSelected(int y) =>
+        rangeFrom == new DateTime(y, 1, 1, 0, 0, 0) && rangeTo == new DateTime(y, 12, 31, 23, 59, 59);
+
+    private bool IsExactPeriodSelected(int y, int m)
     {
-        filterCategoryId = filterCategoryId == cid ? 0 : cid;
-        voucherPager.Reset();
+        var s = new DateTime(y, m, 1, 0, 0, 0);
+        return rangeFrom == s && rangeTo == s.AddMonths(1).AddSeconds(-1);
     }
 
     private void ClearVoucherFilters()
     {
+        filterDirection = "";
         searchText = "";
         filterGroup = "";
         filterCategoryId = 0;
@@ -1029,35 +1318,60 @@
         voucherPager.Reset();
     }
 
-    private void JumpToCategoryVouchers(long cid)
+    private void JumpToCategoryVouchers(long cid, string dir)
     {
+        filterDirection = dir;
+        filterGroup = "";
         filterCategoryId = cid;
         activeTab = "VOUCHERS";
         voucherPager.Reset();
     }
 
     // ==================== VOUCHER MODAL HANDLERS ====================
-    private void OpenCreateVoucherModal()
+    private ExpenseCategoryVm? PickDefaultCategoryForDirection(string dir)
     {
-        var firstCat = allCategories.FirstOrDefault(x => x.IsActive) ?? allCategories.FirstOrDefault();
-        ResetVoucherForm(firstCat);
+        var activeInDir = allCategories.Where(x => x.Direction == dir && x.IsActive).OrderBy(x => x.SortOrder).ThenBy(x => x.Id).ToList();
+        if (lastCreatedCategoryId > 0)
+        {
+            var recent = activeInDir.FirstOrDefault(x => x.Id == lastCreatedCategoryId);
+            if (recent is not null) return recent;
+        }
+        if (filterCategoryId > 0)
+        {
+            var filtered = activeInDir.FirstOrDefault(x => x.Id == filterCategoryId);
+            if (filtered is not null) return filtered;
+        }
+        return activeInDir.FirstOrDefault() ?? allCategories.FirstOrDefault(x => x.Direction == dir);
+    }
+
+    private void OpenCreateVoucherModal(string dir)
+    {
+        var cleanDir = dir == "IN" ? "IN" : "OUT";
+        formDirection = cleanDir;
+        var defaultCat = PickDefaultCategoryForDirection(cleanDir);
+        ResetVoucherForm(cleanDir, defaultCat);
         showVoucherModal = true;
     }
 
     private void QuickCreateVoucherForCategory(ExpenseCategoryVm cat)
     {
-        ResetVoucherForm(cat);
+        formDirection = cat.Direction;
+        ResetVoucherForm(cat.Direction, cat);
         showVoucherModal = true;
     }
 
-    private void ResetVoucherForm(ExpenseCategoryVm? cat)
+    private void ResetVoucherForm(string dir, ExpenseCategoryVm? cat)
     {
         modalError = "";
         showInlineNewCat = false;
         editVoucherId = 0;
         editVoucherNo = "";
+        formDirection = dir;
+        inlineCatDirection = dir;
+        inlineCatGroup = dir == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
+        inlineCatTarget = dir == "IN" ? "CUSTOMER" : "FREE";
         formCategoryId = cat?.Id ?? 0;
-        formTargetType = cat?.TargetEntity ?? "FREE";
+        formTargetType = cat?.TargetEntity ?? (dir == "IN" ? "CUSTOMER" : "FREE");
         formSupplierId = 0;
         formEmployeeId = 0;
         formSellerId = 0;
@@ -1072,13 +1386,62 @@
         formNotes = cat?.DefaultNote ?? "";
     }
 
+    private void SetFormDirection(string dir)
+    {
+        var cleanDir = dir == "IN" ? "IN" : "OUT";
+        if (formDirection == cleanDir && ActiveCategoriesForForm.Any(x => x.Id == formCategoryId))
+            return;
+
+        formDirection = cleanDir;
+        inlineCatDirection = cleanDir;
+        inlineCatGroup = cleanDir == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
+        inlineCatTarget = cleanDir == "IN" ? "CUSTOMER" : "FREE";
+
+        var firstCat = PickDefaultCategoryForDirection(cleanDir);
+        formCategoryId = firstCat?.Id ?? 0;
+        formInvoiceId = 0;
+        if (editVoucherId == 0 && firstCat is not null)
+        {
+            formTargetType = firstCat.TargetEntity;
+            formSupplierId = 0;
+            formEmployeeId = 0;
+            formSellerId = 0;
+            formCustomerId = 0;
+            formNotes = firstCat.DefaultNote ?? "";
+        }
+    }
+
+    private void ToggleInlineNewCat()
+    {
+        showInlineNewCat = !showInlineNewCat;
+        if (showInlineNewCat)
+        {
+            inlineCatDirection = formDirection;
+            inlineCatGroup = formDirection == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
+            inlineCatTarget = formDirection == "IN" ? "CUSTOMER" : "FREE";
+        }
+    }
+
+    private void OnInlineDirectionChanged()
+    {
+        inlineCatGroup = inlineCatDirection == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
+        inlineCatTarget = inlineCatDirection == "IN" ? "CUSTOMER" : "FREE";
+    }
+
     private void OpenEditVoucherModal(ExpenseVoucherVm v)
     {
         modalError = "";
         showInlineNewCat = false;
         editVoucherId = v.Id;
         editVoucherNo = v.PaymentNo;
-        formCategoryId = v.CategoryId ?? (allCategories.FirstOrDefault()?.Id ?? 0);
+        formDirection = v.Direction == "IN" ? "IN" : "OUT";
+        inlineCatDirection = formDirection;
+
+        var matchingCat = v.CategoryId.HasValue
+            ? allCategories.FirstOrDefault(x => x.Id == v.CategoryId.Value && x.Direction == formDirection)
+            : null;
+        formCategoryId = matchingCat?.Id ?? (PickDefaultCategoryForDirection(formDirection)?.Id ?? 0);
+
         formSupplierId = v.SupplierId ?? 0;
         formEmployeeId = v.EmployeeId ?? 0;
         formSellerId = v.SellerId ?? 0;
@@ -1086,10 +1449,10 @@
         formOrderId = v.OrderId ?? 0;
         formInvoiceId = v.InvoiceId ?? 0;
 
-        if (formSupplierId > 0) formTargetType = "SUPPLIER";
+        if (formCustomerId > 0) formTargetType = "CUSTOMER";
+        else if (formSupplierId > 0) formTargetType = "SUPPLIER";
         else if (formEmployeeId > 0) formTargetType = "INSTALLER";
         else if (formSellerId > 0) formTargetType = "SELLER";
-        else if (formCustomerId > 0) formTargetType = "CUSTOMER";
         else formTargetType = "FREE";
 
         formMethod = v.Method;
@@ -1103,8 +1466,10 @@
 
     private void CloseVoucherModal() => showVoucherModal = false;
 
-    private void OnFormCategoryChanged()
+    private void OnFormCategorySelectChanged(ChangeEventArgs e)
     {
+        if (!long.TryParse(e.Value?.ToString(), out var cid)) return;
+        formCategoryId = cid;
         var cat = allCategories.FirstOrDefault(x => x.Id == formCategoryId);
         if (cat is null) return;
         if (editVoucherId == 0)
@@ -1115,8 +1480,7 @@
             formSellerId = 0;
             formCustomerId = 0;
             formInvoiceId = 0;
-            if (!string.IsNullOrWhiteSpace(cat.DefaultNote))
-                formNotes = cat.DefaultNote;
+            formNotes = !string.IsNullOrWhiteSpace(cat.DefaultNote) ? cat.DefaultNote : "";
         }
     }
 
@@ -1143,14 +1507,23 @@
         else if (formTargetType == "CUSTOMER" && formCustomerId > 0)
             formPayeeName = customers.FirstOrDefault(c => c.Id == formCustomerId)?.B2BDisplayName ?? "";
 
-        // Tự động gợi ý chứng từ còn nợ đầu tiên nếu đang tạo mới
+        // Chỉ tự động điền chứng từ công nợ khi đang chọn đúng 5 khoản công nợ hệ thống
         if (editVoucherId == 0 && formInvoiceId == 0)
         {
-            var firstOpen = MatchingPayableInvoices.FirstOrDefault();
-            if (firstOpen is not null && formTargetType is "SUPPLIER" or "INSTALLER" or "SELLER")
+            var cat = allCategories.FirstOrDefault(x => x.Id == formCategoryId);
+            if (cat?.Code is "THU_DON_LAP" or "THU_GIA_HAN" or "CHI_NCC" or "CHI_CONG_LAP" or "CHI_HOA_HONG")
             {
-                var cat = allCategories.FirstOrDefault(x => x.Id == formCategoryId);
-                if (cat?.Code is "CHI_NCC" or "CHI_CONG_LAP" or "CHI_HOA_HONG")
+                var firstOpen = MatchingInvoicesForForm
+                    .FirstOrDefault(i => cat.Code switch
+                    {
+                        "THU_DON_LAP" => i.Type == "SALE",
+                        "THU_GIA_HAN" => i.Type == "RENEWAL",
+                        "CHI_NCC" => i.Type is "PURCHASE" or "SUPPLIER",
+                        "CHI_CONG_LAP" => i.Type == "SERVICE",
+                        "CHI_HOA_HONG" => i.Type == "COMMISSION",
+                        _ => false
+                    });
+                if (firstOpen is not null)
                 {
                     formInvoiceId = firstOpen.Id;
                     OnFormInvoicePicked();
@@ -1168,7 +1541,7 @@
         if (string.IsNullOrWhiteSpace(formPayeeName)) formPayeeName = inv.Customer;
         formReferenceDoc = inv.Code;
         if (editVoucherId == 0)
-            formNotes = $"Chi thanh toán chứng từ {inv.Code} ({inv.Customer})";
+            formNotes = $"{(formDirection == "IN" ? "Thu" : "Chi")} thanh toán chứng từ {inv.Code} ({inv.Customer})";
     }
 
     private void OnFormOrderPicked()
@@ -1187,10 +1560,13 @@
             modalError = "";
             var actor = await Gate.RequireAsync(Permissions.FinancePay);
             Db.ActorId = actor;
-            var newCatId = Db.SaveExpenseCategory(null, null, inlineCatName, inlineCatGroup, inlineCatTarget, "", 95, true);
+            var newCatId = Db.SaveExpenseCategory(null, null, inlineCatName, inlineCatGroup, inlineCatTarget, "", 25, true, inlineCatDirection);
+            lastCreatedCategoryId = newCatId;
             RefreshData();
+            formDirection = inlineCatDirection;
             formCategoryId = newCatId;
             formTargetType = inlineCatTarget;
+            formInvoiceId = 0;
             inlineCatName = "";
             showInlineNewCat = false;
         }
@@ -1222,15 +1598,17 @@
                 formOrderId > 0 ? formOrderId : null,
                 formInvoiceId > 0 ? formInvoiceId : null,
                 formReferenceDoc,
-                formNotes);
+                formNotes,
+                formDirection);
 
             var wasEdit = editVoucherId > 0;
+            var dirLabel = formDirection == "IN" ? "Phiếu Thu" : "Phiếu Chi";
             showVoucherModal = false;
             RefreshData();
             var savedRow = vouchers.FirstOrDefault(x => x.Id == savedId);
             message = wasEdit
-                ? $"Đã cập nhật phiếu khoản chi {savedRow?.PaymentNo} ({Money(formAmountVnd)}) và đồng bộ Sổ quỹ / Công nợ."
-                : $"Đã lập phiếu khoản chi {savedRow?.PaymentNo} ({Money(formAmountVnd)}) vào {(formMethod == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng")}!";
+                ? $"Đã cập nhật {dirLabel} {savedRow?.PaymentNo} [{savedRow?.CategoryName}] ({Money(formAmountVnd)}) và đồng bộ Sổ quỹ / Công nợ."
+                : $"Đã lập {dirLabel} {savedRow?.PaymentNo} [{savedRow?.CategoryName}] ({Money(formAmountVnd)}) vào {(formMethod == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng")}!";
         }
         catch (Exception ex)
         {
@@ -1246,9 +1624,10 @@
             Db.ActorId = actor;
             Db.SetExpenseLock(v.Id, !v.IsLocked);
             RefreshData();
+            var lbl = v.IsIncome ? "Phiếu Thu" : "Phiếu Chi";
             message = v.IsLocked
-                ? $"Đã mở khóa phiếu chi {v.PaymentNo}."
-                : $"Đã chốt số / khóa sổ phiếu chi {v.PaymentNo}.";
+                ? $"Đã mở khóa {lbl} {v.PaymentNo}."
+                : $"Đã chốt số / khóa sổ {lbl} {v.PaymentNo}.";
         }
         catch (Exception ex)
         {
@@ -1273,25 +1652,41 @@
     }
 
     // ==================== CATEGORY MODAL HANDLERS ====================
-    private void OpenNewCategoryModal()
+    private void OpenNewCategoryModal(string dir = "OUT")
     {
+        var cleanDir = dir == "IN" ? "IN" : "OUT";
         modalError = "";
         editCatId = 0;
+        catDirection = cleanDir;
         catCode = "";
         catName = "";
-        catGroupName = "4. Văn phòng & Quản lý";
-        catTargetEntity = "FREE";
+        catGroupName = cleanDir == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
+        catTargetEntity = cleanDir == "IN" ? "CUSTOMER" : "FREE";
         catDefaultNote = "";
-        catSortOrder = (allCategories.Count + 1) * 10;
+        catSortOrder = 25;
         catIsSystem = false;
         catIsActive = true;
         showCategoryModal = true;
+    }
+
+    private void SetCatModalDirection(string dir)
+    {
+        if (catIsSystem) return;
+        var cleanDir = dir == "IN" ? "IN" : "OUT";
+        if (catDirection == cleanDir) return;
+        catDirection = cleanDir;
+        if (editCatId == 0)
+        {
+            catGroupName = cleanDir == "IN" ? "1. Thu bán hàng & Lắp đặt" : "4. Văn phòng & Quản lý";
+            catTargetEntity = cleanDir == "IN" ? "CUSTOMER" : "FREE";
+        }
     }
 
     private void OpenEditCategoryModal(ExpenseCategoryVm cat)
     {
         modalError = "";
         editCatId = cat.Id;
+        catDirection = cat.Direction;
         catCode = cat.Code;
         catName = cat.Name;
         catGroupName = cat.GroupName;
@@ -1312,12 +1707,38 @@
             modalError = "";
             var actor = await Gate.RequireAsync(Permissions.FinancePay);
             Db.ActorId = actor;
-            Db.SaveExpenseCategory(editCatId > 0 ? editCatId : null, catCode, catName, catGroupName, catTargetEntity, catDefaultNote, catSortOrder, catIsActive);
+            var savedId = Db.SaveExpenseCategory(editCatId > 0 ? editCatId : null, catCode, catName, catGroupName, catTargetEntity, catDefaultNote, catSortOrder, catIsActive, catDirection);
+            lastCreatedCategoryId = savedId;
+            var wasEdit = editCatId > 0;
+            var dirLbl = catDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)";
             showCategoryModal = false;
             RefreshData();
-            message = editCatId > 0
-                ? $"Đã cập nhật loại khoản chi '{catName}'."
-                : $"Đã thêm loại khoản chi tùy biến mới '{catName}'.";
+            message = wasEdit
+                ? $"Đã cập nhật {dirLbl} '{catName}'."
+                : $"Đã thêm mới {dirLbl} '{catName}' — đã sẵn sàng để chọn khi Lập Phiếu {(catDirection == "IN" ? "Thu" : "Chi")}!";
+        }
+        catch (Exception ex)
+        {
+            modalError = "Lỗi: " + ex.Message;
+        }
+    }
+
+    private async Task SaveCategoryAndOpenVoucher()
+    {
+        try
+        {
+            modalError = "";
+            var actor = await Gate.RequireAsync(Permissions.FinancePay);
+            Db.ActorId = actor;
+            var savedId = Db.SaveExpenseCategory(null, catCode, catName, catGroupName, catTargetEntity, catDefaultNote, catSortOrder, true, catDirection);
+            lastCreatedCategoryId = savedId;
+            showCategoryModal = false;
+            RefreshData();
+            var createdCat = allCategories.FirstOrDefault(x => x.Id == savedId);
+            if (createdCat is not null)
+            {
+                QuickCreateVoucherForCategory(createdCat);
+            }
         }
         catch (Exception ex)
         {
@@ -1341,19 +1762,20 @@
         }
     }
 
-    private async Task ExportExpensesExcel()
+    private async Task ExportVouchersExcel()
     {
         var list = FilteredVouchers;
         var headers = new[]
         {
-            "STT", "Mã phiếu chi", "Ngày giờ chi", "Nhóm chi phí", "Mã loại chi", "Tên loại khoản chi",
-            "Người nhận / Đơn vị thụ hưởng", "Đối tượng liên kết", "Chứng từ công nợ", "Đơn hàng tham chiếu",
-            "Số chứng từ gốc", "Nguồn quỹ", "Số tiền chi (VND)", "Diễn giải chi tiết", "Trạng thái", "Người lập"
+            "STT", "Mã phiếu", "Loại phiếu", "Ngày giờ GD", "Nhóm khoản", "Mã khoản", "Tên khoản Thu/Chi",
+            "Đối tác (Người nộp / Người nhận)", "Đối tượng liên kết", "Chứng từ công nợ", "Đơn hàng tham chiếu",
+            "Số chứng từ gốc", "Nguồn quỹ", "Thu (+) (VND)", "Chi (-) (VND)", "Diễn giải chi tiết", "Trạng thái", "Người lập"
         };
         var rows = list.Select((v, idx) => new object?[]
         {
             idx + 1,
             v.PaymentNo,
+            v.IsIncome ? "Phiếu Thu (+)" : "Phiếu Chi (-)",
             v.DisplayTimestamp,
             v.CategoryGroup,
             v.CategoryCode,
@@ -1364,17 +1786,20 @@
             v.OrderCode,
             v.ReferenceDoc,
             v.MethodLabel,
-            v.AmountVnd,
+            v.IsIncome ? v.AmountVnd : 0L,
+            !v.IsIncome ? v.AmountVnd : 0L,
             v.Notes,
             v.IsLocked ? "Đã chốt số" : "Đã ghi quỹ",
             v.CreatedByName
         });
-        await ExcelExporter.DownloadAsync(JS, "so-quan-ly-khoan-chi", "Khoản chi", headers, rows);
-        message = $"Đã xuất file Excel (.xlsx) gồm {list.Count} phiếu khoản chi.";
+        await ExcelExporter.DownloadAsync(JS, "so-quan-ly-thu-chi", "Thu Chi", headers, rows);
+        message = $"Đã xuất file Excel (.xlsx) gồm {list.Count} phiếu Thu/Chi.";
     }
 
-    private static string PayableTypeLabel(string type) => type switch
+    private static string InvoiceShortTypeLabel(string type) => type switch
     {
+        "SALE" => "KH Đơn lắp",
+        "RENEWAL" => "KH Gia hạn",
         "PURCHASE" or "SUPPLIER" => "Công nợ NCC",
         "SERVICE" => "Công lắp KT",
         "COMMISSION" => "Hoa hồng NVBH",

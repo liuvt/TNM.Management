@@ -159,6 +159,7 @@ public sealed class DemoDb
             CREATE TABLE IF NOT EXISTS expense_categories(
                 id INTEGER PRIMARY KEY,
                 code TEXT NOT NULL UNIQUE,
+                direction TEXT NOT NULL DEFAULT 'OUT',
                 name TEXT NOT NULL,
                 group_name TEXT NOT NULL DEFAULT 'Chi phí Vận hành & Quản lý',
                 target_entity TEXT NOT NULL DEFAULT 'FREE',
@@ -174,27 +175,42 @@ public sealed class DemoDb
                 deleted_by INTEGER
             );");
 
-        (string Code, string Name, string Group, string Target, string Note, int Sort, int Sys)[] defaultExpCats =
+        var expCatCols = Query(c, "PRAGMA table_info(expense_categories)", r => S(r, 1));
+        if (!expCatCols.Any(x => string.Equals(x, "direction", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE expense_categories ADD COLUMN direction TEXT NOT NULL DEFAULT 'OUT'");
+
+        (string Code, string Dir, string Name, string Group, string Target, string Note, int Sort, int Sys)[] defaultCashCats =
         [
-            ("CHI_NCC", "Chi trả tiền hàng Nhà cung cấp", "1. Giá vốn & Nhập hàng NCC", "SUPPLIER", "Thanh toán tiền nhập thiết bị / hàng hóa Nhà cung cấp", 10, 1),
-            ("CHI_CONG_LAP", "Chi công kỹ thuật / Đơn vị lắp đặt", "2. Bán hàng & Lắp đặt", "INSTALLER", "Thanh toán phụ cấp / công lắp đặt kỹ thuật", 20, 1),
-            ("CHI_HOA_HONG", "Chi hoa hồng Nhân viên bán hàng", "2. Bán hàng & Lắp đặt", "SELLER", "Thanh toán hoa hồng bán mới & gia hạn thiết bị", 30, 1),
-            ("CHI_KH_HOAN_TIEN", "Chi hoàn tiền / Chiết khấu Khách hàng & HTX", "2. Bán hàng & Lắp đặt", "CUSTOMER", "Hoàn tiền hoặc chi chiết khấu thương mại cho KH / Đại lý", 40, 0),
-            ("CHI_SIM_SERVER", "Chi cước SIM 4G / Máy chủ & Phần mềm GPS", "1. Giá vốn & Nhập hàng NCC", "SUPPLIER", "Thanh toán cước SIM Data 4G / duy trì hệ thống máy chủ", 50, 0),
-            ("CHI_LUONG_THUONG", "Chi lương, thưởng & phụ cấp nhân sự", "3. Nhân sự & Tiền lương", "INSTALLER", "Thanh toán lương, thưởng, phụ cấp nhân viên nội bộ", 60, 0),
-            ("CHI_VAN_CHUYEN", "Chi vận chuyển, gửi hàng & công tác phí", "2. Bán hàng & Lắp đặt", "FREE", "Chi phí gửi chành xe, chuyển phát nhanh, xăng xe đi lắp", 70, 0),
-            ("CHI_BAO_HANH_VAT_TU", "Chi vật tư phụ lắp đặt & sửa chữa bảo hành", "2. Bán hàng & Lắp đặt", "SUPPLIER", "Mua dây điện, rơ-le, băng keo, chi phí gửi bảo hành", 80, 0),
-            ("CHI_VAN_PHONG", "Chi văn phòng (Mặt bằng, Điện, Nước, Internet, VPP)", "4. Văn phòng & Quản lý", "FREE", "Thanh toán chi phí thuê mặt bằng, điện nước, văn phòng phẩm", 90, 0),
-            ("CHI_TIEP_KHACH_MKT", "Chi tiếp khách, quảng cáo & chăm sóc Đại lý", "2. Bán hàng & Lắp đặt", "CUSTOMER", "Chi phí tiếp khách, hội nghị HTX, marketing", 100, 0),
-            ("CHI_THUE_PHI_NH", "Chi thuế, lệ phí & phí giao dịch ngân hàng", "4. Văn phòng & Quản lý", "FREE", "Nộp thuế, lệ phí môn bài, phí chuyển khoản ngân hàng", 110, 0),
-            ("CHI_KHAC", "Khoản chi khác (Tùy chỉnh)", "5. Chi phí Khác", "FREE", "Chi phí phát sinh khác theo thực tế", 120, 1)
+            // Danh mục Khoản Thu (IN) mặc định
+            ("THU_DON_LAP", "IN", "Thu tiền khách hàng — Đơn hàng lắp đặt", "1. Thu bán hàng & Lắp đặt", "CUSTOMER", "Thu tiền lắp đặt thiết bị từ khách hàng / đại lý / HTX", 10, 1),
+            ("THU_GIA_HAN", "IN", "Thu tiền gia hạn thuê bao / thiết bị", "2. Thu gia hạn & Dịch vụ", "CUSTOMER", "Thu phí gia hạn định vị / camera từ khách hàng", 20, 1),
+            ("THU_BAN_LE_VT", "IN", "Thu bán lẻ thiết bị, SIM & vật tư", "1. Thu bán hàng & Lắp đặt", "CUSTOMER", "Thu tiền bán lẻ thiết bị, phụ kiện, SIM data", 30, 0),
+            ("THU_DAT_COC", "IN", "Thu tiền đặt cọc đơn hàng / hợp đồng", "1. Thu bán hàng & Lắp đặt", "CUSTOMER", "Thu tiền khách hàng đặt cọc trước khi lắp đặt", 40, 0),
+            ("THU_HOAN_NCC", "IN", "Thu hoàn tiền / chiết khấu từ Nhà cung cấp", "3. Thu hoàn ứng & Đối tác", "SUPPLIER", "Nhận tiền chiết khấu thương mại hoặc hoàn tiền từ Nhà cung cấp", 50, 0),
+            ("THU_HOAN_UNG_NS", "IN", "Thu hoàn tạm ứng Kỹ thuật / Nhân sự", "3. Thu hoàn ứng & Đối tác", "INSTALLER", "Thu hồi tiền tạm ứng công tác / vật tư từ nhân sự", 60, 0),
+            ("THU_KHAC", "IN", "Khoản thu khác (Tùy chỉnh)", "4. Thu tài chính & Khác", "FREE", "Khoản thu phát sinh khác (lãi tiền gửi, thanh lý, thu khác...)", 70, 1),
+
+            // Danh mục Khoản Chi (OUT) mặc định
+            ("CHI_NCC", "OUT", "Chi trả tiền hàng Nhà cung cấp", "1. Giá vốn & Nhập hàng NCC", "SUPPLIER", "Thanh toán tiền nhập thiết bị / hàng hóa Nhà cung cấp", 10, 1),
+            ("CHI_CONG_LAP", "OUT", "Chi công kỹ thuật / Đơn vị lắp đặt", "2. Bán hàng & Lắp đặt", "INSTALLER", "Thanh toán phụ cấp / công lắp đặt kỹ thuật", 20, 1),
+            ("CHI_HOA_HONG", "OUT", "Chi hoa hồng Nhân viên bán hàng", "2. Bán hàng & Lắp đặt", "SELLER", "Thanh toán hoa hồng bán mới & gia hạn thiết bị", 30, 1),
+            ("CHI_KH_HOAN_TIEN", "OUT", "Chi hoàn tiền / Chiết khấu Khách hàng & HTX", "2. Bán hàng & Lắp đặt", "CUSTOMER", "Hoàn tiền hoặc chi chiết khấu thương mại cho KH / Đại lý", 40, 0),
+            ("CHI_SIM_SERVER", "OUT", "Chi cước SIM 4G / Máy chủ & Phần mềm GPS", "1. Giá vốn & Nhập hàng NCC", "SUPPLIER", "Thanh toán cước SIM Data 4G / duy trì hệ thống máy chủ", 50, 0),
+            ("CHI_LUONG_THUONG", "OUT", "Chi lương, thưởng & phụ cấp nhân sự", "3. Nhân sự & Tiền lương", "INSTALLER", "Thanh toán lương, thưởng, phụ cấp nhân viên nội bộ", 60, 0),
+            ("CHI_VAN_CHUYEN", "OUT", "Chi vận chuyển, gửi hàng & công tác phí", "2. Bán hàng & Lắp đặt", "FREE", "Chi phí gửi chành xe, chuyển phát nhanh, xăng xe đi lắp", 70, 0),
+            ("CHI_BAO_HANH_VAT_TU", "OUT", "Chi vật tư phụ lắp đặt & sửa chữa bảo hành", "2. Bán hàng & Lắp đặt", "SUPPLIER", "Mua dây điện, rơ-le, băng keo, chi phí gửi bảo hành", 80, 0),
+            ("CHI_VAN_PHONG", "OUT", "Chi văn phòng (Mặt bằng, Điện, Nước, Internet, VPP)", "4. Văn phòng & Quản lý", "FREE", "Thanh toán chi phí thuê mặt bằng, điện nước, văn phòng phẩm", 90, 0),
+            ("CHI_TIEP_KHACH_MKT", "OUT", "Chi tiếp khách, quảng cáo & chăm sóc Đại lý", "2. Bán hàng & Lắp đặt", "CUSTOMER", "Chi phí tiếp khách, hội nghị HTX, marketing", 100, 0),
+            ("CHI_THUE_PHI_NH", "OUT", "Chi thuế, lệ phí & phí giao dịch ngân hàng", "4. Văn phòng & Quản lý", "FREE", "Nộp thuế, lệ phí môn bài, phí chuyển khoản ngân hàng", 110, 0),
+            ("CHI_KHAC", "OUT", "Khoản chi khác (Tùy chỉnh)", "5. Chi phí Khác", "FREE", "Chi phí phát sinh khác theo thực tế", 120, 1)
         ];
-        foreach (var dc in defaultExpCats)
+        foreach (var dc in defaultCashCats)
         {
-            Exec(c, null, @"INSERT OR IGNORE INTO expense_categories(code,name,group_name,target_entity,default_note,sort_order,is_system,is_active)
-                VALUES($c,$n,$g,$t,$note,$sort,$sys,1)",
-                ("$c", dc.Code), ("$n", dc.Name), ("$g", dc.Group), ("$t", dc.Target), ("$note", dc.Note), ("$sort", dc.Sort), ("$sys", dc.Sys));
+            Exec(c, null, @"INSERT OR IGNORE INTO expense_categories(code,direction,name,group_name,target_entity,default_note,sort_order,is_system,is_active)
+                VALUES($c,$dir,$n,$g,$t,$note,$sort,$sys,1)",
+                ("$c", dc.Code), ("$dir", dc.Dir), ("$n", dc.Name), ("$g", dc.Group), ("$t", dc.Target), ("$note", dc.Note), ("$sort", dc.Sort), ("$sys", dc.Sys));
         }
+        Exec(c, null, "UPDATE expense_categories SET direction='IN' WHERE code LIKE 'THU_%' AND COALESCE(direction,'OUT')<>'IN'");
 
         var payCols = Query(c, "PRAGMA table_info(payments)", r => S(r, 1));
         if (!payCols.Any(x => string.Equals(x, "expense_category_id", StringComparison.OrdinalIgnoreCase)))
@@ -216,7 +232,43 @@ public sealed class DemoDb
         if (!payCols.Any(x => string.Equals(x, "is_locked", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE payments ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0");
 
-        // Tự động map dữ liệu các Phiếu Chi (direction='OUT') hiện có sang Quản lý Khoản chi
+        // Tự động map dữ liệu các Phiếu Thu (direction='IN') hiện có sang Quản lý Thu/Chi
+        if (N(c, null, "SELECT COUNT(*) FROM payments WHERE direction='IN' AND expense_category_id IS NULL") > 0)
+        {
+            Exec(c, null, @"
+                UPDATE payments
+                SET expense_category_id = COALESCE(
+                        (SELECT ec.id FROM payment_allocations pa
+                         JOIN invoices i ON i.id=pa.invoice_id
+                         JOIN expense_categories ec ON ec.code = CASE
+                             WHEN i.invoice_type = 'RENEWAL' THEN 'THU_GIA_HAN'
+                             WHEN i.invoice_type = 'SALE' THEN 'THU_DON_LAP'
+                             ELSE 'THU_KHAC' END
+                         WHERE pa.payment_id=payments.id LIMIT 1),
+                        (SELECT ec2.id FROM expense_categories ec2
+                         WHERE ec2.code = CASE
+                             WHEN payments.notes LIKE '%gia hạn%' OR payments.notes LIKE '%Gia hạn%' THEN 'THU_GIA_HAN'
+                             WHEN payments.notes LIKE '%Thu khách%' OR payments.notes LIKE '%công nợ%' OR payments.customer_id IS NOT NULL THEN 'THU_DON_LAP'
+                             ELSE 'THU_KHAC' END LIMIT 1)
+                    ),
+                    customer_id = COALESCE(customer_id,
+                        (SELECT i.customer_id FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=payments.id AND i.customer_id IS NOT NULL LIMIT 1)),
+                    v7_order_id = COALESCE(v7_order_id,
+                        (SELECT i.v7_order_id FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=payments.id AND i.v7_order_id IS NOT NULL LIMIT 1)),
+                    payee_name = CASE WHEN COALESCE(payee_name,'')<>'' THEN payee_name ELSE COALESCE(
+                        (SELECT COALESCE(cu.name, CASE WHEN INSTR(i.notes,' — ')>0 THEN SUBSTR(i.notes,1,INSTR(i.notes,' — ')-1) ELSE i.notes END, '')
+                         FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id
+                         LEFT JOIN customers cu ON cu.id=i.customer_id
+                         WHERE pa.payment_id=payments.id LIMIT 1), '') END,
+                    reference_doc = CASE WHEN COALESCE(reference_doc,'')<>'' THEN reference_doc ELSE COALESCE(
+                        (SELECT i.invoice_no FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=payments.id LIMIT 1), '') END,
+                    notes = CASE WHEN COALESCE(notes,'')<>'' THEN notes ELSE COALESCE(
+                        (SELECT 'Thu thanh toán chứng từ ' || i.invoice_no || CASE WHEN COALESCE(i.notes,'')<>'' THEN ' (' || i.notes || ')' ELSE '' END
+                         FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=payments.id LIMIT 1), '') END
+                WHERE direction='IN' AND expense_category_id IS NULL;");
+        }
+
+        // Tự động map dữ liệu các Phiếu Chi (direction='OUT') hiện có sang Quản lý Thu/Chi
         if (N(c, null, "SELECT COUNT(*) FROM payments WHERE direction='OUT' AND expense_category_id IS NULL") > 0)
         {
             var ordColsForPay = Query(c, "PRAGMA table_info(v7_orders)", r => S(r, 1));
@@ -2527,13 +2579,11 @@ public sealed class DemoDb
               THEN datetime(replace(substr(p.created_at,1,19),'T',' '),'+7 hours')
             ELSE trim(COALESCE(p.paid_at,'')) || ' 00:00:00'
           END AS resolved_paid_at,
-          CASE
-            WHEN ec.id IS NOT NULL AND p.direction='OUT' AND INSTR(COALESCE(p.notes,''), ec.name)=0
-              THEN '[' || ec.name || '] ' || COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,''))
-            ELSE COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,''))
-          END,
+          COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,'')),
           i.id,
-          CASE WHEN COALESCE(p.is_locked,0)=1 OR COALESCE(i.is_locked,0)=1 THEN 1 ELSE 0 END
+          CASE WHEN COALESCE(p.is_locked,0)=1 OR COALESCE(i.is_locked,0)=1 THEN 1 ELSE 0 END,
+          ec.id,
+          COALESCE(ec.name, '')
           FROM payments p
           LEFT JOIN payment_allocations pa ON pa.payment_id=p.id AND pa.deleted_at IS NULL
           LEFT JOIN invoices i ON i.id=pa.invoice_id AND i.deleted_at IS NULL
@@ -2547,7 +2597,7 @@ public sealed class DemoDb
           LEFT JOIN employees pe ON pe.id=p.employee_id
           WHERE p.deleted_at IS NULL
           ORDER BY resolved_paid_at ASC, p.id ASC, COALESCE(pa.id,0) ASC",
-          r => (Id: L(r,0), No: S(r,1), Dir: S(r,2), Method: S(r,3), Amt: L(r,4), InvNo: S(r,5), InvType: S(r,6), Partner: S(r,7), PaidAt: S(r,8), Notes: S(r,9), InvId: r.IsDBNull(10)?(long?)null:L(r,10), Locked: L(r,11)==1));
+          r => (Id: L(r,0), No: S(r,1), Dir: S(r,2), Method: S(r,3), Amt: L(r,4), InvNo: S(r,5), InvType: S(r,6), Partner: S(r,7), PaidAt: S(r,8), Notes: S(r,9), InvId: r.IsDBNull(10)?(long?)null:L(r,10), Locked: L(r,11)==1, CatId: r.IsDBNull(12)?(long?)null:L(r,12), CatName: S(r,13)));
 
         long runningCash = 0, runningBank = 0, runningTotal = 0;
         var result = new List<PaymentRowVm>(raw.Count);
@@ -2558,7 +2608,7 @@ public sealed class DemoDb
             if (row.Method == "CASH") runningCash += signed;
             else runningBank += signed;
             var methodBal = row.Method == "CASH" ? runningCash : runningBank;
-            result.Add(new PaymentRowVm(row.Id, row.No, row.Dir, row.Method, row.Amt, row.InvNo, row.InvType, row.Partner, row.PaidAt, row.Notes, methodBal, runningTotal, row.InvId, row.Locked));
+            result.Add(new PaymentRowVm(row.Id, row.No, row.Dir, row.Method, row.Amt, row.InvNo, row.InvType, row.Partner, row.PaidAt, row.Notes, methodBal, runningTotal, row.InvId, row.Locked, row.CatId, row.CatName));
         }
         result.Reverse();
         return result;
@@ -2744,7 +2794,7 @@ public sealed class DemoDb
             .ToList();
     }
 
-    public long RecordDirectCashBookEntry(string direction, string method, string category, long amount, string partnerName, string note, long? invoiceId = null)
+    public long RecordDirectCashBookEntry(string direction, string method, string category, long amount, string partnerName, string note, long? invoiceId = null, long? categoryId = null)
     {
         if (direction is not ("IN" or "OUT"))
             throw new InvalidOperationException("Loại phiếu Sổ quỹ phải là Khoản Thu hoặc Khoản Chi.");
@@ -2755,7 +2805,7 @@ public sealed class DemoDb
 
         if (invoiceId is > 0)
         {
-            PayInvoice(invoiceId.Value, amount, method);
+            PayInvoice(invoiceId.Value, amount, method, categoryId);
             return invoiceId.Value;
         }
 
@@ -2763,26 +2813,44 @@ public sealed class DemoDb
         {
             var prefix = direction == "IN" ? "PT-" : "PC-";
             var no = prefix + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-            var catLabel = direction == "IN"
-                ? "Thu khách / Thu công nợ"
-                : category is "PURCHASE" or "SUPPLIER_PURCHASE" ? "Chi nhập hàng NCC" : "Chi thanh toán công nợ / chi phí";
-            var cleanPartner = string.IsNullOrWhiteSpace(partnerName) ? "Đối tác" : partnerName.Trim();
-            var fullNote = $"{catLabel}: {cleanPartner} — {(string.IsNullOrWhiteSpace(note) ? catLabel : note.Trim())}";
             long? expCatId = null;
-            if (direction == "OUT")
+            string catLabel = "";
+            if (categoryId is > 0)
             {
-                var catCode = category switch
+                var catInfo = QueryTx(c, t, "SELECT id, name FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
+                    r => (Id: L(r, 0), Name: S(r, 1)), ("$id", categoryId.Value)).SingleOrDefault();
+                if (catInfo.Id > 0)
                 {
-                    "PURCHASE" or "SUPPLIER_PURCHASE" => "CHI_NCC",
-                    "SELLER_COMMISSION" or "COMMISSION" => "CHI_HOA_HONG",
-                    "TECH_SERVICE" or "SERVICE" => "CHI_CONG_LAP",
-                    _ => "CHI_KHAC"
-                };
-                expCatId = N(c, t, "SELECT COALESCE((SELECT id FROM expense_categories WHERE code=$c LIMIT 1), 0)", ("$c", catCode));
-                if (expCatId <= 0) expCatId = null;
+                    expCatId = catInfo.Id;
+                    catLabel = catInfo.Name;
+                }
             }
+            if (expCatId is null)
+            {
+                var catCode = direction == "IN"
+                    ? (category == "RENEWAL_DEBT" ? "THU_GIA_HAN" : category == "CUSTOMER_DEBT" ? "THU_DON_LAP" : "THU_KHAC")
+                    : category switch
+                    {
+                        "PURCHASE" or "SUPPLIER_PURCHASE" => "CHI_NCC",
+                        "SELLER_COMMISSION" or "COMMISSION" => "CHI_HOA_HONG",
+                        "TECH_SERVICE" or "SERVICE" => "CHI_CONG_LAP",
+                        _ => "CHI_KHAC"
+                    };
+                var catInfo = QueryTx(c, t, "SELECT id, name FROM expense_categories WHERE code=$c AND deleted_at IS NULL LIMIT 1",
+                    r => (Id: L(r, 0), Name: S(r, 1)), ("$c", catCode)).SingleOrDefault();
+                if (catInfo.Id > 0)
+                {
+                    expCatId = catInfo.Id;
+                    catLabel = catInfo.Name;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(catLabel))
+                catLabel = direction == "IN" ? "Thu trực tiếp Sổ quỹ" : "Chi trực tiếp Sổ quỹ";
+
+            var cleanPartner = string.IsNullOrWhiteSpace(partnerName) ? "Đối tác" : partnerName.Trim();
+            var fullNote = string.IsNullOrWhiteSpace(note) ? $"{catLabel} — {cleanPartner}" : note.Trim();
             Exec(c, t, "INSERT INTO payments(payment_no,direction,paid_at,method,amount_vnd,notes,expense_category_id,payee_name) VALUES($n,$d,datetime('now','+7 hours'),$m,$a,$note,$cat,$payee)",
-                ("$n", no), ("$d", direction), ("$m", method), ("$a", amount), ("$note", fullNote), ("$cat", expCatId), ("$payee", direction == "OUT" ? cleanPartner : ""));
+                ("$n", no), ("$d", direction), ("$m", method), ("$a", amount), ("$note", fullNote), ("$cat", expCatId), ("$payee", cleanPartner));
             var pid = N(c, t, "SELECT last_insert_rowid()");
             Log(c, t, "CASHBOOK", "PAYMENT", pid, $"{no} ({direction}/{method}): {amount:N0} VND - {fullNote}");
             return pid;
@@ -2844,41 +2912,44 @@ public sealed class DemoDb
         });
     }
 
-    private static void InsertPayment(SqliteConnection c, SqliteTransaction t, long invoiceId, long amount, string method)
+    private static void InsertPayment(SqliteConnection c, SqliteTransaction t, long invoiceId, long amount, string method, long? categoryId = null)
     {
-        var invMeta = QueryTx(c, t, @"SELECT i.invoice_type, i.invoice_no, i.supplier_id, i.v7_order_id,
-                COALESCE(s.name, o.installer, CASE WHEN INSTR(i.notes,' — ')>0 THEN SUBSTR(i.notes,1,INSTR(i.notes,' — ')-1) ELSE i.notes END, ''),
+        var invMeta = QueryTx(c, t, @"SELECT i.invoice_type, i.invoice_no, i.supplier_id, i.customer_id, i.v7_order_id,
+                COALESCE(cu.name, s.name, o.installer, CASE WHEN INSTR(i.notes,' — ')>0 THEN SUBSTR(i.notes,1,INSTR(i.notes,' — ')-1) ELSE i.notes END, ''),
                 o.installer_employee_id
             FROM invoices i
+            LEFT JOIN customers cu ON cu.id=i.customer_id
             LEFT JOIN suppliers s ON s.id=i.supplier_id
             LEFT JOIN v7_orders o ON o.id=i.v7_order_id
             WHERE i.id=$id",
-            r => (Type: S(r, 0), No: S(r, 1), SupId: r.IsDBNull(2) ? (long?)null : L(r, 2), OrdId: r.IsDBNull(3) ? (long?)null : L(r, 3), Payee: S(r, 4), EmpId: r.IsDBNull(5) ? (long?)null : L(r, 5)),
+            r => (Type: S(r, 0), No: S(r, 1), SupId: r.IsDBNull(2) ? (long?)null : L(r, 2), CustId: r.IsDBNull(3) ? (long?)null : L(r, 3), OrdId: r.IsDBNull(4) ? (long?)null : L(r, 4), Payee: S(r, 5), EmpId: r.IsDBNull(6) ? (long?)null : L(r, 6)),
             ("$id", invoiceId)).Single();
         var invoiceType = invMeta.Type;
         var direction = invoiceType is "SALE" or "RENEWAL" ? "IN" : "OUT";
         var prefix = direction == "IN" ? "PT-" : "PC-";
         var no = prefix + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-        long? expCatId = null;
-        if (direction == "OUT")
+        long? expCatId = categoryId is > 0 ? categoryId : null;
+        if (expCatId is null)
         {
-            var catCode = invoiceType switch
-            {
-                "PURCHASE" or "SUPPLIER" => "CHI_NCC",
-                "SERVICE" => "CHI_CONG_LAP",
-                "COMMISSION" => "CHI_HOA_HONG",
-                _ => "CHI_KHAC"
-            };
+            var catCode = direction == "IN"
+                ? (invoiceType == "RENEWAL" ? "THU_GIA_HAN" : "THU_DON_LAP")
+                : invoiceType switch
+                {
+                    "PURCHASE" or "SUPPLIER" => "CHI_NCC",
+                    "SERVICE" => "CHI_CONG_LAP",
+                    "COMMISSION" => "CHI_HOA_HONG",
+                    _ => "CHI_KHAC"
+                };
             var cid = N(c, t, "SELECT COALESCE((SELECT id FROM expense_categories WHERE code=$c LIMIT 1), 0)", ("$c", catCode));
             if (cid > 0) expCatId = cid;
         }
         var payNote = direction == "OUT" ? $"Chi thanh toán chứng từ {invMeta.No}" : $"Thu thanh toán chứng từ {invMeta.No}";
-        Exec(c, t, @"INSERT INTO payments(payment_no,direction,paid_at,method,amount_vnd,notes,expense_category_id,supplier_id,v7_order_id,employee_id,payee_name,reference_doc)
-            VALUES($n,$d,datetime('now','+7 hours'),$m,$a,$note,$cat,$sup,$ord,$emp,$payee,$ref)",
+        Exec(c, t, @"INSERT INTO payments(payment_no,direction,paid_at,method,amount_vnd,notes,expense_category_id,supplier_id,customer_id,v7_order_id,employee_id,payee_name,reference_doc)
+            VALUES($n,$d,datetime('now','+7 hours'),$m,$a,$note,$cat,$sup,$cust,$ord,$emp,$payee,$ref)",
             ("$n", no), ("$d", direction), ("$m", method), ("$a", amount), ("$note", payNote),
-            ("$cat", expCatId), ("$sup", direction == "OUT" ? invMeta.SupId : null),
-            ("$ord", direction == "OUT" ? invMeta.OrdId : null), ("$emp", direction == "OUT" ? invMeta.EmpId : null),
-            ("$payee", direction == "OUT" ? invMeta.Payee : ""), ("$ref", invMeta.No));
+            ("$cat", expCatId), ("$sup", invMeta.SupId), ("$cust", invMeta.CustId),
+            ("$ord", invMeta.OrdId), ("$emp", direction == "OUT" ? invMeta.EmpId : null),
+            ("$payee", invMeta.Payee), ("$ref", invMeta.No));
         var paymentId = N(c,t,"SELECT last_insert_rowid()");
         Exec(c,t,"INSERT INTO payment_allocations(payment_id,invoice_id,allocated_vnd) VALUES($p,$i,$a)",
           ("$p",paymentId),("$i",invoiceId),("$a",amount));
@@ -2888,7 +2959,7 @@ public sealed class DemoDb
            ("$s", balance <= 0 ? "PAID" : "PARTIAL"),("$id",invoiceId));
     }
 
-    public void PayInvoice(long invoiceId, long amount, string method)
+    public void PayInvoice(long invoiceId, long amount, string method, long? categoryId = null)
     {
         if (amount <= 0 || !(new[]{"CASH","BANK"}).Contains(method)) throw new InvalidOperationException("Số tiền và phương thức không hợp lệ.");
         Tx((c,t) => {
@@ -2896,7 +2967,7 @@ public sealed class DemoDb
               FROM invoices i WHERE i.id=$id AND i.deleted_at IS NULL", r => (Balance:L(r,0),Status:S(r,1)),("$id",invoiceId)).SingleOrDefault();
             if(inv.Balance < amount || inv.Status == "VOID" || inv.Status == "")
                 throw new InvalidOperationException("Thanh toán vượt công nợ hoặc chứng từ không hợp lệ.");
-            InsertPayment(c,t,invoiceId,amount,method);
+            InsertPayment(c,t,invoiceId,amount,method,categoryId);
             Log(c,t,"PAYMENT","INVOICE",invoiceId,$"{amount} VND qua {method}");
             return 0;
         });
@@ -3461,28 +3532,33 @@ public sealed class DemoDb
             r => (L(r, 0), S(r, 1), S(r, 2)));
     }
 
-    public List<ExpenseCategoryVm> ExpenseCategories(bool includeInactive = false)
+    public List<ExpenseCategoryVm> ExpenseCategories(bool includeInactive = false, string? direction = null)
     {
         using var c = Open();
         var activeCond = includeInactive ? "" : "AND ec.is_active=1";
+        var dirCond = direction is "IN" or "OUT" ? "AND COALESCE(ec.direction,'OUT')=$dir" : "";
         return Query(c, $@"
-            SELECT ec.id, ec.code, ec.name, COALESCE(ec.group_name,'Chi phí Khác'),
+            SELECT ec.id, ec.code, ec.name,
+                   COALESCE(ec.group_name, CASE WHEN COALESCE(ec.direction,'OUT')='IN' THEN '4. Thu tài chính & Khác' ELSE '5. Chi phí Khác' END),
                    COALESCE(ec.target_entity,'FREE'), COALESCE(ec.default_note,''),
                    COALESCE(ec.sort_order,100), COALESCE(ec.is_system,0), COALESCE(ec.is_active,1),
-                   (SELECT COUNT(*) FROM payments p WHERE p.direction='OUT' AND p.deleted_at IS NULL AND p.expense_category_id=ec.id),
-                   (SELECT COALESCE(SUM(p.amount_vnd),0) FROM payments p WHERE p.direction='OUT' AND p.deleted_at IS NULL AND p.expense_category_id=ec.id)
+                   (SELECT COUNT(*) FROM payments p WHERE p.deleted_at IS NULL AND p.expense_category_id=ec.id),
+                   (SELECT COALESCE(SUM(p.amount_vnd),0) FROM payments p WHERE p.deleted_at IS NULL AND p.expense_category_id=ec.id),
+                   COALESCE(ec.direction, 'OUT')
             FROM expense_categories ec
-            WHERE ec.deleted_at IS NULL {activeCond}
-            ORDER BY ec.sort_order ASC, ec.id ASC",
+            WHERE ec.deleted_at IS NULL {activeCond} {dirCond}
+            ORDER BY CASE WHEN COALESCE(ec.direction,'OUT')='IN' THEN 0 ELSE 1 END, ec.sort_order ASC, ec.id ASC",
             r => new ExpenseCategoryVm(
                 L(r, 0), S(r, 1), S(r, 2), S(r, 3), S(r, 4), S(r, 5),
-                (int)L(r, 6), L(r, 7) == 1, L(r, 8) == 1, L(r, 9), L(r, 10)));
+                (int)L(r, 6), L(r, 7) == 1, L(r, 8) == 1, L(r, 9), L(r, 10), S(r, 11)),
+            ("$dir", direction ?? ""));
     }
 
-    private static string SlugExpenseCode(string rawName)
+    private static string SlugCashCategoryCode(string direction, string rawName)
     {
+        var prefix = direction == "IN" ? "THU_" : "CHI_";
         var norm = (rawName ?? "").Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder("CHI_");
+        var sb = new StringBuilder(prefix);
         bool lastUnderscore = true;
         foreach (var ch in norm)
         {
@@ -3502,15 +3578,18 @@ public sealed class DemoDb
             if (sb.Length >= 22) break;
         }
         var res = sb.ToString().TrimEnd('_');
-        return res.Length <= 4 ? "CHI_" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant() : res;
+        return res.Length <= 4 ? prefix + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant() : res;
     }
 
-    public long SaveExpenseCategory(long? id, string? code, string name, string groupName, string targetEntity, string defaultNote, int sortOrder, bool isActive)
+    public long SaveExpenseCategory(long? id, string? code, string name, string groupName, string targetEntity, string defaultNote, int sortOrder, bool isActive, string direction = "OUT")
     {
+        var cleanDir = direction == "IN" ? "IN" : "OUT";
+        var dirLabel = cleanDir == "IN" ? "khoản thu" : "khoản chi";
         var cleanName = (name ?? "").Trim();
         if (string.IsNullOrWhiteSpace(cleanName))
-            throw new InvalidOperationException("Vui lòng nhập Tên loại khoản chi.");
-        var cleanGroup = string.IsNullOrWhiteSpace(groupName) ? "5. Chi phí Khác" : groupName.Trim();
+            throw new InvalidOperationException($"Vui lòng nhập Tên {dirLabel}.");
+        var defaultGrp = cleanDir == "IN" ? "4. Thu tài chính & Khác" : "5. Chi phí Khác";
+        var cleanGroup = string.IsNullOrWhiteSpace(groupName) ? defaultGrp : groupName.Trim();
         var cleanTarget = targetEntity is "SUPPLIER" or "INSTALLER" or "SELLER" or "CUSTOMER" ? targetEntity : "FREE";
         var cleanNote = (defaultNote ?? "").Trim();
         var effSort = sortOrder > 0 ? sortOrder : 100;
@@ -3519,30 +3598,31 @@ public sealed class DemoDb
         {
             if (id is > 0)
             {
-                var existing = QueryTx(c, t, "SELECT id, code, is_system FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
-                    r => (Id: L(r, 0), Code: S(r, 1), Sys: L(r, 2) == 1), ("$id", id.Value)).SingleOrDefault();
-                if (existing.Id == 0) throw new InvalidOperationException("Không tìm thấy loại khoản chi.");
+                var existing = QueryTx(c, t, "SELECT id, code, COALESCE(direction,'OUT'), is_system FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
+                    r => (Id: L(r, 0), Code: S(r, 1), Dir: S(r, 2), Sys: L(r, 3) == 1), ("$id", id.Value)).SingleOrDefault();
+                if (existing.Id == 0) throw new InvalidOperationException("Không tìm thấy khoản thu/chi.");
 
+                var nextDir = existing.Sys ? existing.Dir : cleanDir;
                 var nextCode = existing.Sys || string.IsNullOrWhiteSpace(code)
                     ? existing.Code
                     : code.Trim().ToUpperInvariant().Replace(' ', '_');
                 if (!string.Equals(nextCode, existing.Code, StringComparison.OrdinalIgnoreCase) &&
                     N(c, t, "SELECT COUNT(*) FROM expense_categories WHERE UPPER(code)=UPPER($c) AND id<>$id", ("$c", nextCode), ("$id", existing.Id)) > 0)
                 {
-                    throw new InvalidOperationException($"Mã loại khoản chi '{nextCode}' đã tồn tại.");
+                    throw new InvalidOperationException($"Mã khoản '{nextCode}' đã tồn tại.");
                 }
 
                 Exec(c, t, @"UPDATE expense_categories
-                    SET code=$c, name=$n, group_name=$g, target_entity=$t, default_note=$note, sort_order=$sort, is_active=$act
+                    SET code=$c, direction=$dir, name=$n, group_name=$g, target_entity=$t, default_note=$note, sort_order=$sort, is_active=$act
                     WHERE id=$id",
-                    ("$c", nextCode), ("$n", cleanName), ("$g", cleanGroup), ("$t", cleanTarget),
+                    ("$c", nextCode), ("$dir", nextDir), ("$n", cleanName), ("$g", cleanGroup), ("$t", cleanTarget),
                     ("$note", cleanNote), ("$sort", effSort), ("$act", isActive ? 1 : 0), ("$id", existing.Id));
-                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", existing.Id, $"Cập nhật loại khoản chi {nextCode} — {cleanName}");
+                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", existing.Id, $"Cập nhật {(nextDir == "IN" ? "khoản thu" : "khoản chi")} {nextCode} — {cleanName}");
                 return existing.Id;
             }
             else
             {
-                var newCode = string.IsNullOrWhiteSpace(code) ? SlugExpenseCode(cleanName) : code.Trim().ToUpperInvariant().Replace(' ', '_');
+                var newCode = string.IsNullOrWhiteSpace(code) ? SlugCashCategoryCode(cleanDir, cleanName) : code.Trim().ToUpperInvariant().Replace(' ', '_');
                 var baseCode = newCode;
                 int suffix = 2;
                 while (N(c, t, "SELECT COUNT(*) FROM expense_categories WHERE UPPER(code)=UPPER($c)", ("$c", newCode)) > 0)
@@ -3550,12 +3630,12 @@ public sealed class DemoDb
                     newCode = $"{baseCode}_{suffix++}";
                 }
 
-                Exec(c, t, @"INSERT INTO expense_categories(code,name,group_name,target_entity,default_note,sort_order,is_system,is_active)
-                    VALUES($c,$n,$g,$t,$note,$sort,0,$act)",
-                    ("$c", newCode), ("$n", cleanName), ("$g", cleanGroup), ("$t", cleanTarget),
+                Exec(c, t, @"INSERT INTO expense_categories(code,direction,name,group_name,target_entity,default_note,sort_order,is_system,is_active)
+                    VALUES($c,$dir,$n,$g,$t,$note,$sort,0,$act)",
+                    ("$c", newCode), ("$dir", cleanDir), ("$n", cleanName), ("$g", cleanGroup), ("$t", cleanTarget),
                     ("$note", cleanNote), ("$sort", effSort), ("$act", isActive ? 1 : 0));
                 var newId = N(c, t, "SELECT last_insert_rowid()");
-                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", newId, $"Tạo mới loại khoản chi {newCode} — {cleanName}");
+                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", newId, $"Tạo mới {dirLabel} {newCode} — {cleanName}");
                 return newId;
             }
         });
@@ -3565,17 +3645,18 @@ public sealed class DemoDb
     {
         return Tx((c, t) =>
         {
-            var cur = QueryTx(c, t, "SELECT id, code, name, is_system FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
-                r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), Sys: L(r, 3) == 1), ("$id", id)).SingleOrDefault();
-            if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy loại khoản chi.");
-            if (cur.Sys) throw new InvalidOperationException("Đây là loại khoản chi mặc định gắn với luồng công nợ hệ thống, không thể xóa (chỉ có thể đổi tên hiển thị hoặc ghi chú).");
+            var cur = QueryTx(c, t, "SELECT id, code, name, is_system, COALESCE(direction,'OUT') FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), Sys: L(r, 3) == 1, Dir: S(r, 4)), ("$id", id)).SingleOrDefault();
+            if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy khoản thu/chi.");
+            var dirLabel = cur.Dir == "IN" ? "khoản thu" : "khoản chi";
+            if (cur.Sys) throw new InvalidOperationException($"Đây là {dirLabel} mặc định gắn với luồng công nợ hệ thống, không thể xóa (chỉ có thể đổi tên hiển thị hoặc ghi chú).");
 
             var usedCount = N(c, t, "SELECT COUNT(*) FROM payments WHERE expense_category_id=$id AND deleted_at IS NULL", ("$id", id));
             if (usedCount > 0)
             {
                 Exec(c, t, "UPDATE expense_categories SET is_active=0 WHERE id=$id", ("$id", id));
-                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", id, $"Ngừng sử dụng loại khoản chi {cur.Code} — {cur.Name} (đã có {usedCount} phiếu chi)");
-                return $"Loại khoản chi '{cur.Name}' đã phát sinh {usedCount} phiếu chi nên được chuyển sang trạng thái Ngừng sử dụng để bảo toàn lịch sử.";
+                Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", id, $"Ngừng sử dụng {dirLabel} {cur.Code} — {cur.Name} (đã có {usedCount} phiếu)");
+                return $"Danh mục '{cur.Name}' đã phát sinh {usedCount} phiếu giao dịch nên được chuyển sang trạng thái Ngừng sử dụng để bảo toàn lịch sử.";
             }
 
             if (IsMainDeveloper(c, t))
@@ -3583,15 +3664,16 @@ public sealed class DemoDb
             else
                 Exec(c, t, "UPDATE expense_categories SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), is_active=0 WHERE id=$id", ("$id", id));
 
-            Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", id, $"Xóa loại khoản chi {cur.Code} — {cur.Name}");
-            return $"Đã xóa loại khoản chi '{cur.Name}'.";
+            Log(c, t, "SAVE_EXPENSE_CATEGORY", "EXPENSE_CATEGORY", id, $"Xóa {dirLabel} {cur.Code} — {cur.Name}");
+            return $"Đã xóa {dirLabel} '{cur.Name}'.";
         });
     }
 
-    public List<ExpenseVoucherVm> ExpenseVouchers()
+    public List<ExpenseVoucherVm> ExpenseVouchers(string? direction = null)
     {
         using var c = Open();
-        return Query(c, @"
+        var dirCond = direction is "IN" or "OUT" ? "AND p.direction=$dir" : "";
+        return Query(c, $@"
             SELECT p.id,
                    p.payment_no,
                    CASE
@@ -3603,32 +3685,33 @@ public sealed class DemoDb
                    p.method,
                    p.amount_vnd,
                    ec.id,
-                   COALESCE(ec.code, 'CHI_KHAC'),
-                   COALESCE(ec.name, 'Khoản chi khác'),
-                   COALESCE(ec.group_name, '5. Chi phí Khác'),
+                   COALESCE(ec.code, CASE WHEN p.direction='IN' THEN 'THU_KHAC' ELSE 'CHI_KHAC' END),
+                   COALESCE(ec.name, CASE WHEN p.direction='IN' THEN 'Khoản thu khác' ELSE 'Khoản chi khác' END),
+                   COALESCE(ec.group_name, CASE WHEN p.direction='IN' THEN '4. Thu tài chính & Khác' ELSE '5. Chi phí Khác' END),
                    CASE
                      WHEN COALESCE(p.payee_name,'')<>'' THEN p.payee_name
+                     WHEN pc.id IS NOT NULL THEN pc.name
+                     WHEN ic.id IS NOT NULL THEN ic.name
                      WHEN ps.id IS NOT NULL THEN ps.name
                      WHEN s.id IS NOT NULL THEN s.name
                      WHEN pe.id IS NOT NULL THEN pe.full_name
                      WHEN psl.id IS NOT NULL THEN psl.code || ' — ' || psl.full_name
-                     WHEN pc.id IS NOT NULL THEN pc.name
-                     WHEN COALESCE(o.installer,'')<>'' THEN o.installer
+                     WHEN COALESCE(o.installer,'')<>'' AND p.direction='OUT' THEN o.installer
                      WHEN COALESCE(i.notes,'')<>'' THEN CASE WHEN INSTR(i.notes,' — ')>0 THEN SUBSTR(i.notes,1,INSTR(i.notes,' — ')-1) ELSE i.notes END
                      ELSE '—'
                    END AS resolved_payee,
                    CASE
+                     WHEN COALESCE(p.customer_id, i.customer_id) IS NOT NULL THEN 'KH/HTX: ' || COALESCE(pc.name, ic.name, '')
                      WHEN COALESCE(p.supplier_id, i.supplier_id) IS NOT NULL THEN 'NCC: ' || COALESCE(ps.name, s.name, '')
                      WHEN p.employee_id IS NOT NULL THEN 'Kỹ thuật/NS: ' || COALESCE(pe.full_name, '')
                      WHEN p.seller_id IS NOT NULL THEN 'NV bán hàng: ' || COALESCE(psl.code || ' — ' || psl.full_name, '')
-                     WHEN COALESCE(p.customer_id, i.customer_id) IS NOT NULL THEN 'KH/HTX: ' || COALESCE(pc.name, ic.name, '')
                      WHEN COALESCE(p.v7_order_id, i.v7_order_id) IS NOT NULL THEN 'Đơn hàng: ' || COALESCE(o.code, '')
-                     ELSE 'Chi trực tiếp'
+                     ELSE CASE WHEN p.direction='IN' THEN 'Thu trực tiếp' ELSE 'Chi trực tiếp' END
                    END AS linked_entity_label,
                    COALESCE(p.supplier_id, i.supplier_id),
                    COALESCE(p.customer_id, i.customer_id),
                    p.seller_id,
-                   COALESCE(p.employee_id, o.installer_employee_id),
+                   COALESCE(p.employee_id, CASE WHEN p.direction='OUT' THEN o.installer_employee_id ELSE NULL END),
                    COALESCE(p.v7_order_id, i.v7_order_id),
                    COALESCE(o.code, ''),
                    i.id,
@@ -3640,7 +3723,8 @@ public sealed class DemoDb
                    CASE
                      WHEN u.id IS NULL OR LOWER(COALESCE(u.username,''))='vanlt_it' THEN 'Hệ thống / Kế toán'
                      ELSE COALESCE(u.display_name, u.username)
-                   END
+                   END,
+                   p.direction
             FROM payments p
             LEFT JOIN expense_categories ec ON ec.id=p.expense_category_id
             LEFT JOIN payment_allocations pa ON pa.payment_id=p.id AND pa.deleted_at IS NULL
@@ -3653,7 +3737,7 @@ public sealed class DemoDb
             LEFT JOIN employees pe ON pe.id=p.employee_id
             LEFT JOIN v7_orders o ON o.id=COALESCE(p.v7_order_id, i.v7_order_id)
             LEFT JOIN app_users u ON u.id=p.created_by
-            WHERE p.direction='OUT' AND p.deleted_at IS NULL
+            WHERE p.deleted_at IS NULL {dirCond}
             ORDER BY resolved_paid_at DESC, p.id DESC",
             r => new ExpenseVoucherVm(
                 L(r, 0), S(r, 1), S(r, 2), S(r, 3), L(r, 4),
@@ -3667,7 +3751,8 @@ public sealed class DemoDb
                 S(r, 16),
                 r.IsDBNull(17) ? null : L(r, 17),
                 S(r, 18), S(r, 19), S(r, 20), S(r, 21),
-                L(r, 22) == 1, S(r, 23)));
+                L(r, 22) == 1, S(r, 23), S(r, 24)),
+            ("$dir", direction ?? ""));
     }
 
     private static void RecalculateInvoiceSettlementStatus(SqliteConnection c, SqliteTransaction t, long invId)
@@ -3697,14 +3782,15 @@ public sealed class DemoDb
         long? orderId,
         long? invoiceId,
         string referenceDoc,
-        string notes)
+        string notes,
+        string? expectedDirection = null)
     {
         if (categoryId <= 0)
-            throw new InvalidOperationException("Vui lòng chọn Loại khoản chi.");
+            throw new InvalidOperationException("Vui lòng chọn Khoản Thu / Khoản Chi trong danh sách.");
         if (method is not ("CASH" or "BANK"))
             throw new InvalidOperationException("Nguồn quỹ thanh toán phải là Tiền mặt hoặc Ngân hàng.");
         if (amountVnd <= 0)
-            throw new InvalidOperationException("Số tiền khoản chi phải lớn hơn 0 ₫.");
+            throw new InvalidOperationException("Số tiền giao dịch phải lớn hơn 0 ₫.");
 
         string paidSql;
         if (string.IsNullOrWhiteSpace(paidAt))
@@ -3730,11 +3816,16 @@ public sealed class DemoDb
 
         return Tx((c, t) =>
         {
-            var cat = QueryTx(c, t, "SELECT id, code, name, default_note FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
-                r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), DefaultNote: S(r, 3)), ("$id", categoryId)).SingleOrDefault();
+            var cat = QueryTx(c, t, "SELECT id, code, name, default_note, COALESCE(direction,'OUT') FROM expense_categories WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), Code: S(r, 1), Name: S(r, 2), DefaultNote: S(r, 3), Dir: S(r, 4)), ("$id", categoryId)).SingleOrDefault();
             if (cat.Id == 0)
-                throw new InvalidOperationException("Loại khoản chi không tồn tại.");
+                throw new InvalidOperationException("Khoản Thu/Chi được chọn không tồn tại.");
 
+            var effDir = cat.Dir == "IN" ? "IN" : "OUT";
+            if (expectedDirection is "IN" or "OUT" && effDir != expectedDirection)
+                throw new InvalidOperationException($"Khoản '{cat.Name}' thuộc nhóm {(effDir == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")}, vui lòng chọn đúng khoản tương ứng với loại phiếu.");
+
+            var dirWord = effDir == "IN" ? "Thu" : "Chi";
             long? effSup = supplierId is > 0 ? supplierId : null;
             long? effCust = customerId is > 0 ? customerId : null;
             long? effSeller = sellerId is > 0 ? sellerId : null;
@@ -3751,8 +3842,9 @@ public sealed class DemoDb
                 var invRow = QueryTx(c, t, @"SELECT i.id, i.invoice_no, i.invoice_type, i.status, COALESCE(i.is_locked,0),
                         i.supplier_id, i.customer_id, i.v7_order_id,
                         i.amount_vnd - COALESCE(i.offset_vnd,0) - COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=i.id AND deleted_at IS NULL AND ($editPid IS NULL OR payment_id<>$editPid)), 0) AS rem_bal,
-                        COALESCE(s.name, o.installer, CASE WHEN INSTR(i.notes,' — ')>0 THEN SUBSTR(i.notes,1,INSTR(i.notes,' — ')-1) ELSE i.notes END, '')
+                        COALESCE(cu.name, s.name, o.installer, CASE WHEN INSTR(i.notes,' — ')>0 THEN SUBSTR(i.notes,1,INSTR(i.notes,' — ')-1) ELSE i.notes END, '')
                     FROM invoices i
+                    LEFT JOIN customers cu ON cu.id=i.customer_id
                     LEFT JOIN suppliers s ON s.id=i.supplier_id
                     LEFT JOIN v7_orders o ON o.id=i.v7_order_id
                     WHERE i.id=$inv AND i.deleted_at IS NULL",
@@ -3765,25 +3857,30 @@ public sealed class DemoDb
 
                 if (invRow.Id == 0 || invRow.Status == "VOID")
                     throw new InvalidOperationException("Chứng từ công nợ được chọn không hợp lệ.");
+                var invIsReceivable = invRow.Type is "SALE" or "RENEWAL";
+                if (effDir == "IN" && !invIsReceivable)
+                    throw new InvalidOperationException($"Phiếu Thu không thể cấn trừ vào chứng từ phải trả {invRow.No}.");
+                if (effDir == "OUT" && invIsReceivable)
+                    throw new InvalidOperationException($"Phiếu Chi không thể cấn trừ vào chứng từ phải thu {invRow.No}.");
                 if (invRow.Locked && !IsMainDeveloper(c, t))
                     throw new InvalidOperationException($"Chứng từ {invRow.No} đã chốt số / khóa sổ.");
                 if (amountVnd > invRow.MaxRem)
-                    throw new InvalidOperationException($"Số tiền chi ({amountVnd:N0} ₫) vượt số dư còn nợ của chứng từ {invRow.No} ({Math.Max(0, invRow.MaxRem):N0} ₫). Vui lòng nhập ≤ {Math.Max(0, invRow.MaxRem):N0} ₫ hoặc chọn 'Không gắn cấn trừ chứng từ công nợ'.");
+                    throw new InvalidOperationException($"Số tiền {dirWord.ToLowerInvariant()} ({amountVnd:N0} ₫) vượt số dư còn nợ của chứng từ {invRow.No} ({Math.Max(0, invRow.MaxRem):N0} ₫). Vui lòng nhập ≤ {Math.Max(0, invRow.MaxRem):N0} ₫ hoặc chọn 'Không cấn trừ chứng từ công nợ'.");
 
                 effSup ??= invRow.SupId;
                 effCust ??= invRow.CustId;
                 effOrd ??= invRow.OrdId;
                 if (string.IsNullOrWhiteSpace(resolvedPayee)) resolvedPayee = invRow.Partner;
                 if (string.IsNullOrWhiteSpace(resolvedRef)) resolvedRef = invRow.No;
-                if (string.IsNullOrWhiteSpace(resolvedNotes)) resolvedNotes = $"Chi thanh toán chứng từ {invRow.No} ({cat.Name})";
+                if (string.IsNullOrWhiteSpace(resolvedNotes)) resolvedNotes = $"{dirWord} thanh toán chứng từ {invRow.No} ({cat.Name})";
             }
 
             if (string.IsNullOrWhiteSpace(resolvedPayee))
             {
-                if (effSup.HasValue) resolvedPayee = QueryTx(c, t, "SELECT name FROM suppliers WHERE id=$id", r => S(r, 0), ("$id", effSup.Value)).FirstOrDefault() ?? "";
+                if (effCust.HasValue) resolvedPayee = QueryTx(c, t, "SELECT name FROM customers WHERE id=$id", r => S(r, 0), ("$id", effCust.Value)).FirstOrDefault() ?? "";
+                else if (effSup.HasValue) resolvedPayee = QueryTx(c, t, "SELECT name FROM suppliers WHERE id=$id", r => S(r, 0), ("$id", effSup.Value)).FirstOrDefault() ?? "";
                 else if (effEmp.HasValue) resolvedPayee = QueryTx(c, t, "SELECT full_name FROM employees WHERE id=$id", r => S(r, 0), ("$id", effEmp.Value)).FirstOrDefault() ?? "";
                 else if (effSeller.HasValue) resolvedPayee = QueryTx(c, t, "SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id", r => S(r, 0), ("$id", effSeller.Value)).FirstOrDefault() ?? "";
-                else if (effCust.HasValue) resolvedPayee = QueryTx(c, t, "SELECT name FROM customers WHERE id=$id", r => S(r, 0), ("$id", effCust.Value)).FirstOrDefault() ?? "";
             }
             if (string.IsNullOrWhiteSpace(resolvedRef) && effOrd.HasValue)
             {
@@ -3796,11 +3893,11 @@ public sealed class DemoDb
 
             if (id is > 0)
             {
-                var curPay = QueryTx(c, t, "SELECT id, payment_no, COALESCE(is_locked,0) FROM payments WHERE id=$id AND direction='OUT' AND deleted_at IS NULL",
-                    r => (Id: L(r, 0), No: S(r, 1), Locked: L(r, 2) == 1), ("$id", id.Value)).SingleOrDefault();
-                if (curPay.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu khoản chi.");
+                var curPay = QueryTx(c, t, "SELECT id, payment_no, direction, COALESCE(is_locked,0) FROM payments WHERE id=$id AND deleted_at IS NULL",
+                    r => (Id: L(r, 0), No: S(r, 1), Dir: S(r, 2), Locked: L(r, 3) == 1), ("$id", id.Value)).SingleOrDefault();
+                if (curPay.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu Thu/Chi.");
                 if (curPay.Locked && !IsMainDeveloper(c, t))
-                    throw new InvalidOperationException($"Phiếu chi {curPay.No} đã chốt số / khóa sổ, cần mở khóa trước khi chỉnh sửa.");
+                    throw new InvalidOperationException($"Phiếu {curPay.No} đã chốt số / khóa sổ, cần mở khóa trước khi chỉnh sửa.");
 
                 var oldInvIds = QueryTx(c, t, "SELECT invoice_id FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", r => L(r, 0), ("$p", curPay.Id));
                 if (IsMainDeveloper(c, t))
@@ -3811,7 +3908,18 @@ public sealed class DemoDb
                 foreach (var oldInvId in oldInvIds.Distinct())
                     RecalculateInvoiceSettlementStatus(c, t, oldInvId);
 
+                var nextPayNo = curPay.No;
+                if (curPay.Dir != effDir)
+                {
+                    if (effDir == "IN" && nextPayNo.StartsWith("PC-", StringComparison.OrdinalIgnoreCase))
+                        nextPayNo = "PT-" + nextPayNo[3..];
+                    else if (effDir == "OUT" && nextPayNo.StartsWith("PT-", StringComparison.OrdinalIgnoreCase))
+                        nextPayNo = "PC-" + nextPayNo[3..];
+                }
+
                 Exec(c, t, @"UPDATE payments SET
+                        payment_no=$no,
+                        direction=$dir,
                         paid_at=$paid,
                         method=$m,
                         amount_vnd=$amt,
@@ -3825,6 +3933,7 @@ public sealed class DemoDb
                         payee_name=$payee,
                         reference_doc=$ref
                     WHERE id=$id",
+                    ("$no", nextPayNo), ("$dir", effDir),
                     ("$paid", paidSql), ("$m", method), ("$amt", amountVnd), ("$notes", resolvedNotes),
                     ("$cat", cat.Id), ("$sup", effSup), ("$cust", effCust), ("$sel", effSeller),
                     ("$emp", effEmp), ("$ord", effOrd), ("$payee", resolvedPayee), ("$ref", resolvedRef),
@@ -3837,17 +3946,17 @@ public sealed class DemoDb
                     RecalculateInvoiceSettlementStatus(c, t, effInv.Value);
                 }
 
-                Log(c, t, "UPDATE_EXPENSE", "PAYMENT", curPay.Id, $"{curPay.No} [{cat.Name}]: {amountVnd:N0} VND ({method}) — {resolvedPayee}");
+                Log(c, t, "UPDATE_CASHBOOK", "PAYMENT", curPay.Id, $"{nextPayNo} [{cat.Name}]: {amountVnd:N0} VND ({method}) — {resolvedPayee}");
                 return curPay.Id;
             }
             else
             {
-                var payNo = "PC-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                var payNo = (effDir == "IN" ? "PT-" : "PC-") + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                 Exec(c, t, @"INSERT INTO payments(
                         payment_no,direction,paid_at,method,amount_vnd,notes,
                         expense_category_id,supplier_id,customer_id,seller_id,employee_id,v7_order_id,payee_name,reference_doc)
-                    VALUES($no,'OUT',$paid,$m,$amt,$notes,$cat,$sup,$cust,$sel,$emp,$ord,$payee,$ref)",
-                    ("$no", payNo), ("$paid", paidSql), ("$m", method), ("$amt", amountVnd), ("$notes", resolvedNotes),
+                    VALUES($no,$dir,$paid,$m,$amt,$notes,$cat,$sup,$cust,$sel,$emp,$ord,$payee,$ref)",
+                    ("$no", payNo), ("$dir", effDir), ("$paid", paidSql), ("$m", method), ("$amt", amountVnd), ("$notes", resolvedNotes),
                     ("$cat", cat.Id), ("$sup", effSup), ("$cust", effCust), ("$sel", effSeller),
                     ("$emp", effEmp), ("$ord", effOrd), ("$payee", resolvedPayee), ("$ref", resolvedRef));
                 var newPayId = N(c, t, "SELECT last_insert_rowid()");
@@ -3859,7 +3968,7 @@ public sealed class DemoDb
                     RecalculateInvoiceSettlementStatus(c, t, effInv.Value);
                 }
 
-                Log(c, t, "CREATE_EXPENSE", "PAYMENT", newPayId, $"{payNo} [{cat.Name}]: {amountVnd:N0} VND ({method}) — {resolvedPayee} · {resolvedNotes}");
+                Log(c, t, "CREATE_CASHBOOK", "PAYMENT", newPayId, $"{payNo} [{cat.Name}]: {amountVnd:N0} VND ({method}) — {resolvedPayee} · {resolvedNotes}");
                 return newPayId;
             }
         });
@@ -3869,53 +3978,21 @@ public sealed class DemoDb
     {
         Tx((c, t) =>
         {
-            var p = QueryTx(c, t, "SELECT id, payment_no FROM payments WHERE id=$id AND direction='OUT' AND deleted_at IS NULL",
-                r => (Id: L(r, 0), No: S(r, 1)), ("$id", paymentId)).SingleOrDefault();
-            if (p.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu khoản chi.");
+            var p = QueryTx(c, t, "SELECT id, payment_no, direction FROM payments WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), Dir: S(r, 2)), ("$id", paymentId)).SingleOrDefault();
+            if (p.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu Thu/Chi.");
             Exec(c, t, "UPDATE payments SET is_locked=$l WHERE id=$id", ("$l", locked ? 1 : 0), ("$id", p.Id));
-            Log(c, t, locked ? "LOCK_EXPENSE" : "UNLOCK_EXPENSE", "PAYMENT", p.Id, $"{(locked ? "Chốt số" : "Mở khóa")} phiếu chi {p.No}");
+            Log(c, t, locked ? "LOCK_PAYMENT" : "UNLOCK_PAYMENT", "PAYMENT", p.Id, $"{(locked ? "Chốt số" : "Mở khóa")} phiếu {(p.Dir == "IN" ? "thu" : "chi")} {p.No}");
             return 0;
         });
     }
 
     public string DeleteExpenseVoucher(long paymentId)
     {
-        return Tx((c, t) =>
-        {
-            var p = QueryTx(c, t, "SELECT id, payment_no, amount_vnd, COALESCE(is_locked,0), COALESCE(payee_name,'') FROM payments WHERE id=$id AND direction='OUT' AND deleted_at IS NULL",
-                r => (Id: L(r, 0), No: S(r, 1), Amt: L(r, 2), Locked: L(r, 3) == 1, Payee: S(r, 4)), ("$id", paymentId)).SingleOrDefault();
-            if (p.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu khoản chi.");
-
-            var isMain = IsMainDeveloper(c, t);
-            if (p.Locked && !isMain)
-                throw new InvalidOperationException($"Phiếu chi {p.No} đã chốt số / khóa sổ, cần mở khóa trước khi xóa.");
-
-            var linkedInvIds = QueryTx(c, t, "SELECT invoice_id FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", r => L(r, 0), ("$p", p.Id));
-
-            if (isMain)
-            {
-                Exec(c, t, "DELETE FROM payment_allocations WHERE payment_id=$p", ("$p", p.Id));
-                Exec(c, t, "DELETE FROM payments WHERE id=$p", ("$p", p.Id));
-                foreach (var invId in linkedInvIds.Distinct())
-                    RecalculateInvoiceSettlementStatus(c, t, invId);
-                return $"Đã xóa cứng phiếu chi {p.No} ({p.Amt:N0} ₫) và cập nhật lại Sổ quỹ / Công nợ liên quan.";
-            }
-            else
-            {
-                var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                Exec(c, t, "UPDATE payment_allocations SET deleted_at=$now, deleted_by=$actor WHERE payment_id=$p AND deleted_at IS NULL",
-                    ("$now", now), ("$actor", ActorId > 0 ? ActorId : null), ("$p", p.Id));
-                Exec(c, t, "UPDATE payments SET deleted_at=$now, deleted_by=$actor WHERE id=$p",
-                    ("$now", now), ("$actor", ActorId > 0 ? ActorId : null), ("$p", p.Id));
-                foreach (var invId in linkedInvIds.Distinct())
-                    RecalculateInvoiceSettlementStatus(c, t, invId);
-                Log(c, t, "DELETE_EXPENSE", "PAYMENT", p.Id, $"Xóa mềm phiếu chi {p.No} ({p.Amt:N0} VND · {p.Payee})");
-                return $"Đã xóa phiếu chi {p.No} ({p.Amt:N0} ₫) khỏi Sổ quỹ và khôi phục số dư chứng từ công nợ liên quan.";
-            }
-        });
+        return DeleteCashBookPayment(paymentId);
     }
 
-    public string UpdateCashBookPayment(long paymentId, string method, long amountVnd, string? paidAt, string partnerName, string notes)
+    public string UpdateCashBookPayment(long paymentId, string method, long amountVnd, string? paidAt, string partnerName, string notes, long? categoryId = null)
     {
         if (method is not ("CASH" or "BANK"))
             throw new InvalidOperationException("Nguồn quỹ phải là Tiền mặt hoặc Ngân hàng.");
@@ -3940,8 +4017,8 @@ public sealed class DemoDb
 
         return Tx((c, t) =>
         {
-            var cur = QueryTx(c, t, "SELECT id, payment_no, direction, COALESCE(is_locked,0) FROM payments WHERE id=$id AND deleted_at IS NULL",
-                r => (Id: L(r, 0), No: S(r, 1), Dir: S(r, 2), Locked: L(r, 3) == 1), ("$id", paymentId)).SingleOrDefault();
+            var cur = QueryTx(c, t, "SELECT id, payment_no, direction, COALESCE(is_locked,0), expense_category_id FROM payments WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), Dir: S(r, 2), Locked: L(r, 3) == 1, CatId: r.IsDBNull(4) ? (long?)null : L(r, 4)), ("$id", paymentId)).SingleOrDefault();
             if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu Sổ quỹ.");
             var isMain = IsMainDeveloper(c, t);
             if (cur.Locked && !isMain)
@@ -3965,8 +4042,9 @@ public sealed class DemoDb
                 Exec(c, t, "UPDATE payment_allocations SET allocated_vnd=$a WHERE id=$aid", ("$a", amountVnd), ("$aid", alloc.Id));
             }
 
-            Exec(c, t, "UPDATE payments SET method=$m, amount_vnd=$a, paid_at=$paid, payee_name=$payee, notes=$notes WHERE id=$id",
-                ("$m", method), ("$a", amountVnd), ("$paid", paidSql), ("$payee", (partnerName ?? "").Trim()), ("$notes", (notes ?? "").Trim()), ("$id", cur.Id));
+            var nextCatId = categoryId is > 0 ? categoryId : cur.CatId;
+            Exec(c, t, "UPDATE payments SET method=$m, amount_vnd=$a, paid_at=$paid, payee_name=$payee, notes=$notes, expense_category_id=$cat WHERE id=$id",
+                ("$m", method), ("$a", amountVnd), ("$paid", paidSql), ("$payee", (partnerName ?? "").Trim()), ("$notes", (notes ?? "").Trim()), ("$cat", nextCatId), ("$id", cur.Id));
 
             if (alloc.InvId > 0)
                 RecalculateInvoiceSettlementStatus(c, t, alloc.InvId);
