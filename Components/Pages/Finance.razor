@@ -15,7 +15,12 @@
     </p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <button type="button" class="btn secondary" @onclick="SyncAccounting">
+    <button type="button"
+            class="btn secondary"
+            data-confirm="edit"
+            data-confirm-title="Xác nhận Đồng bộ dữ liệu Kế toán"
+            data-confirm-msg="Hệ thống sẽ rà soát và đồng bộ toàn bộ đơn hàng, phiếu nhập kho, đợt gia hạn vào Sổ Công nợ &amp; Sổ quỹ. Tiếp tục?"
+            @onclick="SyncAccounting">
       ↻ Đồng bộ dữ liệu Kế toán
     </button>
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportInvoicesExcel">
@@ -212,11 +217,11 @@
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     @if (canPay)
     {
-      <button type="button" class="btn btn-sm" data-confirm="none" @onclick="() => ToggleForm(nameof(showPay))">
-        @(showPay ? "Đóng · Phiếu Thu / Chi" : "+ Lập Phiếu Thu / Chi (Sổ quỹ)")
+      <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => OpenNewPayModal("IN")'>
+        + Lập Phiếu Thu / Chi (Sổ quỹ)
       </button>
-      <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => ToggleForm(nameof(showCreate))">
-        @(showCreate ? "Đóng · Lập chứng từ" : "+ Lập chứng từ Công nợ")
+      <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="OpenNewInvoiceModal">
+        + Lập chứng từ Công nợ
       </button>
     }
   </div>
@@ -224,208 +229,313 @@
 
 @if (!string.IsNullOrWhiteSpace(message))
 {
-  <div class="panel-note" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+  <div class="panel-note" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:@(message.StartsWith("Lỗi:") ? "#fef2f2" : "#f0fdf4");border:1px solid @(message.StartsWith("Lỗi:") ? "#fecaca" : "#86efac");color:@(message.StartsWith("Lỗi:") ? "#b91c1c" : "#166534");font-weight:600">
     @message
   </div>
 }
 
-@* ==================== FORM LẬP PHIẾU THU / PHIẾU CHI (SỔ QUỸ) ==================== *@
-@if (canPay)
+@* ==================== DIALOG LẬP PHIẾU THU / PHIẾU CHI MỚI (SỔ QUỸ) ==================== *@
+@if (canPay && showPay)
 {
-  <section class="panel edit-panel" hidden="@(!showPay)">
-    <div class="panel-head">
-      <div>
-        <h2>Lập Phiếu Thu / Phiếu Chi vào Sổ quỹ (Tiền mặt / Ngân hàng)</h2>
-        <p>
-          <strong>Khoản thu:</strong> Thu tiền khách hàng / thu công nợ &nbsp;|&nbsp;
-          <strong>Khoản chi:</strong> Chi trả tiền nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng hoặc công kỹ thuật.
-        </p>
+  <div class="so-modal-overlay" @onclick="() => showPay = false">
+    <div class="so-modal-dialog" style="max-width:820px" @onclick:stopPropagation="true">
+      <div class="so-modal-header">
+        <div>
+          <div class="eyebrow">QUẢN LÝ THU / CHI SỔ QUỸ · TIỀN MẶT &amp; NGÂN HÀNG</div>
+          <h2>@(payDirection == "IN" ? "Lập Phiếu Thu mới vào Sổ quỹ (+)" : "Lập Phiếu Chi mới vào Sổ quỹ (−)")</h2>
+          <p>
+            <strong>Khoản thu:</strong> Thu tiền khách hàng / thu công nợ &nbsp;|&nbsp;
+            <strong>Khoản chi:</strong> Chi trả tiền nhập hàng Nhà cung cấp, chi hoa hồng nhân viên bán hàng hoặc công kỹ thuật.
+          </p>
+        </div>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showPay = false">✕ Đóng</button>
+      </div>
+
+      <div class="so-modal-body">
+        @if (!string.IsNullOrWhiteSpace(modalError))
+        {
+          <div style="margin-bottom:0.85rem;padding:0.7rem 0.95rem;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-weight:600;font-size:12.5px">
+            @modalError
+          </div>
+        }
+        <div class="form-grid">
+          <label>1. Loại giao dịch Sổ quỹ *
+            <select @bind="payDirection" @bind:after="OnPayDirectionChanged">
+              <option value="IN">Khoản Thu (+): Thu khách / Thu công nợ (Phiếu Thu)</option>
+              <option value="OUT">Khoản Chi (-): Chi nhập hàng NCC / Chi NV bán hàng &amp; Kỹ thuật (Phiếu Chi)</option>
+            </select>
+          </label>
+
+          <label>2. Hạng mục Thu / Chi *
+            <select @bind="payCategory" @bind:after="OnPayCategoryChanged">
+              @if (payDirection == "IN")
+              {
+                <option value="CUSTOMER_DEBT">Thu khách / Thu công nợ đơn lắp đặt</option>
+                <option value="RENEWAL_DEBT">Thu khách / Thu công nợ gia hạn</option>
+              }
+              else
+              {
+                <option value="SUPPLIER_PURCHASE">Chi: Nhập hàng Nhà cung cấp</option>
+                <option value="SELLER_COMMISSION">Chi: Hoa hồng Nhân viên bán hàng</option>
+                <option value="TECH_SERVICE">Chi: Phụ cấp / Công kỹ thuật lắp đặt</option>
+              }
+            </select>
+          </label>
+
+          <label>3. Sổ quỹ thanh toán (Tiền mặt / Ngân hàng) *
+            <select @bind="method">
+              <option value="CASH">Quỹ Tiền mặt</option>
+              <option value="BANK">Quỹ Ngân hàng / Chuyển khoản</option>
+            </select>
+          </label>
+
+          <label>4. Chọn chứng từ công nợ để phân bổ *
+            <select @bind="invoiceId" @bind:after="OnInvoicePicked">
+              <option value="0">— Ghi phiếu @(payDirection == "IN" ? "Thu" : "Chi") trực tiếp vào Sổ quỹ (Không gắn chứng từ) —</option>
+              @foreach (var x in FilteredOpenInvoicesForPayment)
+              {
+                <option value="@x.Id">[@TypeLabel(x.Type)] @x.Code — @x.Customer (Còn nợ: @Money(x.Balance))</option>
+              }
+            </select>
+          </label>
+
+          @if (invoiceId <= 0)
+          {
+            <label>Đối tác (Khách hàng / Nhà cung cấp / NV bán hàng) *
+              <input @bind="directPartnerName" placeholder="Nhập tên Khách hàng, Nhà cung cấp hoặc NV bán hàng..." />
+            </label>
+            <label>Diễn giải khoản Thu / Chi *
+              <input @bind="directPayNote" placeholder="VD: Thu công nợ khách / Chi thanh toán tiền nhập hàng..." />
+            </label>
+          }
+
+          <label style="grid-column:span @(invoiceId > 0 ? "2" : "1")">5. Số tiền @(payDirection == "IN" ? "Thu" : "Chi") (VND) *
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" min="1" step="10000" @bind="amount" style="flex:1;font-weight:700;color:@(payDirection == "IN" ? "#15803d" : "#dc2626")" />
+              @if (SelectedPayInvoice is not null)
+              {
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => amount = SelectedPayInvoice.Balance">
+                  Tất toán 100% (@Money(SelectedPayInvoice.Balance))
+                </button>
+              }
+            </div>
+          </label>
+        </div>
+
+        @if (SelectedPayInvoice is not null)
+        {
+          <div style="margin-top:0.75rem;padding:0.65rem 0.9rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:12.5px;color:#334155">
+            Loại phiếu: <strong>@(SelectedPayInvoice.IsReceivable ? "Khoản Thu — Thu khách/công nợ (PT)" : "Khoản Chi — Nhập hàng/Chi trả (PC)")</strong>
+            · Quỹ: <strong>@(method == "CASH" ? "Tiền mặt" : "Ngân hàng")</strong>
+            · Chứng từ: <strong>@SelectedPayInvoice.Code</strong>
+            · Đối tác: <strong>@SelectedPayInvoice.Customer</strong>
+          </div>
+        }
+      </div>
+
+      <div class="so-modal-footer">
+        <button type="button"
+                class="btn"
+                data-confirm="add"
+                data-confirm-title="@(payDirection == "IN" ? "Xác nhận Thêm Phiếu Thu vào Sổ quỹ" : "Xác nhận Thêm Phiếu Chi vào Sổ quỹ")"
+                data-confirm-msg="@($"Bạn có chắc chắn muốn ghi nhận {(payDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)")} số tiền {Money(amount)} vào {(method == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng")} không?")"
+                @onclick="Pay">
+          @(payDirection == "IN" ? "+ Ghi nhận Khoản Thu vào Sổ quỹ" : "+ Ghi nhận Khoản Chi vào Sổ quỹ")
+        </button>
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showPay = false">Đóng</button>
       </div>
     </div>
-    <div class="form-grid">
-      <label>1. Loại giao dịch Sổ quỹ *
-        <select @bind="payDirection" @bind:after="OnPayDirectionChanged">
-          <option value="IN">Khoản Thu (+): Thu khách / Thu công nợ (Phiếu Thu)</option>
-          <option value="OUT">Khoản Chi (-): Chi nhập hàng NCC / Chi NV bán hàng &amp; Kỹ thuật (Phiếu Chi)</option>
-        </select>
-      </label>
+  </div>
+}
 
-      <label>2. Hạng mục Thu / Chi *
-        <select @bind="payCategory" @bind:after="OnPayCategoryChanged">
-          @if (payDirection == "IN")
+@* ==================== DIALOG CHỈNH SỬA PHIẾU THU / PHIẾU CHI ==================== *@
+@if (canPay && showEditPaymentModal)
+{
+  <div class="so-modal-overlay" @onclick="() => showEditPaymentModal = false">
+    <div class="so-modal-dialog" style="max-width:680px" @onclick:stopPropagation="true">
+      <div class="so-modal-header">
+        <div>
+          <div class="eyebrow">CHỈNH SỬA GIAO DỊCH SỔ QUỸ THU / CHI</div>
+          <h2>Sửa @(editPayDir == "IN" ? "Phiếu Thu" : "Phiếu Chi"): @editPayNo</h2>
+          <p>Cập nhật nguồn quỹ, số tiền, ngày giờ giao dịch hoặc diễn giải. Hệ thống tự động tính lại số dư Sổ quỹ và trạng thái Chứng từ công nợ gắn kèm.</p>
+        </div>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showEditPaymentModal = false">✕ Đóng</button>
+      </div>
+      <div class="so-modal-body">
+        @if (!string.IsNullOrWhiteSpace(modalError))
+        {
+          <div style="margin-bottom:0.85rem;padding:0.7rem 0.95rem;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-weight:600;font-size:12.5px">
+            @modalError
+          </div>
+        }
+        <div class="form-grid">
+          <label>Nguồn Sổ quỹ (Tiền mặt / Ngân hàng) *
+            <select @bind="editPayMethod">
+              <option value="CASH">Quỹ Tiền mặt</option>
+              <option value="BANK">Quỹ Ngân hàng / Chuyển khoản</option>
+            </select>
+          </label>
+          <label>Số tiền @(editPayDir == "IN" ? "Thu (+)" : "Chi (−)") (VND) *
+            <input type="number" min="1" step="10000" @bind="editPayAmount" style="font-weight:700;color:@(editPayDir == "IN" ? "#15803d" : "#dc2626")" />
+          </label>
+          <label>Ngày giờ giao dịch *
+            <input type="datetime-local" @bind="editPayDt" />
+          </label>
+          <label>Đối tác / Người giao dịch
+            <input @bind="editPayPartner" placeholder="Tên khách hàng, nhà cung cấp hoặc đối tác..." />
+          </label>
+          <label style="grid-column:span 2">Nội dung / Diễn giải
+            <input @bind="editPayNotes" placeholder="Diễn giải chi tiết giao dịch..." />
+          </label>
+        </div>
+      </div>
+      <div class="so-modal-footer">
+        <button type="button"
+                class="btn"
+                data-confirm="edit"
+                data-confirm-title="Xác nhận Cập nhật Phiếu Thu / Chi"
+                data-confirm-msg="@($"Bạn có chắc chắn muốn lưu chỉnh sửa cho phiếu {editPayNo} với số tiền {Money(editPayAmount)} ({(editPayMethod == "CASH" ? "Quỹ Tiền mặt" : "Quỹ Ngân hàng")}) không?")"
+                @onclick="SaveEditedPayment">
+          💾 Lưu cập nhật Phiếu @(editPayDir == "IN" ? "Thu" : "Chi")
+        </button>
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showEditPaymentModal = false">Đóng</button>
+      </div>
+    </div>
+  </div>
+}
+
+@* ==================== DIALOG LẬP / CHỈNH SỬA CHỨNG TỪ CÔNG NỢ ==================== *@
+@if (canPay && showCreate)
+{
+  <div class="so-modal-overlay" @onclick="() => showCreate = false">
+    <div class="so-modal-dialog" style="max-width:820px" @onclick:stopPropagation="true">
+      <div class="so-modal-header">
+        <div>
+          <div class="eyebrow">QUẢN LÝ CHỨNG TỪ CÔNG NỢ KẾ TOÁN</div>
+          <h2>@(editInvoiceId > 0 ? $"Chỉnh sửa Chứng từ Công nợ: {editInvoiceCode}" : "Lập chứng từ Công nợ mới (Nhà cung cấp · Khách hàng · NV bán hàng)")</h2>
+          <p>Ghi nhận hoặc cập nhật chứng từ công nợ nhập hàng Nhà cung cấp, công nợ Khách hàng, hoa hồng nhân viên bán hàng hoặc công kỹ thuật.</p>
+        </div>
+        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showCreate = false">✕ Đóng</button>
+      </div>
+
+      <div class="so-modal-body">
+        @if (!string.IsNullOrWhiteSpace(modalError))
+        {
+          <div style="margin-bottom:0.85rem;padding:0.7rem 0.95rem;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-weight:600;font-size:12.5px">
+            @modalError
+          </div>
+        }
+        <div class="form-grid">
+          <label>Nhóm chứng từ công nợ *
+            <select @bind="newType" disabled="@(editInvoiceId > 0)">
+              @if (canSupplier)
+              {
+                <option value="PURCHASE">1. Công nợ Nhà cung cấp — Nhập hàng (Khoản phải trả)</option>
+              }
+              @if (canCustomer)
+              {
+                <option value="SALE">2. Công nợ Khách hàng — Đơn lắp đặt (Khoản phải thu)</option>
+                <option value="RENEWAL">2b. Công nợ Khách hàng — Gia hạn (Khoản phải thu)</option>
+              }
+              @if (canOther)
+              {
+                <option value="COMMISSION">3a. Công nợ Nhân viên bán hàng — Hoa hồng (Khoản phải trả)</option>
+                <option value="SERVICE">3b. Công nợ Kỹ thuật — Công lắp đặt (Khoản phải trả)</option>
+              }
+            </select>
+          </label>
+
+          @if (newType is "PURCHASE" or "SUPPLIER")
           {
-            <option value="CUSTOMER_DEBT">Thu khách / Thu công nợ đơn lắp đặt</option>
-            <option value="RENEWAL_DEBT">Thu khách / Thu công nợ gia hạn</option>
+            <label>Nhà cung cấp *
+              <select @bind="newSupplierId">
+                <option value="0">— Chọn Nhà cung cấp —</option>
+                @foreach (var s in suppliers)
+                {
+                  <option value="@s.Id">@s.Name</option>
+                }
+              </select>
+            </label>
+          }
+          else if (newType is "SALE" or "RENEWAL")
+          {
+            <label>Khách hàng *
+              <select @bind="newCustomerId">
+                <option value="0">— Chọn Khách hàng —</option>
+                @foreach (var c in customers)
+                {
+                  <option value="@c.Id">@c.Code — @c.B2BDisplayName</option>
+                }
+              </select>
+            </label>
+          }
+          else if (newType == "COMMISSION")
+          {
+            <label>Chọn Nhân viên bán hàng *
+              <select @bind="newSellerId" @bind:after="OnNewSellerPicked">
+                <option value="0">— Chọn nhân viên bán hàng trong danh sách hoặc nhập bên cạnh —</option>
+                @foreach (var sl in sellerChoices)
+                {
+                  <option value="@sl.Id">@sl.Code — @sl.Name [HH Đơn: @Money(sl.OrderCommissionVnd) · HH Gia hạn: @Money(sl.RenewalCommissionVnd)]</option>
+                }
+              </select>
+            </label>
+            <label>Tên người thụ hưởng (Nhân viên bán hàng) *
+              <input @bind="newPartnerLabel" placeholder="VD: Nguyễn Minh Anh (SL001)..." />
+            </label>
           }
           else
           {
-            <option value="SUPPLIER_PURCHASE">Chi: Nhập hàng Nhà cung cấp</option>
-            <option value="SELLER_COMMISSION">Chi: Hoa hồng Nhân viên bán hàng</option>
-            <option value="TECH_SERVICE">Chi: Phụ cấp / Công kỹ thuật lắp đặt</option>
+            <label>Người thụ hưởng (Kỹ thuật / Đối tác) *
+              <input @bind="newPartnerLabel" placeholder="VD: Kỹ thuật Trần Chí Thức..." />
+            </label>
           }
-        </select>
-      </label>
 
-      <label>3. Sổ quỹ thanh toán (Tiền mặt / Ngân hàng) *
-        <select @bind="method">
-          <option value="CASH">Quỹ Tiền mặt</option>
-          <option value="BANK">Quỹ Ngân hàng / Chuyển khoản</option>
-        </select>
-      </label>
+          <label>Sản phẩm liên quan (Tùy chọn)
+            <select @bind="newProductId">
+              <option value="0">— Không gắn mã SP cụ thể —</option>
+              @foreach (var p in products)
+              {
+                <option value="@p.Id">@p.Sku — @p.Name</option>
+              }
+            </select>
+          </label>
 
-      <label>4. Chọn chứng từ công nợ để phân bổ *
-        <select @bind="invoiceId" @bind:after="OnInvoicePicked">
-          @foreach (var x in FilteredOpenInvoicesForPayment)
-          {
-            <option value="@x.Id">[@TypeLabel(x.Type)] @x.Code — @x.Customer (Còn nợ: @Money(x.Balance))</option>
-          }
-          @if (!FilteredOpenInvoicesForPayment.Any())
-          {
-            <option value="0">— Không có chứng từ còn nợ trong nhóm này (Ghi phiếu Sổ quỹ trực tiếp) —</option>
-          }
-        </select>
-      </label>
+          <label>Số lượng *
+            <input type="number" min="1" @bind="newQty" />
+          </label>
 
-      @if (invoiceId <= 0)
-      {
-        <label>Đối tác (Khách hàng / Nhà cung cấp / NV bán hàng) *
-          <input @bind="directPartnerName" placeholder="Nhập tên Khách hàng, Nhà cung cấp hoặc NV bán hàng..." />
-        </label>
-        <label>Diễn giải khoản Thu / Chi *
-          <input @bind="directPayNote" placeholder="VD: Thu công nợ khách / Chi thanh toán tiền nhập hàng..." />
-        </label>
-      }
+          <label>Đơn giá (VND) *
+            <input type="number" min="1000" step="10000" @bind="newUnitPrice" />
+          </label>
 
-      <label>5. Số tiền @(payDirection == "IN" ? "Thu" : "Chi") (VND) *
-        <input type="number" min="1" step="10000" @bind="amount" />
-      </label>
-    </div>
-    <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button type="button" class="btn" @onclick="Pay">
-        @(payDirection == "IN" ? "+ Ghi nhận Khoản Thu vào Sổ quỹ" : "+ Ghi nhận Khoản Chi vào Sổ quỹ")
-      </button>
-      @if (SelectedPayInvoice is not null)
-      {
-        <button type="button" class="btn secondary" data-confirm="none" @onclick="() => amount = SelectedPayInvoice.Balance">
-          Tất toán 100% (@Money(SelectedPayInvoice.Balance))
+          <label>Thời điểm phát sinh (dd/MM/yyyy HH:mm:ss) *
+            <input @bind="newIssuedText" placeholder="dd/MM/yyyy HH:mm:ss" />
+          </label>
+
+          <label>Hạn thanh toán *
+            <input type="date" @bind="newDueDate" />
+          </label>
+
+          <label style="grid-column:1 / -1">Nội dung / Diễn giải chi tiết *
+            <input @bind="newDescription" placeholder="VD: Nhập hàng lô thiết bị GPS / Hoa hồng nhân viên bán hàng tháng 11/2026..." />
+          </label>
+        </div>
+      </div>
+
+      <div class="so-modal-footer">
+        <button type="button"
+                class="btn"
+                data-confirm="@(editInvoiceId > 0 ? "edit" : "add")"
+                data-confirm-title="@(editInvoiceId > 0 ? "Xác nhận Cập nhật Chứng từ Công nợ" : "Xác nhận Thêm mới Chứng từ Công nợ")"
+                data-confirm-msg="@($"Bạn có chắc chắn muốn {(editInvoiceId > 0 ? $"lưu chỉnh sửa chứng từ {editInvoiceCode}" : "tạo mới chứng từ công nợ")} với tổng số tiền {Money(newQty * newUnitPrice)} không?")"
+                @onclick="CreateInvoice">
+          @(editInvoiceId > 0 ? $"💾 Lưu cập nhật Chứng từ ({Money(newQty * newUnitPrice)})" : $"+ Tạo chứng từ Công nợ ({Money(newQty * newUnitPrice)})")
         </button>
-        <span style="font-size:12px;color:#475569">
-          Loại phiếu: <strong>@(SelectedPayInvoice.IsReceivable ? "Khoản Thu — Thu khách/công nợ (PT)" : "Khoản Chi — Nhập hàng/Chi trả (PC)")</strong>
-          · Quỹ: <strong>@(method == "CASH" ? "Tiền mặt" : "Ngân hàng")</strong>
-          · Đối tác: <strong>@SelectedPayInvoice.Customer</strong>
-        </span>
-      }
-    </div>
-  </section>
-
-  <section class="panel edit-panel" hidden="@(!showCreate)">
-    <div class="panel-head">
-      <div>
-        <h2>Lập chứng từ Công nợ mới (Nhà cung cấp · Khách hàng · Nhân viên bán hàng)</h2>
-        <p>Dùng để ghi nhận công nợ nhập hàng Nhà cung cấp, công nợ Khách hàng hoặc công nợ hoa hồng nhân viên bán hàng / kỹ thuật.</p>
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showCreate = false">Đóng</button>
       </div>
     </div>
-    <div class="form-grid">
-      <label>Nhóm chứng từ công nợ *
-        <select @bind="newType">
-          @if (canSupplier)
-          {
-            <option value="PURCHASE">1. Công nợ Nhà cung cấp — Nhập hàng (Khoản phải trả)</option>
-          }
-          @if (canCustomer)
-          {
-            <option value="SALE">2. Công nợ Khách hàng — Đơn lắp đặt (Khoản phải thu)</option>
-          }
-          @if (canOther)
-          {
-            <option value="COMMISSION">3a. Công nợ Nhân viên bán hàng — Hoa hồng (Khoản phải trả)</option>
-            <option value="SERVICE">3b. Công nợ Kỹ thuật — Công lắp đặt (Khoản phải trả)</option>
-          }
-        </select>
-      </label>
-
-      @if (newType == "PURCHASE")
-      {
-        <label>Nhà cung cấp *
-          <select @bind="newSupplierId">
-            <option value="0">— Chọn Nhà cung cấp —</option>
-            @foreach (var s in suppliers)
-            {
-              <option value="@s.Id">@s.Name</option>
-            }
-          </select>
-        </label>
-      }
-      else if (newType == "SALE")
-      {
-        <label>Khách hàng *
-          <select @bind="newCustomerId">
-            <option value="0">— Chọn Khách hàng —</option>
-            @foreach (var c in customers)
-            {
-              <option value="@c.Id">@c.Code — @c.B2BDisplayName</option>
-            }
-          </select>
-        </label>
-      }
-      else if (newType == "COMMISSION")
-      {
-        <label>Chọn Nhân viên bán hàng *
-          <select @bind="newSellerId" @bind:after="OnNewSellerPicked">
-            <option value="0">— Chọn nhân viên bán hàng trong danh sách hoặc nhập bên cạnh —</option>
-            @foreach (var sl in sellerChoices)
-            {
-              <option value="@sl.Id">@sl.Code — @sl.Name [HH Đơn: @Money(sl.OrderCommissionVnd) · HH Gia hạn: @Money(sl.RenewalCommissionVnd)]</option>
-            }
-          </select>
-        </label>
-        <label>Tên người thụ hưởng (Nhân viên bán hàng) *
-          <input @bind="newPartnerLabel" placeholder="VD: Nguyễn Minh Anh (SL001)..." />
-        </label>
-      }
-      else
-      {
-        <label>Người thụ hưởng (Kỹ thuật / Đối tác) *
-          <input @bind="newPartnerLabel" placeholder="VD: Kỹ thuật Trần Chí Thức..." />
-        </label>
-      }
-
-      <label>Sản phẩm liên quan (Tùy chọn)
-        <select @bind="newProductId">
-          <option value="0">— Không gắn mã SP cụ thể —</option>
-          @foreach (var p in products)
-          {
-            <option value="@p.Id">@p.Sku — @p.Name</option>
-          }
-        </select>
-      </label>
-
-      <label>Số lượng *
-        <input type="number" min="1" @bind="newQty" />
-      </label>
-
-      <label>Đơn giá (VND) *
-        <input type="number" min="1000" step="10000" @bind="newUnitPrice" />
-      </label>
-
-      <label>Thời điểm phát sinh (dd/MM/yyyy HH:mm:ss) *
-        <input @bind="newIssuedText" placeholder="dd/MM/yyyy HH:mm:ss" />
-      </label>
-
-      <label>Hạn thanh toán *
-        <input type="date" @bind="newDueDate" />
-      </label>
-
-      <label style="grid-column:1 / -1">Nội dung / Diễn giải chi tiết *
-        <input @bind="newDescription" placeholder="VD: Nhập hàng lô thiết bị GPS / Hoa hồng nhân viên bán hàng tháng 11/2026..." />
-      </label>
-    </div>
-    <div class="form-actions">
-      <button type="button" class="btn" @onclick="CreateInvoice">
-        + Tạo chứng từ Công nợ (@Money(newQty * newUnitPrice))
-      </button>
-    </div>
-  </section>
+  </div>
 }
 
 @* ==================== CHI TIẾT CHỨNG TỪ KHI BẤM XEM ==================== *@
@@ -789,6 +899,11 @@ else if (activeTab == "PAYMENTS")
         <p>Tra cứu chi tiết từng giao dịch Sổ quỹ theo đúng thời gian <code>dd/MM/yyyy HH:mm:ss</code>, loại quỹ và đối tác.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        @if (canPay)
+        {
+          <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => OpenNewPayModal("IN")'>+ Thêm Phiếu Thu</button>
+          <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick='() => OpenNewPayModal("OUT")'>+ Thêm Phiếu Chi</button>
+        }
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportPaymentsExcel">📥 Xuất Excel (@FilteredPayments.Count())</button>
       </div>
     </div>
@@ -838,6 +953,7 @@ else if (activeTab == "PAYMENTS")
             <th>CHI (−)</th>
             <th>TỒN QUỸ SAU GD</th>
             <th>THỜI GIAN GD</th>
+            <th>THAO TÁC</th>
           </tr>
         </thead>
         <tbody>
@@ -890,12 +1006,34 @@ else if (activeTab == "PAYMENTS")
                 <div><small style="color:#64748b">Quỹ @(p.Method == "CASH" ? "TM" : "NH"): @Money(p.BalanceAfterMethodVnd)</small></div>
               </td>
               <td><strong>@p.DisplayTimestamp</strong></td>
+              <td>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button type="button" class="btn secondary" data-confirm="none" style="padding:4px 8px;font-size:12px" onclick="window.tnmOpenRowDetail(this)">Xem</button>
+                  @if (canPay && (!p.IsLocked || isMainDev))
+                  {
+                    <button type="button" class="btn secondary" data-confirm="none" style="padding:4px 8px;font-size:12px" @onclick="() => OpenEditPaymentModal(p)">Sửa</button>
+                    <button type="button"
+                            class="btn secondary"
+                            style="padding:4px 8px;font-size:12px;color:#b91c1c;border-color:#fecaca"
+                            data-confirm="delete"
+                            data-confirm-title="@(p.Direction == "IN" ? "Xác nhận Xóa Phiếu Thu" : "Xác nhận Xóa Phiếu Chi")"
+                            data-confirm-msg="@($"Bạn có chắc chắn muốn xóa {(p.Direction == "IN" ? "Phiếu Thu" : "Phiếu Chi")} {p.PaymentNo} ({Money(p.Amount)} · {p.Partner}) khỏi Sổ quỹ không?")"
+                            @onclick="() => DeletePaymentRow(p)">
+                      Xóa
+                    </button>
+                  }
+                  else if (p.IsLocked)
+                  {
+                    <span class="chip orange-chip">🔒 Đã chốt</span>
+                  }
+                </div>
+              </td>
             </tr>
           }
           @if (!FilteredPayments.Any())
           {
             <tr>
-              <td colspan="11">Chưa có giao dịch Sổ quỹ phù hợp khung thời gian đang lọc. Bấm <strong>"+ Lập Phiếu Thu / Chi (Sổ quỹ)"</strong> để ghi nhận Thu khách/công nợ hoặc Chi nhập hàng.</td>
+              <td colspan="12">Chưa có giao dịch Sổ quỹ phù hợp khung thời gian đang lọc. Bấm <strong>"+ Thêm Phiếu Thu"</strong> hoặc <strong>"+ Thêm Phiếu Chi"</strong> để ghi nhận vào Sổ quỹ.</td>
             </tr>
           }
         </tbody>
@@ -1300,7 +1438,13 @@ else
         }
         @if (canPay && FilteredInvoices.Any(i => !i.IsLocked))
         {
-          <button type="button" class="btn secondary btn-sm" @onclick="LockFilteredInvoices" title="Khóa sổ / chốt số toàn bộ chứng từ đang hiển thị để không cho phép sửa/xóa lịch sử gia hạn">
+          <button type="button"
+                  class="btn secondary btn-sm"
+                  data-confirm="edit"
+                  data-confirm-title="Xác nhận Chốt số danh sách đang lọc"
+                  data-confirm-msg="Bạn có chắc chắn muốn chốt số / khóa sổ toàn bộ chứng từ công nợ chưa khóa trong danh sách đang lọc không?"
+                  @onclick="LockFilteredInvoices"
+                  title="Khóa sổ / chốt số toàn bộ chứng từ đang hiển thị để không cho phép sửa/xóa lịch sử gia hạn">
             🔒 Chốt số danh sách đang lọc (@FilteredInvoices.Count(i => !i.IsLocked))
           </button>
         }
@@ -1521,7 +1665,28 @@ else
                   }
                   @if (canPay && x.Status != "VOID")
                   {
-                    <button type="button" class="btn secondary" style="padding:4px 8px;font-size:12px" @onclick="() => ToggleInvoiceLock(x)">
+                    @if (!x.IsLocked || isMainDev)
+                    {
+                      <button type="button" class="btn secondary" data-confirm="none" style="padding:4px 8px;font-size:12px" @onclick="() => OpenEditInvoiceModal(x)">
+                        Sửa
+                      </button>
+                      <button type="button"
+                              class="btn secondary"
+                              style="padding:4px 8px;font-size:12px;color:#b91c1c;border-color:#fecaca"
+                              data-confirm="delete"
+                              data-confirm-title="Xác nhận Xóa Chứng từ Công nợ"
+                              data-confirm-msg="@($"Bạn có chắc chắn muốn xóa chứng từ công nợ {x.Code} ({x.Customer} · {Money(x.Total)}) không?")"
+                              @onclick="() => DeleteInvoiceRow(x)">
+                        Xóa
+                      </button>
+                    }
+                    <button type="button"
+                            class="btn secondary"
+                            data-confirm="edit"
+                            data-confirm-title="@(x.IsLocked ? "Xác nhận Mở khóa chứng từ" : "Xác nhận Chốt số chứng từ")"
+                            data-confirm-msg="@(x.IsLocked ? $"Bạn có chắc chắn muốn mở khóa chứng từ {x.Code} ({x.Customer}) để cho phép chỉnh sửa không?" : $"Bạn có chắc chắn muốn chốt số / khóa sổ Kế toán cho chứng từ {x.Code} ({x.Customer}) không?")"
+                            style="padding:4px 8px;font-size:12px"
+                            @onclick="() => ToggleInvoiceLock(x)">
                       @(x.IsLocked ? "🔓 Mở khóa" : "🔒 Chốt số")
                     </button>
                   }
@@ -1554,7 +1719,11 @@ else
   private readonly PagerState snapshotPager = new();
   private readonly PagerState otherSellerPager = new();
   private readonly PagerState invoicePager = new();
-  private bool showPay, showCreate;
+  private bool showPay, showCreate, showEditPaymentModal, isMainDev;
+  private string modalError = "";
+  private long editPayId, editPayAmount, editInvoiceId;
+  private string editPayNo = "", editPayDir = "IN", editPayMethod = "BANK", editPayPartner = "", editPayNotes = "", editInvoiceCode = "";
+  private DateTime editPayDt = VnDateTimeHelper.NowVn;
 
   // Khung thời gian chuẩn dd/MM/yyyy HH:mm:ss dùng chung cho toàn bộ các bảng Công nợ & Thanh toán
   private DateTime? rangeFrom;
@@ -1958,6 +2127,10 @@ else
 
   protected override async Task OnInitializedAsync()
   {
+    var actor = await Gate.RequireAsync(Permissions.FinanceView);
+    Db.ActorId = actor;
+    isMainDev = Db.IsMainDeveloperActor(actor);
+
     canCustomer = await Gate.CanAsync(Permissions.FinanceCustomerView);
     canRenewal = await Gate.CanAsync(Permissions.FinanceRenewView);
     canSupplier = await Gate.CanAsync(Permissions.FinanceSupplierView);
@@ -1989,13 +2162,153 @@ else
     activeTab = tab;
   }
 
-  private void ToggleForm(string form)
+  private void OpenNewPayModal(string dir)
   {
-    showPay = form == nameof(showPay) && !showPay;
-    showCreate = form == nameof(showCreate) && !showCreate;
-    if (showCreate)
+    modalError = "";
+    payDirection = dir is "OUT" ? "OUT" : "IN";
+    OnPayDirectionChanged();
+    showCreate = false;
+    showEditPaymentModal = false;
+    showPay = true;
+  }
+
+  private void OpenEditPaymentModal(PaymentRowVm p)
+  {
+    modalError = "";
+    editPayId = p.Id;
+    editPayNo = p.PaymentNo;
+    editPayDir = p.Direction;
+    editPayMethod = p.Method is "CASH" ? "CASH" : "BANK";
+    editPayAmount = p.Amount;
+    editPayPartner = p.Partner == "—" ? "" : p.Partner;
+    editPayNotes = p.Notes ?? "";
+    editPayDt = p.TimestampDt ?? VnDateTimeHelper.NowVn;
+    showPay = false;
+    showCreate = false;
+    showEditPaymentModal = true;
+  }
+
+  private async Task SaveEditedPayment()
+  {
+    try
     {
-      newIssuedText = VnDateTimeHelper.FormatDisplay(VnDateTimeHelper.NowVn);
+      modalError = "";
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      var msg = Db.UpdateCashBookPayment(
+        editPayId,
+        editPayMethod,
+        editPayAmount,
+        editPayDt.ToString("yyyy-MM-dd HH:mm:ss"),
+        editPayPartner,
+        editPayNotes);
+      showEditPaymentModal = false;
+      Reload();
+      message = msg;
+    }
+    catch (Exception ex)
+    {
+      modalError = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private async Task DeletePaymentRow(PaymentRowVm p)
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      var msg = Db.DeleteCashBookPayment(p.Id);
+      Reload();
+      message = msg;
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
+    }
+  }
+
+  private void OpenNewInvoiceModal()
+  {
+    modalError = "";
+    editInvoiceId = 0;
+    editInvoiceCode = "";
+    newType = canSupplier ? "PURCHASE" : canOther ? "COMMISSION" : "SALE";
+    newQty = 1;
+    newUnitPrice = 200_000;
+    newProductId = 0;
+    newDescription = "";
+    newIssuedText = VnDateTimeHelper.FormatDisplay(VnDateTimeHelper.NowVn);
+    newDueDate = VnDateTimeHelper.TodayVn.AddDays(15);
+    showPay = false;
+    showEditPaymentModal = false;
+    showCreate = true;
+  }
+
+  private void OpenEditInvoiceModal(InvoiceVm inv)
+  {
+    modalError = "";
+    editInvoiceId = inv.Id;
+    editInvoiceCode = inv.Code;
+    newType = inv.Type == "SUPPLIER" ? "PURCHASE" : inv.Type;
+    newPartnerLabel = inv.Customer;
+
+    if (newType == "PURCHASE")
+    {
+      var matchedSup = suppliers.FirstOrDefault(s => inv.Customer.Contains(s.Name, StringComparison.OrdinalIgnoreCase));
+      if (matchedSup.Id > 0) newSupplierId = matchedSup.Id;
+    }
+    else if (newType is "SALE" or "RENEWAL")
+    {
+      var matchedCust = customers.FirstOrDefault(c =>
+        inv.Customer.Contains(c.Name, StringComparison.OrdinalIgnoreCase) ||
+        (!string.IsNullOrWhiteSpace(c.Code) && inv.Customer.Contains(c.Code, StringComparison.OrdinalIgnoreCase)));
+      if (matchedCust is not null) newCustomerId = matchedCust.Id;
+    }
+    else if (newType == "COMMISSION")
+    {
+      var matchedSl = sellerChoices.FirstOrDefault(sl =>
+        inv.Customer.Contains(sl.Code, StringComparison.OrdinalIgnoreCase) ||
+        inv.Customer.Contains(sl.Name, StringComparison.OrdinalIgnoreCase));
+      if (matchedSl is not null) newSellerId = matchedSl.Id;
+    }
+
+    if (inv.Lines is { Count: 1 })
+    {
+      var ln = inv.Lines[0];
+      newQty = Math.Max(1, ln.Quantity);
+      newUnitPrice = Math.Max(1, ln.UnitPrice);
+      newDescription = ln.Description;
+      newProductId = products.FirstOrDefault(pr => string.Equals(pr.Sku, ln.ProductSku, StringComparison.OrdinalIgnoreCase))?.Id ?? 0;
+    }
+    else
+    {
+      newQty = 1;
+      newUnitPrice = Math.Max(1, inv.Total);
+      newDescription = !string.IsNullOrWhiteSpace(inv.Notes) ? inv.Notes : $"Chứng từ {inv.Code}";
+      newProductId = 0;
+    }
+
+    newIssuedText = inv.DisplayTimestamp;
+    newDueDate = DateTime.TryParse(inv.DueAt, out var parsedDue) ? parsedDue : VnDateTimeHelper.TodayVn.AddDays(15);
+
+    showPay = false;
+    showEditPaymentModal = false;
+    showCreate = true;
+  }
+
+  private async Task DeleteInvoiceRow(InvoiceVm inv)
+  {
+    try
+    {
+      Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
+      await Gate.RequireAsync(PermissionForType(inv.Type));
+      var msg = Db.DeleteInvoice(inv.Id);
+      if (selectedInvoice?.Id == inv.Id) selectedInvoice = null;
+      Reload();
+      message = msg;
+    }
+    catch (Exception ex)
+    {
+      message = "Lỗi: " + ex.Message;
     }
   }
 
@@ -2097,6 +2410,9 @@ else
 
   private void PrepareSellerCommissionInvoice(SellerPeriodStatVm s)
   {
+    modalError = "";
+    editInvoiceId = 0;
+    editInvoiceCode = "";
     newType = "COMMISSION";
     newSellerId = s.SellerId;
     newPartnerLabel = $"{s.SellerName} ({s.SellerCode})";
@@ -2106,6 +2422,7 @@ else
     newDescription = $"Chi hoa hồng cuối kỳ cho NV bán hàng {s.SellerName} ({s.SellerCode}): {s.CompletedDeviceQty} thiết bị hoàn thành + {s.RenewalCount} lượt gia hạn.";
     showCreate = true;
     showPay = false;
+    showEditPaymentModal = false;
   }
 
   private void OnInvoicePicked()
@@ -2116,6 +2433,7 @@ else
 
   private void QuickPay(InvoiceVm inv)
   {
+    modalError = "";
     payDirection = inv.IsReceivable ? "IN" : "OUT";
     payCategory = inv.Type switch
     {
@@ -2129,6 +2447,7 @@ else
     amount = inv.Balance;
     showPay = true;
     showCreate = false;
+    showEditPaymentModal = false;
   }
 
   private bool CanSeeType(string type) => type switch
@@ -2158,6 +2477,7 @@ else
   {
     try
     {
+      modalError = "";
       Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
       if (invoiceId > 0)
       {
@@ -2165,6 +2485,7 @@ else
           ?? throw new InvalidOperationException("Chứng từ công nợ không tồn tại.");
         await Gate.RequireAsync(PermissionForType(item.Type));
         Db.PayInvoice(invoiceId, amount, method);
+        showPay = false;
         Reload();
         message = $"Đã ghi Sổ quỹ ({(method == "CASH" ? "Tiền mặt" : "Ngân hàng")}) — {(item.IsReceivable ? "Khoản Thu khách/công nợ" : "Khoản Chi")} {Money(amount)} cho chứng từ {item.Code}.";
       }
@@ -2174,13 +2495,14 @@ else
         Db.RecordDirectCashBookEntry(payDirection, method, catType, amount, directPartnerName, directPayNote, null);
         directPartnerName = "";
         directPayNote = "";
+        showPay = false;
         Reload();
         message = $"Đã ghi trực tiếp vào Sổ quỹ ({(method == "CASH" ? "Tiền mặt" : "Ngân hàng")}): {(payDirection == "IN" ? "Khoản Thu" : "Khoản Chi")} {Money(amount)}.";
       }
     }
     catch (Exception ex)
     {
-      message = "Lỗi: " + ex.Message;
+      modalError = "Lỗi: " + ex.Message;
     }
   }
 
@@ -2188,41 +2510,66 @@ else
   {
     try
     {
+      modalError = "";
       Db.ActorId = await Gate.RequireAsync(Permissions.FinancePay);
       await Gate.RequireAsync(PermissionForType(newType));
-      long? custId = newType == "SALE" ? newCustomerId : null;
-      long? supId = newType == "PURCHASE" ? newSupplierId : null;
-      if (newType == "PURCHASE" && (supId is null or <= 0))
+      long? custId = newType is "SALE" or "RENEWAL" ? newCustomerId : null;
+      long? supId = newType is "PURCHASE" or "SUPPLIER" ? newSupplierId : null;
+      if (newType is "PURCHASE" or "SUPPLIER" && (supId is null or <= 0))
         throw new InvalidOperationException("Vui lòng chọn Nhà cung cấp.");
-      if (newType == "SALE" && (custId is null or <= 0))
+      if (newType is "SALE" or "RENEWAL" && (custId is null or <= 0))
         throw new InvalidOperationException("Vui lòng chọn Khách hàng.");
       if (newType is "SERVICE" or "COMMISSION" && string.IsNullOrWhiteSpace(newPartnerLabel))
         throw new InvalidOperationException("Vui lòng nhập tên Kỹ thuật / Nhân viên bán hàng thụ hưởng.");
       if (!string.IsNullOrWhiteSpace(newIssuedText) && !VnDateTimeHelper.TryParseUserFilterInput(newIssuedText, false, out _, out _))
         throw new InvalidOperationException("Thời điểm phát sinh phải đúng định dạng dd/MM/yyyy HH:mm:ss (hoặc dd/MM/yyyy).");
 
-      var createdId = Db.CreateCustomInvoice(
-        newType,
-        custId,
-        supId,
-        newPartnerLabel,
-        newDescription,
-        newProductId > 0 ? newProductId : null,
-        newQty,
-        newUnitPrice,
-        newDueDate.ToString("yyyy-MM-dd"),
-        newIssuedText);
+      if (editInvoiceId > 0)
+      {
+        var msg = Db.UpdateCustomInvoice(
+          editInvoiceId,
+          custId,
+          supId,
+          newPartnerLabel,
+          newDescription,
+          newProductId > 0 ? newProductId : null,
+          newQty,
+          newUnitPrice,
+          newDueDate.ToString("yyyy-MM-dd"),
+          newIssuedText);
 
-      newDescription = "";
-      showCreate = false;
-      Reload();
-      var created = invoices.FirstOrDefault(x => x.Id == createdId);
-      if (created != null) OpenInvoiceDetail(created);
-      message = $"Đã lập chứng từ công nợ {created?.Code} thành công.";
+        editInvoiceId = 0;
+        editInvoiceCode = "";
+        newDescription = "";
+        showCreate = false;
+        Reload();
+        message = msg;
+      }
+      else
+      {
+        var createdId = Db.CreateCustomInvoice(
+          newType,
+          custId,
+          supId,
+          newPartnerLabel,
+          newDescription,
+          newProductId > 0 ? newProductId : null,
+          newQty,
+          newUnitPrice,
+          newDueDate.ToString("yyyy-MM-dd"),
+          newIssuedText);
+
+        newDescription = "";
+        showCreate = false;
+        Reload();
+        var created = invoices.FirstOrDefault(x => x.Id == createdId);
+        if (created != null) OpenInvoiceDetail(created);
+        message = $"Đã lập chứng từ công nợ {created?.Code} thành công.";
+      }
     }
     catch (Exception ex)
     {
-      message = "Lỗi: " + ex.Message;
+      modalError = "Lỗi: " + ex.Message;
     }
   }
 

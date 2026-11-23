@@ -2531,7 +2531,9 @@ public sealed class DemoDb
             WHEN ec.id IS NOT NULL AND p.direction='OUT' AND INSTR(COALESCE(p.notes,''), ec.name)=0
               THEN '[' || ec.name || '] ' || COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,''))
             ELSE COALESCE(NULLIF(p.notes,''), COALESCE(i.notes,''))
-          END
+          END,
+          i.id,
+          CASE WHEN COALESCE(p.is_locked,0)=1 OR COALESCE(i.is_locked,0)=1 THEN 1 ELSE 0 END
           FROM payments p
           LEFT JOIN payment_allocations pa ON pa.payment_id=p.id AND pa.deleted_at IS NULL
           LEFT JOIN invoices i ON i.id=pa.invoice_id AND i.deleted_at IS NULL
@@ -2545,7 +2547,7 @@ public sealed class DemoDb
           LEFT JOIN employees pe ON pe.id=p.employee_id
           WHERE p.deleted_at IS NULL
           ORDER BY resolved_paid_at ASC, p.id ASC, COALESCE(pa.id,0) ASC",
-          r => (Id: L(r,0), No: S(r,1), Dir: S(r,2), Method: S(r,3), Amt: L(r,4), InvNo: S(r,5), InvType: S(r,6), Partner: S(r,7), PaidAt: S(r,8), Notes: S(r,9)));
+          r => (Id: L(r,0), No: S(r,1), Dir: S(r,2), Method: S(r,3), Amt: L(r,4), InvNo: S(r,5), InvType: S(r,6), Partner: S(r,7), PaidAt: S(r,8), Notes: S(r,9), InvId: r.IsDBNull(10)?(long?)null:L(r,10), Locked: L(r,11)==1));
 
         long runningCash = 0, runningBank = 0, runningTotal = 0;
         var result = new List<PaymentRowVm>(raw.Count);
@@ -2556,7 +2558,7 @@ public sealed class DemoDb
             if (row.Method == "CASH") runningCash += signed;
             else runningBank += signed;
             var methodBal = row.Method == "CASH" ? runningCash : runningBank;
-            result.Add(new PaymentRowVm(row.Id, row.No, row.Dir, row.Method, row.Amt, row.InvNo, row.InvType, row.Partner, row.PaidAt, row.Notes, methodBal, runningTotal));
+            result.Add(new PaymentRowVm(row.Id, row.No, row.Dir, row.Method, row.Amt, row.InvNo, row.InvType, row.Partner, row.PaidAt, row.Notes, methodBal, runningTotal, row.InvId, row.Locked));
         }
         result.Reverse();
         return result;
@@ -3909,6 +3911,217 @@ public sealed class DemoDb
                     RecalculateInvoiceSettlementStatus(c, t, invId);
                 Log(c, t, "DELETE_EXPENSE", "PAYMENT", p.Id, $"Xóa mềm phiếu chi {p.No} ({p.Amt:N0} VND · {p.Payee})");
                 return $"Đã xóa phiếu chi {p.No} ({p.Amt:N0} ₫) khỏi Sổ quỹ và khôi phục số dư chứng từ công nợ liên quan.";
+            }
+        });
+    }
+
+    public string UpdateCashBookPayment(long paymentId, string method, long amountVnd, string? paidAt, string partnerName, string notes)
+    {
+        if (method is not ("CASH" or "BANK"))
+            throw new InvalidOperationException("Nguồn quỹ phải là Tiền mặt hoặc Ngân hàng.");
+        if (amountVnd <= 0)
+            throw new InvalidOperationException("Số tiền giao dịch phải lớn hơn 0 ₫.");
+
+        string paidSql;
+        if (string.IsNullOrWhiteSpace(paidAt))
+            paidSql = VnDateTimeHelper.NowSql();
+        else if (VnDateTimeHelper.TryParseUserFilterInput(paidAt, false, out var parsed, out _))
+        {
+            if (paidAt.Trim().Length <= 10) parsed = parsed.Date + VnDateTimeHelper.NowVn.TimeOfDay;
+            paidSql = parsed.ToString(VnDateTimeHelper.SqlFormat, CultureInfo.InvariantCulture);
+        }
+        else if (DateTime.TryParse(paidAt.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var dtIso))
+        {
+            if (paidAt.Trim().Length <= 10) dtIso = dtIso.Date + VnDateTimeHelper.NowVn.TimeOfDay;
+            paidSql = dtIso.ToString(VnDateTimeHelper.SqlFormat, CultureInfo.InvariantCulture);
+        }
+        else
+            paidSql = VnDateTimeHelper.NowSql();
+
+        return Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, "SELECT id, payment_no, direction, COALESCE(is_locked,0) FROM payments WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), Dir: S(r, 2), Locked: L(r, 3) == 1), ("$id", paymentId)).SingleOrDefault();
+            if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu Sổ quỹ.");
+            var isMain = IsMainDeveloper(c, t);
+            if (cur.Locked && !isMain)
+                throw new InvalidOperationException($"Phiếu {cur.No} đã chốt số / khóa sổ, vui lòng mở khóa trước khi chỉnh sửa.");
+
+            var alloc = QueryTx(c, t, "SELECT id, invoice_id FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL LIMIT 1",
+                r => (Id: L(r, 0), InvId: L(r, 1)), ("$p", cur.Id)).FirstOrDefault();
+
+            if (alloc.InvId > 0)
+            {
+                var invCheck = QueryTx(c, t, @"SELECT invoice_no, COALESCE(is_locked,0),
+                        amount_vnd - COALESCE(offset_vnd,0) - COALESCE((SELECT SUM(allocated_vnd) FROM payment_allocations WHERE invoice_id=invoices.id AND deleted_at IS NULL AND payment_id<>$p), 0)
+                    FROM invoices WHERE id=$inv AND deleted_at IS NULL",
+                    r => (No: S(r, 0), Locked: L(r, 1) == 1, MaxAllowed: L(r, 2)),
+                    ("$p", cur.Id), ("$inv", alloc.InvId)).SingleOrDefault();
+                if (invCheck.Locked && !isMain)
+                    throw new InvalidOperationException($"Chứng từ liên kết {invCheck.No} đã chốt số, cần mở khóa chứng từ trước khi sửa phiếu thu/chi.");
+                if (amountVnd > invCheck.MaxAllowed)
+                    throw new InvalidOperationException($"Số tiền ({amountVnd:N0} ₫) vượt số dư tối đa của chứng từ {invCheck.No} ({Math.Max(0, invCheck.MaxAllowed):N0} ₫).");
+
+                Exec(c, t, "UPDATE payment_allocations SET allocated_vnd=$a WHERE id=$aid", ("$a", amountVnd), ("$aid", alloc.Id));
+            }
+
+            Exec(c, t, "UPDATE payments SET method=$m, amount_vnd=$a, paid_at=$paid, payee_name=$payee, notes=$notes WHERE id=$id",
+                ("$m", method), ("$a", amountVnd), ("$paid", paidSql), ("$payee", (partnerName ?? "").Trim()), ("$notes", (notes ?? "").Trim()), ("$id", cur.Id));
+
+            if (alloc.InvId > 0)
+                RecalculateInvoiceSettlementStatus(c, t, alloc.InvId);
+
+            Log(c, t, "UPDATE", "PAYMENT", cur.Id, $"Cập nhật phiếu {(cur.Dir == "IN" ? "Thu" : "Chi")} {cur.No}: {amountVnd:N0} VND ({method})");
+            return $"Đã cập nhật phiếu {(cur.Dir == "IN" ? "Thu" : "Chi")} {cur.No} ({amountVnd:N0} ₫) và đồng bộ Sổ quỹ / Công nợ.";
+        });
+    }
+
+    public string DeleteCashBookPayment(long paymentId)
+    {
+        return Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, "SELECT id, payment_no, direction, amount_vnd, COALESCE(is_locked,0) FROM payments WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), Dir: S(r, 2), Amt: L(r, 3), Locked: L(r, 4) == 1), ("$id", paymentId)).SingleOrDefault();
+            if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy phiếu Sổ quỹ.");
+            var isMain = IsMainDeveloper(c, t);
+            if (cur.Locked && !isMain)
+                throw new InvalidOperationException($"Phiếu {cur.No} đã chốt số / khóa sổ, không thể xóa.");
+
+            var linkedInvIds = QueryTx(c, t, "SELECT invoice_id FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", r => L(r, 0), ("$p", cur.Id));
+            foreach (var invId in linkedInvIds.Distinct())
+            {
+                var invLocked = N(c, t, "SELECT COALESCE(is_locked,0) FROM invoices WHERE id=$i", ("$i", invId)) == 1;
+                if (invLocked && !isMain)
+                    throw new InvalidOperationException("Chứng từ công nợ gắn với phiếu này đã chốt số, cần mở khóa trước khi xóa phiếu thu/chi.");
+            }
+
+            var label = cur.Dir == "IN" ? "Phiếu Thu" : "Phiếu Chi";
+            if (isMain)
+            {
+                Exec(c, t, "DELETE FROM payment_allocations WHERE payment_id=$p", ("$p", cur.Id));
+                Exec(c, t, "DELETE FROM payments WHERE id=$p", ("$p", cur.Id));
+                foreach (var invId in linkedInvIds.Distinct())
+                    RecalculateInvoiceSettlementStatus(c, t, invId);
+                return $"Đã xóa cứng {label} {cur.No} ({cur.Amt:N0} ₫) và cập nhật lại Sổ quỹ / Công nợ liên quan.";
+            }
+            else
+            {
+                var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                Exec(c, t, "UPDATE payment_allocations SET deleted_at=$now, deleted_by=$actor WHERE payment_id=$p AND deleted_at IS NULL",
+                    ("$now", now), ("$actor", ActorId > 0 ? ActorId : null), ("$p", cur.Id));
+                Exec(c, t, "UPDATE payments SET deleted_at=$now, deleted_by=$actor WHERE id=$p",
+                    ("$now", now), ("$actor", ActorId > 0 ? ActorId : null), ("$p", cur.Id));
+                foreach (var invId in linkedInvIds.Distinct())
+                    RecalculateInvoiceSettlementStatus(c, t, invId);
+                Log(c, t, "DELETE", "PAYMENT", cur.Id, $"Xóa mềm {label} {cur.No} ({cur.Amt:N0} VND)");
+                return $"Đã xóa {label} {cur.No} ({cur.Amt:N0} ₫) khỏi Sổ quỹ và khôi phục số dư chứng từ công nợ liên quan.";
+            }
+        });
+    }
+
+    public string UpdateCustomInvoice(long invoiceId, long? customerId, long? supplierId, string partnerLabel, string description, long? productId, long quantity, long unitPriceVnd, string dueAt, string? issuedAt = null)
+    {
+        if (quantity <= 0 || unitPriceVnd <= 0)
+            throw new InvalidOperationException("Số lượng và đơn giá phải lớn hơn 0.");
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException("Vui lòng nhập nội dung / diễn giải chứng từ.");
+
+        var total = quantity * unitPriceVnd;
+        string issued = VnDateTimeHelper.NowSql();
+        if (!string.IsNullOrWhiteSpace(issuedAt))
+        {
+            if (VnDateTimeHelper.TryParseUserFilterInput(issuedAt, false, out var parsedIssued, out _))
+            {
+                if (issuedAt.Trim().Length <= 10) parsedIssued = parsedIssued.Date + VnDateTimeHelper.NowVn.TimeOfDay;
+                issued = parsedIssued.ToString(VnDateTimeHelper.SqlFormat, CultureInfo.InvariantCulture);
+            }
+            else issued = issuedAt.Trim();
+        }
+        var due = string.IsNullOrWhiteSpace(dueAt) ? VnDateTimeHelper.TodayVn.AddDays(15).ToString("yyyy-MM-dd") : dueAt.Trim();
+        var noteText = string.IsNullOrWhiteSpace(partnerLabel) ? description.Trim() : $"{partnerLabel.Trim()} — {description.Trim()}";
+
+        return Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, "SELECT id, invoice_no, COALESCE(is_locked,0), COALESCE(v7_order_id,0), COALESCE(renewal_id,0) FROM invoices WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), Locked: L(r, 2) == 1, OrdId: L(r, 3), RenId: L(r, 4)), ("$id", invoiceId)).SingleOrDefault();
+            if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy chứng từ công nợ.");
+            var isMain = IsMainDeveloper(c, t);
+            if (cur.Locked && !isMain)
+                throw new InvalidOperationException($"Chứng từ {cur.No} đã chốt số, cần mở khóa trước khi chỉnh sửa.");
+
+            var paidAmt = N(c, t, "SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", cur.Id));
+            if (total < paidAmt)
+                throw new InvalidOperationException($"Tổng tiền chứng từ mới ({total:N0} ₫) không thể nhỏ hơn số tiền đã thanh toán ({paidAmt:N0} ₫).");
+
+            Exec(c, t, @"UPDATE invoices SET
+                    customer_id=COALESCE($cust, customer_id),
+                    supplier_id=COALESCE($sup, supplier_id),
+                    issued_at=$issued,
+                    due_at=$due,
+                    amount_vnd=$amt,
+                    notes=$note
+                WHERE id=$id",
+                ("$cust", customerId is > 0 ? customerId : null),
+                ("$sup", supplierId is > 0 ? supplierId : null),
+                ("$issued", issued), ("$due", due), ("$amt", total), ("$note", noteText), ("$id", cur.Id));
+
+            var lineCount = N(c, t, "SELECT COUNT(*) FROM invoice_lines WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", cur.Id));
+            if (lineCount <= 1)
+            {
+                if (lineCount == 1)
+                {
+                    Exec(c, t, "UPDATE invoice_lines SET description=$d, product_id=COALESCE($p, product_id), quantity=$q, unit_price_vnd=$u WHERE invoice_id=$i AND deleted_at IS NULL",
+                        ("$d", description.Trim()), ("$p", productId is > 0 ? productId : null), ("$q", quantity), ("$u", unitPriceVnd), ("$i", cur.Id));
+                }
+                else
+                {
+                    Exec(c, t, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$u)",
+                        ("$i", cur.Id), ("$d", description.Trim()), ("$p", productId is > 0 ? productId : null), ("$q", quantity), ("$u", unitPriceVnd));
+                }
+            }
+
+            RecalculateInvoiceSettlementStatus(c, t, cur.Id);
+            Log(c, t, "UPDATE", "INVOICE", cur.Id, $"Cập nhật chứng từ {cur.No}: {total:N0} VND — {noteText}");
+            return $"Đã cập nhật chứng từ công nợ {cur.No} ({total:N0} ₫).";
+        });
+    }
+
+    public string DeleteInvoice(long invoiceId)
+    {
+        return Tx((c, t) =>
+        {
+            var cur = QueryTx(c, t, "SELECT id, invoice_no, amount_vnd, COALESCE(is_locked,0) FROM invoices WHERE id=$id AND deleted_at IS NULL",
+                r => (Id: L(r, 0), No: S(r, 1), Amt: L(r, 2), Locked: L(r, 3) == 1), ("$id", invoiceId)).SingleOrDefault();
+            if (cur.Id == 0) throw new InvalidOperationException("Không tìm thấy chứng từ công nợ.");
+            var isMain = IsMainDeveloper(c, t);
+            if (cur.Locked && !isMain)
+                throw new InvalidOperationException($"Chứng từ {cur.No} đã chốt số, cần mở khóa trước khi xóa.");
+
+            var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", r => L(r, 0), ("$i", cur.Id));
+
+            if (isMain)
+            {
+                Exec(c, t, "DELETE FROM payment_allocations WHERE invoice_id=$i", ("$i", cur.Id));
+                foreach (var pid in payIds.Distinct())
+                {
+                    if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p", ("$p", pid)) == 0)
+                        Exec(c, t, "DELETE FROM payments WHERE id=$p", ("$p", pid));
+                }
+                Exec(c, t, "DELETE FROM invoice_lines WHERE invoice_id=$i", ("$i", cur.Id));
+                Exec(c, t, "DELETE FROM invoices WHERE id=$i", ("$i", cur.Id));
+                return $"Đã xóa cứng chứng từ công nợ {cur.No} ({cur.Amt:N0} ₫) và các bút toán thanh toán gắn kèm.";
+            }
+            else
+            {
+                if (payIds.Count > 0)
+                    throw new InvalidOperationException($"Chứng từ {cur.No} đã có phiếu thu/chi phân bổ. Vui lòng xóa phiếu thu/chi bên Sổ quỹ trước khi xóa chứng từ.");
+                var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                Exec(c, t, "UPDATE invoice_lines SET deleted_at=$now, deleted_by=$actor WHERE invoice_id=$i AND deleted_at IS NULL",
+                    ("$now", now), ("$actor", ActorId > 0 ? ActorId : null), ("$i", cur.Id));
+                Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=$now, deleted_by=$actor WHERE id=$i",
+                    ("$now", now), ("$actor", ActorId > 0 ? ActorId : null), ("$i", cur.Id));
+                Log(c, t, "DELETE", "INVOICE", cur.Id, $"Xóa mềm chứng từ công nợ {cur.No} ({cur.Amt:N0} VND)");
+                return $"Đã xóa chứng từ công nợ {cur.No} ({cur.Amt:N0} ₫).";
             }
         });
     }

@@ -476,9 +476,9 @@
 @* ==================== MODAL TẠO / SỬA PHIẾU KHOẢN CHI ==================== *@
 @if (showVoucherModal)
 {
-    <div class="so-modal-backdrop" @onclick="CloseVoucherModal">
-        <div class="so-modal" style="max-width:860px" @onclick:stopPropagation="true">
-            <div class="so-modal-head">
+    <div class="so-modal-overlay" @onclick="CloseVoucherModal">
+        <div class="so-modal-dialog" style="max-width:860px" @onclick:stopPropagation="true">
+            <div class="so-modal-header">
                 <div>
                     <div class="eyebrow">PHIẾU KHOẢN CHI SỔ QUỸ &amp; CẤN TRỪ CÔNG NỢ</div>
                     <h2 style="margin:0.15rem 0 0 0">@(editVoucherId > 0 ? $"Chỉnh sửa Khoản chi: {editVoucherNo}" : "Lập Khoản chi mới (Map dữ liệu hiện tại / Chi phí tùy biến)")</h2>
@@ -520,7 +520,7 @@
                                 </select>
                             </label>
                             <div style="display:flex;align-items:flex-end">
-                                <button type="button" class="btn btn-sm" data-confirm="none" @onclick="SaveInlineCategory">+ Lưu &amp; Chọn loại chi này</button>
+                                <button type="button" class="btn btn-sm" data-confirm="add" data-confirm-title="Xác nhận Thêm mới Loại khoản chi" data-confirm-msg="@($"Bạn có chắc chắn muốn tạo mới loại khoản chi '{(string.IsNullOrWhiteSpace(inlineCatName) ? "mới" : inlineCatName)}' không?")" @onclick="SaveInlineCategory">+ Lưu &amp; Chọn loại chi này</button>
                             </div>
                         </div>
                     </div>
@@ -695,9 +695,9 @@
 
 @if (showCategoryModal)
 {
-    <div class="so-modal-backdrop" @onclick="CloseCategoryModal">
-        <div class="so-modal" style="max-width:640px" @onclick:stopPropagation="true">
-            <div class="so-modal-head">
+    <div class="so-modal-overlay" @onclick="CloseCategoryModal">
+        <div class="so-modal-dialog" style="max-width:640px" @onclick:stopPropagation="true">
+            <div class="so-modal-header">
                 <div>
                     <div class="eyebrow">TÙY BIẾN DANH MỤC LOẠI KHOẢN CHI</div>
                     <h2 style="margin:0.15rem 0 0 0">@(editCatId > 0 ? $"Chỉnh sửa Loại khoản chi: {catCode}" : "Tạo Loại khoản chi tùy biến mới")</h2>
@@ -742,7 +742,7 @@
                 </div>
             </div>
             <div class="so-modal-footer">
-                <button type="button" class="btn" data-confirm="none" @onclick="SaveCategoryModal">💾 Lưu Loại khoản chi</button>
+                <button type="button" class="btn" data-confirm="@(editCatId > 0 ? "edit" : "add")" data-confirm-title="@(editCatId > 0 ? "Xác nhận Cập nhật Loại khoản chi" : "Xác nhận Thêm mới Loại khoản chi")" data-confirm-msg="@($"Bạn có chắc chắn muốn {(editCatId > 0 ? "lưu cập nhật" : "thêm mới")} loại khoản chi '{catName}' không?")" @onclick="SaveCategoryModal">💾 @(editCatId > 0 ? "Lưu cập nhật Loại khoản chi" : "+ Thêm Loại khoản chi")</button>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseCategoryModal">Đóng</button>
             </div>
         </div>

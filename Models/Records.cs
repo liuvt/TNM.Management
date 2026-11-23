@@ -106,7 +106,7 @@ public record InvoiceLineVm(long Id, long InvoiceId, string Description, string 
     public long LineTotal => Quantity * UnitPrice;
     public OrderSnapshotLineVm Parsed => OrderSnapshotLineVm.FromDescription(ProductSku, Description, Quantity, UnitPrice);
 }
-public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0)
+public record PaymentRowVm(long Id, string PaymentNo, string Direction, string Method, long Amount, string InvoiceNo, string InvoiceType, string Partner, string PaidAt, string Notes = "", long BalanceAfterMethodVnd = 0, long BalanceAfterTotalVnd = 0, long? InvoiceId = null, bool IsLocked = false)
 {
     public DateTime? TimestampDt => VnDateTimeHelper.ParseDbTimestamp(PaidAt, false);
     public string DisplayTimestamp => VnDateTimeHelper.FormatDisplay(PaidAt, false);
