@@ -259,36 +259,53 @@
           </div>
         }
 
+        @* 1. Chọn Loại phiếu bằng 2 Thẻ trực quan *@
+        <div class="tc-type-grid">
+          <button type="button"
+                  class="tc-type-card @(payDirection == "IN" ? "active-in" : "")"
+                  data-confirm="none"
+                  @onclick='() => { if (payDirection != "IN") { payDirection = "IN"; OnPayDirectionChanged(); } }'>
+            <span class="tc-type-icon">↗</span>
+            <span class="tc-type-info">
+              <strong>Phiếu Thu (+) — Khoản Thu</strong>
+              <small>Ghi nhận tiền thu vào Sổ quỹ</small>
+            </span>
+          </button>
+          <button type="button"
+                  class="tc-type-card @(payDirection == "OUT" ? "active-out" : "")"
+                  data-confirm="none"
+                  @onclick='() => { if (payDirection != "OUT") { payDirection = "OUT"; OnPayDirectionChanged(); } }'>
+            <span class="tc-type-icon">↘</span>
+            <span class="tc-type-info">
+              <strong>Phiếu Chi (−) — Khoản Chi</strong>
+              <small>Ghi nhận tiền chi từ Sổ quỹ</small>
+            </span>
+          </button>
+        </div>
+
         <div class="form-grid">
-          <label>1. Loại giao dịch Sổ quỹ *
-            <select @bind="payDirection" @bind:after="OnPayDirectionChanged">
-              <option value="IN">Khoản Thu (+): Phiếu Thu vào Sổ quỹ</option>
-              <option value="OUT">Khoản Chi (−): Phiếu Chi từ Sổ quỹ</option>
-            </select>
-          </label>
-
-          <label>3. Sổ quỹ @(payDirection == "IN" ? "nhận tiền" : "thanh toán") (Tiền mặt / Ngân hàng) *
-            <select @bind="method">
-              <option value="CASH">Quỹ Tiền mặt</option>
-              <option value="BANK">Quỹ Ngân hàng / Chuyển khoản</option>
-            </select>
-          </label>
-
-          <label style="grid-column:span 2">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <span>2. Chọn loại @(payDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") * (@PayCategoriesForModal.Count khoản khả dụng)</span>
-              <a href="/expenses" style="font-size:12px;font-weight:600;color:#0284c7;text-decoration:underline">⚙ Quản lý danh mục Khoản Thu/Chi →</a>
+          <div style="grid-column:span 2;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11.5px;color:#526058;font-weight:660">2. Chọn loại @(payDirection == "IN" ? "Khoản Thu (+)" : "Khoản Chi (−)") * (@PayCategoriesForModal.Count khoản khả dụng)</span>
+              <a href="/expenses" style="font-size:12px;font-weight:650;color:#1b653e;text-decoration:underline">⚙ Quản lý danh mục Khoản Thu/Chi →</a>
             </div>
-            <select value="@payCategoryId"
-                    @onchange="OnPayCategorySelectChanged"
-                    @key="@($"fcat-{payDirection}-{PayCategoriesForModal.Count}-{payCategoryId}")"
-                    style="font-weight:600">
-              @foreach (var c in PayCategoriesForModal)
-              {
-                <option value="@c.Id" selected="@(c.Id == payCategoryId)">[@c.GroupName] @c.Name (@c.Code)</option>
-              }
-            </select>
-          </label>
+            <CashCategoryCombobox Items="PayCategoriesForModal"
+                                  Value="payCategoryId"
+                                  ValueChanged="OnPayCategoryPicked"
+                                  Placeholder="@($"— Chọn loại {(payDirection == "IN" ? "Khoản Thu" : "Khoản Chi")} —")" />
+          </div>
+
+          <div style="grid-column:span 2;display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:11.5px;color:#526058;font-weight:660">3. Nguồn Sổ quỹ @(payDirection == "IN" ? "nhận tiền" : "thanh toán") *</span>
+            <div class="tc-seg" style="width:100%">
+              <button type="button" class="tc-seg-btn @(method == "BANK" ? "active" : "")" style="flex:1;justify-content:center" data-confirm="none" @onclick='() => method = "BANK"'>
+                🏦 Quỹ Ngân hàng / Chuyển khoản
+              </button>
+              <button type="button" class="tc-seg-btn @(method == "CASH" ? "active" : "")" style="flex:1;justify-content:center" data-confirm="none" @onclick='() => method = "CASH"'>
+                💵 Quỹ Tiền mặt
+              </button>
+            </div>
+          </div>
 
           <label style="grid-column:span 2">4. Chọn chứng từ công nợ để phân bổ (Tùy chọn)
             <select @bind="invoiceId" @bind:after="OnInvoicePicked">
@@ -420,23 +437,24 @@
           </div>
         }
         <div class="form-grid">
-          <label style="grid-column:span 2">Khoản @(editPayDir == "IN" ? "Thu (+)" : "Chi (−)") *
-            <select value="@editPayCategoryId"
-                    @onchange="e => editPayCategoryId = long.TryParse(e.Value?.ToString(), out var v) ? v : 0"
-                    @key="@($"edit-fcat-{editPayDir}-{EditPayCategoriesForModal.Count}-{editPayCategoryId}")"
-                    style="font-weight:600">
-              @foreach (var c in EditPayCategoriesForModal)
-              {
-                <option value="@c.Id" selected="@(c.Id == editPayCategoryId)">[@c.GroupName] @c.Name (@c.Code)</option>
-              }
-            </select>
-          </label>
-          <label>Nguồn Sổ quỹ (Tiền mặt / Ngân hàng) *
-            <select @bind="editPayMethod">
-              <option value="CASH">Quỹ Tiền mặt</option>
-              <option value="BANK">Quỹ Ngân hàng / Chuyển khoản</option>
-            </select>
-          </label>
+          <div style="grid-column:span 2;display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:11.5px;color:#526058;font-weight:660">Khoản @(editPayDir == "IN" ? "Thu (+)" : "Chi (−)") *</span>
+            <CashCategoryCombobox Items="EditPayCategoriesForModal"
+                                  Value="editPayCategoryId"
+                                  ValueChanged="v => editPayCategoryId = v"
+                                  Placeholder="— Chọn loại khoản —" />
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:11.5px;color:#526058;font-weight:660">Nguồn Sổ quỹ *</span>
+            <div class="tc-seg" style="width:100%">
+              <button type="button" class="tc-seg-btn @(editPayMethod == "BANK" ? "active" : "")" style="flex:1;justify-content:center" data-confirm="none" @onclick='() => editPayMethod = "BANK"'>
+                🏦 Ngân hàng
+              </button>
+              <button type="button" class="tc-seg-btn @(editPayMethod == "CASH" ? "active" : "")" style="flex:1;justify-content:center" data-confirm="none" @onclick='() => editPayMethod = "CASH"'>
+                💵 Tiền mặt
+              </button>
+            </div>
+          </div>
           <label>Số tiền @(editPayDir == "IN" ? "Thu (+)" : "Chi (−)") (VND) *
             <input type="number" min="1" step="10000" @bind="editPayAmount" style="font-weight:700;color:@(editPayDir == "IN" ? "#15803d" : "#dc2626")" />
           </label>
@@ -987,13 +1005,14 @@ else if (activeTab == "PAYMENTS")
         <option value="IN">Khoản Thu (+)</option>
         <option value="OUT">Khoản Chi (−)</option>
       </select>
-      <select class="search-input" style="min-width:210px" @bind="cashBookCatFilter" @bind:after="() => paymentPager.Reset()">
-        <option value="0">— Mọi Loại khoản Thu/Chi —</option>
-        @foreach (var cat in cashCategories.Where(c => string.IsNullOrWhiteSpace(cashBookDirFilter) || c.Direction == cashBookDirFilter))
-        {
-          <option value="@cat.Id">@(cat.IsIncome ? "[THU]" : "[CHI]") @cat.Name</option>
-        }
-      </select>
+      <CashCategoryCombobox Items="@(cashCategories.Where(c => string.IsNullOrWhiteSpace(cashBookDirFilter) || c.Direction == cashBookDirFilter).ToList())"
+                            Value="cashBookCatFilter"
+                            ValueChanged="v => { cashBookCatFilter = v; paymentPager.Reset(); }"
+                            AllowEmpty="true"
+                            EmptyLabel="— Mọi Loại khoản Thu/Chi —"
+                            Placeholder="— Mọi Loại khoản Thu/Chi —"
+                            FullWidth="false"
+                            ContainerStyle="min-width:235px" />
       <input class="search-input"
              style="min-width:220px;flex:1"
              @bind="search"
@@ -2470,9 +2489,9 @@ else
     SyncSelectedPayInvoice();
   }
 
-  private void OnPayCategorySelectChanged(ChangeEventArgs e)
+  private void OnPayCategoryPicked(long cid)
   {
-    payCategoryId = long.TryParse(e.Value?.ToString(), out var cid) ? cid : 0;
+    payCategoryId = cid;
     payDirectCustomerId = 0;
     payDirectSupplierId = 0;
     payDirectEmployeeId = 0;

@@ -150,8 +150,8 @@ window.tnmOpenDateTimePicker = function (inputId) {
             };
         }
 
-        // Ignore navigation, sidebar, topbar, tabs, summary filter bars, and pagination controls
-        if (btn.closest('.sidebar, .topbar, .tabs, .device-summary-bar, .device-due10-note, .table-pager, .catalog-pagination, .erp-filter-bar, .erp-picker-popover, .erp-segmented-tabs, .erp-master-period')) return null;
+        // Ignore navigation, sidebar, topbar, tabs, summary filter bars, custom comboboxes, and pagination controls
+        if (btn.closest('.sidebar, .topbar, .tabs, .device-summary-bar, .device-due10-note, .table-pager, .catalog-pagination, .erp-filter-bar, .erp-picker-popover, .erp-segmented-tabs, .erp-master-period, .tc-toolbar, .tc-dd, .tc-type-grid, .tc-group-chips, .tc-target-grid')) return null;
         if (btn.classList.contains('mobile-scrim') || btn.classList.contains('mobile-toggle')) return null;
         if (/^(«|‹|›|»|\d+$)/.test(rawText) || rawText === '« Đầu' || rawText === '‹ Trước' || rawText === 'Sau ›' || rawText === 'Cuối »') return null;
 

@@ -1,0 +1,142 @@
+@if (isOpen)
+{
+    <div class="tc-backdrop" @onclick="Close"></div>
+}
+
+<div class="tc-dd @(FullWidth ? "w-full" : "")" style="@ContainerStyle">
+    <button type="button"
+            class="tc-dd-trigger @(isOpen ? "open" : "")"
+            data-confirm="none"
+            @onclick="Toggle">
+        <span class="tc-dd-trigger-left">
+            @if (SelectedItem is not null)
+            {
+                <span class="tc-dot @(SelectedItem.IsIncome ? "in" : "out")"></span>
+                <span class="tc-dd-trigger-text">
+                    <strong style="font-weight:730;color:#14532d">@SelectedItem.Name</strong>
+                    <span style="color:#64748b;font-weight:520;margin-left:6px;font-size:11.3px">· @SelectedItem.GroupName</span>
+                </span>
+                <span class="tc-code-tag" style="margin-left:auto">@SelectedItem.Code</span>
+            }
+            else
+            {
+                <span class="tc-dot muted"></span>
+                <span class="tc-dd-trigger-text" style="color:#475569">@Placeholder</span>
+            }
+        </span>
+        <span class="tc-dd-chevron">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6" />
+            </svg>
+        </span>
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="tc-dd-menu @(AlignRight ? "align-right" : "")" @onclick:stopPropagation="true">
+            @if ((Items?.Count ?? 0) > 4)
+            {
+                <div class="tc-dd-search">
+                    <input type="search"
+                           @bind="filterQuery"
+                           @bind:event="oninput"
+                           placeholder="Tìm nhanh tên khoản, mã khoản, nhóm..." />
+                </div>
+            }
+            <div class="tc-dd-scroll">
+                @if (AllowEmpty)
+                {
+                    <button type="button"
+                            class="tc-dd-item @(Value <= 0 ? "selected" : "")"
+                            data-confirm="none"
+                            @onclick="() => Pick(0)">
+                        <span class="tc-dd-item-main">
+                            <span class="tc-dot muted"></span>
+                            <span>@EmptyLabel</span>
+                        </span>
+                        @if (Value <= 0)
+                        {
+                            <span class="tc-dd-check">✓</span>
+                        }
+                    </button>
+                }
+
+                @foreach (var grp in FilteredGroups)
+                {
+                    <div class="tc-dd-group-lbl">@grp.Key</div>
+                    @foreach (var item in grp)
+                    {
+                        var isSel = item.Id == Value;
+                        <button type="button"
+                                class="tc-dd-item @(isSel ? "selected" : "")"
+                                data-confirm="none"
+                                @onclick="() => Pick(item.Id)">
+                            <span class="tc-dd-item-main">
+                                <span class="tc-dot @(item.IsIncome ? "in" : "out")"></span>
+                                <span class="tc-dd-item-col">
+                                    <span>@item.Name</span>
+                                    <span class="tc-dd-item-sub">Map: @item.TargetEntityLabel @(!string.IsNullOrWhiteSpace(item.DefaultNote) ? $"· {item.DefaultNote}" : "")</span>
+                                </span>
+                            </span>
+                            <span style="display:inline-flex;align-items:center;gap:7px;flex:none">
+                                <span class="tc-code-tag">@item.Code</span>
+                                @if (isSel)
+                                {
+                                    <span class="tc-dd-check">✓</span>
+                                }
+                            </span>
+                        </button>
+                    }
+                }
+
+                @if (!FilteredGroups.Any())
+                {
+                    <div style="padding:14px 10px;text-align:center;color:#94a3b8;font-size:12px">
+                        Không tìm thấy khoản Thu/Chi khớp từ khóa.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<ExpenseCategoryVm> Items { get; set; } = [];
+    [Parameter] public long Value { get; set; }
+    [Parameter] public EventCallback<long> ValueChanged { get; set; }
+    [Parameter] public bool AllowEmpty { get; set; }
+    [Parameter] public string EmptyLabel { get; set; } = "— Mọi Loại khoản Thu/Chi —";
+    [Parameter] public string Placeholder { get; set; } = "— Chọn loại khoản Thu/Chi —";
+    [Parameter] public bool FullWidth { get; set; } = true;
+    [Parameter] public bool AlignRight { get; set; }
+    [Parameter] public string ContainerStyle { get; set; } = "";
+
+    private bool isOpen;
+    private string filterQuery = "";
+
+    private ExpenseCategoryVm? SelectedItem => Value > 0 ? Items?.FirstOrDefault(x => x.Id == Value) : null;
+
+    private IEnumerable<IGrouping<string, ExpenseCategoryVm>> FilteredGroups =>
+        (Items ?? [])
+            .Where(x => string.IsNullOrWhiteSpace(filterQuery) ||
+                        $"{x.Name} {x.Code} {x.GroupName} {x.TargetEntityLabel}".Contains(filterQuery.Trim(), StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.GroupName);
+
+    private void Toggle()
+    {
+        isOpen = !isOpen;
+        if (isOpen) filterQuery = "";
+    }
+
+    private void Close() => isOpen = false;
+
+    private async Task Pick(long id)
+    {
+        isOpen = false;
+        if (Value != id)
+        {
+            Value = id;
+            await ValueChanged.InvokeAsync(id);
+        }
+    }
+}
