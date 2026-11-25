@@ -488,4 +488,8 @@ table.tnm-mini-table tfoot td{position:sticky;bottom:0;z-index:1;padding:8px 10p
 .tc-map-box{display:inline-flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0}
 .tc-map-box.has-in{background:#f0fdf4;border-color:#bbf7d0}
 .tc-map-box.has-out{background:#fff7ed;border-color:#fed7aa}
+.page-title-with-help{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.help-icon-btn{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border-radius:50%;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;cursor:pointer;transition:all .14s ease;flex:none}
+.help-icon-btn:hover{background:#dbeafe;border-color:#3b82f6;color:#1e40af;transform:scale(1.06);box-shadow:0 2px 6px rgba(37,99,235,.18)}
+.help-icon-btn:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
 @media(max-width:760px){.tc-toolbar{align-items:stretch}.tc-seg{width:100%;justify-content:space-between}.tc-seg-btn{flex:1;justify-content:center}.tc-type-grid{grid-template-columns:1fr}}

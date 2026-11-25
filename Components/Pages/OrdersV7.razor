@@ -11,8 +11,17 @@
 <div class="page-head">
     <div>
         <div class="eyebrow">KINH DOANH / ĐIỀU PHỐI CSKH &amp; KHO</div>
-        <h1>Đơn hàng &amp; Điều phối lắp đặt</h1>
-        <p>1. Nhận thông tin từ nhân viên bán hàng → 2. CSKH tạo đơn &amp; điều sản phẩm ở kho, chọn ĐV lắp đặt | Hãng lắp đặt (tick Không/Trừ tồn kho) → 3. ĐV lắp đặt gửi về Số IMEI &amp; thông tin phụ → 4. CSKH bổ sung Ngày kích hoạt IMEI &amp; Hoàn thành đơn (chỉ trừ tồn kho khi đơn thành công).</p>
+        <div class="page-title-with-help">
+            <h1 style="margin:0">Đơn hàng &amp; Điều phối lắp đặt</h1>
+            <button type="button"
+                    class="help-icon-btn"
+                    data-confirm="none"
+                    title="Hỗ trợ · Xem quy trình Đơn hàng &amp; Điều phối lắp đặt"
+                    aria-label="Hỗ trợ quy trình Đơn hàng &amp; Điều phối lắp đặt"
+                    @onclick="() => showWorkflowHelp = true">
+                <AppIcon Name="help" Size="17" />
+            </button>
+        </div>
     </div>
     <div class="button-group">
         @if(canViewLog)
@@ -1015,6 +1024,68 @@
     </div>
 }
 
+@if(showWorkflowHelp)
+{
+    <div class="so-modal-overlay" @onclick="() => showWorkflowHelp = false">
+        <div class="so-modal-dialog" style="max-width:780px" @onclick:stopPropagation="true">
+            <div class="so-modal-header">
+                <div>
+                    <div class="eyebrow" style="color:#1d4ed8">HỖ TRỢ NGHIỆP VỤ · LUỒNG CHUẨN HIỆN TẠI</div>
+                    <h2 style="margin:2px 0 0">Quy trình Đơn hàng &amp; Điều phối lắp đặt (SO)</h2>
+                </div>
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => showWorkflowHelp = false">✕ Đóng</button>
+            </div>
+            <div class="so-modal-body" style="display:flex;flex-direction:column;gap:14px">
+                <div style="padding:12px 14px;background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%);border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1e293b;line-height:1.62">
+                    <strong style="color:#1e40af;display:block;margin-bottom:4px">🔄 Tóm tắt luồng vận hành mới nhất:</strong>
+                    1. Tiếp nhận thông tin từ NV bán hàng (dán nhanh tin nhắn hoặc nhập trên Hộp thoại tạo đơn) →
+                    2. CSKH tạo đơn &amp; điều phối Kho, chọn <strong>ĐV lắp đặt | Hãng lắp đặt</strong>, tùy chọn chế độ <strong>Không tính công lắp (Giá chưa lắp · công lắp = 0 ₫)</strong> hoặc <strong>Không trừ tồn kho</strong> (khi Hãng lắp) →
+                    3. ĐV lắp đặt báo về <strong>Số IMEI &amp; Biển số xe</strong> →
+                    4. CSKH chọn <strong>Ngày kích hoạt</strong> &amp; bấm <strong>Hoàn thành đơn</strong> (chỉ trừ tồn kho 1 lần khi hoàn thành, tự động kích hoạt thiết bị &amp; đồng bộ Công nợ KH / Kỹ thuật / Hoa hồng; cho phép hoàn thành trước — bổ sung IMEI sau).
+                </div>
+
+                <div class="step-list" style="gap:10px">
+                    <div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;align-items:flex-start">
+                        <b style="width:28px;height:28px;flex:none">1</b>
+                        <span style="font-size:12.4px;line-height:1.55;color:#334155">
+                            <strong style="color:#0f172a">Tiếp nhận &amp; Tạo đơn qua Hộp thoại:</strong>
+                            Bấm <strong>+ Tạo đơn lắp đặt</strong> hoặc <strong>📋 Dán nhanh tin nhắn NV bán hàng</strong> để hệ thống tự động tách thông tin khách lắp, SĐT, địa chỉ, lịch lắp và báo giá tự động theo Nhóm khách hàng (chưa trừ tồn kho).
+                        </span>
+                    </div>
+                    <div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;align-items:flex-start">
+                        <b style="width:28px;height:28px;flex:none">2</b>
+                        <span style="font-size:12.4px;line-height:1.55;color:#334155">
+                            <strong style="color:#0f172a">Điều phối Kho, ĐV lắp đặt &amp; Chế độ giá / tồn kho:</strong>
+                            Chọn Kho xuất, chọn <strong>ĐV lắp đặt</strong> hoặc <strong>Hãng lắp đặt</strong>. Nếu giao thiết bị không lắp đặt, tích <strong>Không tính công lắp (Giá chưa lắp)</strong> để tự động áp Giá bán chưa lắp và Công kỹ thuật = <code>0 ₫</code>. Nếu Hãng trực tiếp lắp, có thể tích <strong>Không trừ tồn kho</strong>.
+                        </span>
+                    </div>
+                    <div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;align-items:flex-start">
+                        <b style="width:28px;height:28px;flex:none">3</b>
+                        <span style="font-size:12.4px;line-height:1.55;color:#334155">
+                            <strong style="color:#0f172a">Ghi nhận Số IMEI &amp; Thông tin phụ từ kỹ thuật:</strong>
+                            Bấm <strong>⚙ Điều chỉnh / Xử lý</strong> hoặc <strong>Nhập IMEI</strong> trên dòng đơn hàng để chọn/nhập Số IMEI từ kho và điền Biển số xe / Số khung.
+                        </span>
+                    </div>
+                    <div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;align-items:flex-start">
+                        <b style="width:28px;height:28px;flex:none">4</b>
+                        <span style="font-size:12.4px;line-height:1.55;color:#334155">
+                            <strong style="color:#0f172a">Kích hoạt, Hoàn thành &amp; Đồng bộ Kế toán:</strong>
+                            Chọn <strong>Ngày kích hoạt IMEI</strong> và bấm <strong>Hoàn thành đơn</strong>: hệ thống trừ tồn kho 1 lần, kích hoạt thuê bao sang <em>Thiết bị &amp; gia hạn</em> và tự động tạo <strong>Hóa đơn phải thu Khách hàng</strong> cùng <strong>Công nợ kỹ thuật lắp đặt</strong> (nếu có tính công lắp). Trường hợp chưa kịp có IMEI vẫn có thể hoàn thành trước và mở lại bổ sung IMEI sau mà không trừ kho lần 2.
+                        </span>
+                    </div>
+                </div>
+
+                <div style="padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;font-size:12px;color:#475569;line-height:1.55">
+                    💡 <strong>Mẹo tra cứu nhanh:</strong> Nhấp đúp chuột vào bất kỳ dòng đơn hàng nào trên bảng để mở hộp thoại xem đầy đủ thông tin <strong>Chi tiết</strong> (bao gồm <em>Nhân viên bán hàng</em> và bảng chi tiết mặt hàng / danh sách IMEI).
+                </div>
+            </div>
+            <div class="so-modal-footer">
+                <button type="button" class="btn" data-confirm="none" @onclick="() => showWorkflowHelp = false">Đã hiểu · Đóng hỗ trợ</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if(canViewLog)
 {
     <SystemLogModal IsOpen="showLogModal"
@@ -1030,7 +1101,7 @@
     private sealed class LineReportInput { public string Imei { get; set; } = ""; public string PlateNo { get; set; } = ""; public string VinNo { get; set; } = ""; }
     private static readonly string[] orderLogTables = ["v7_orders", "v7_order_lines", "v7_order_events", "v7_stock_effects"];
     private static readonly string[] orderAuditEntities = ["V7_ORDER", "ORDER", "SALE_ORDER"];
-    private bool canViewLog, showLogModal;
+    private bool canViewLog, showLogModal, showWorkflowHelp;
     private string? logInitialTable;
     private long? logInitialRecordId;
     private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
