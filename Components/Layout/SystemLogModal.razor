@@ -11,7 +11,7 @@
                 <div>
                     <div class="eyebrow" style="color:#0369a1">🔒 LỊCH SỬ / LƯU VẾT HỆ THỐNG · CỐ ĐỊNH CHO MAIN / OWNER / ADMIN</div>
                     <h2 style="margin:2px 0 0">@Title</h2>
-                    @if (recordSummary is not null && InitialRecordId > 0)
+                    @if (recordSummary is not null && canViewRowLog && InitialRecordId > 0)
                     {
                         <div style="margin-top:6px;font-size:12.5px;color:#475569">
                             Bản ghi <strong>@VnLabels.TableName(recordSummary.Table) #@InitialRecordId</strong> ·
@@ -339,6 +339,7 @@
     [Parameter] public bool ShowAccessLogsTab { get; set; }
 
     private bool canViewLog;
+    private bool canViewRowLog;
     private bool wasOpen;
     private bool showAllSystemTables;
     private string? lastInitialTable;
@@ -398,18 +399,20 @@
     protected override async Task OnParametersSetAsync()
     {
         canViewLog = await Gate.CanViewSystemLogsAsync();
+        canViewRowLog = await Gate.CanViewRowLogsAsync();
         if (!IsOpen || !canViewLog)
         {
             wasOpen = false;
             return;
         }
 
-        var recordChanged = lastInitialTable != InitialTable || lastInitialRecordId != InitialRecordId;
+        var effectiveRecordId = canViewRowLog ? InitialRecordId : null;
+        var recordChanged = lastInitialTable != InitialTable || lastInitialRecordId != effectiveRecordId;
         if (!wasOpen || recordChanged)
         {
             wasOpen = true;
             lastInitialTable = InitialTable;
-            lastInitialRecordId = InitialRecordId;
+            lastInitialRecordId = effectiveRecordId;
             showAllSystemTables = false;
             selectedEventId = null;
             eventPager.Reset();
@@ -417,12 +420,12 @@
             ledgerPager.Reset();
             actionPager.Reset();
 
-            if (!string.IsNullOrWhiteSpace(InitialTable) && InitialRecordId is > 0)
+            if (!string.IsNullOrWhiteSpace(InitialTable) && effectiveRecordId is > 0)
             {
                 currentTab = "DATA_EVENTS";
                 table = InitialTable;
-                key = "{\"id\":" + InitialRecordId.Value + "}";
-                recordSummary = Trail.Summary(InitialTable, InitialRecordId.Value);
+                key = "{\"id\":" + effectiveRecordId.Value + "}";
+                recordSummary = Trail.Summary(InitialTable, effectiveRecordId.Value);
             }
             else
             {

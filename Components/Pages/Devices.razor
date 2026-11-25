@@ -12,7 +12,6 @@
     @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Thời gian gia hạn & Ngày KH":"Cập nhật Thời gian gia hạn & Ngày kích hoạt")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showCreateDevice?"":"secondary")" @onclick="()=>ToggleForm(nameof(showCreateDevice))">@(showCreateDevice?"Đóng · + Thêm thiết bị":"+ Thêm thiết bị")</button>}
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
-    @if(canViewLog){<button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button>}
 </div>
 
 @if(canRenew || canUpdateDevice){
@@ -375,7 +374,7 @@
             }
         </td>
         <td>
-            @if(canRenew || canUpdateDevice || canSoftDeleteDevice || isMainRole)
+            @if(canRenew || canUpdateDevice || canSoftDeleteDevice || isMainRole || canViewRowLog)
             {
                 <div style="display:flex;gap:4px;flex-wrap:wrap">
                     @if(locked && (canRenew || canUpdateDevice))
@@ -400,7 +399,7 @@
                                 : $"Bạn có chắc chắn muốn xóa thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận vào Lưu vết hệ thống.")"
                             @onclick="() => DeleteDevice(x)">Xóa</button>
                     }
-                    @if(canViewLog)
+                    @if(canViewRowLog)
                     {
                         <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenDeviceRecordLog(x.ActivationId)">Xem log</button>
                     }
@@ -694,13 +693,13 @@
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
  private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
- private bool canRenew,canUpdateDevice,canFinanceLock,canViewLog,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,isMainRole,showLogModal;
+ private bool canRenew,canUpdateDevice,canFinanceLock,canViewLog,canViewRowLog,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,isMainRole,showLogModal;
  private string? logInitialTable;
  private long? logInitialRecordId;
  private static readonly string[] deviceLogTables = ["activations", "renewals", "stock_units"];
  private static readonly string[] deviceAuditEntities = ["ACTIVATION", "RENEWAL", "DEVICE", "STOCK_UNIT"];
  private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
- private void OpenDeviceRecordLog(long actId) { logInitialTable = "activations"; logInitialRecordId = actId; showLogModal = true; }
+ private void OpenDeviceRecordLog(long actId) { if (!canViewRowLog) return; logInitialTable = "activations"; logInitialRecordId = actId; showLogModal = true; }
 
  private IEnumerable<string> AvailableDeviceTypeLabels =>
   new[] { "XANHGPS", "NASAGPS", "TDCGPS", "mGPS", "AICAM", "CAM4CH", "TG2000" }
@@ -806,6 +805,7 @@
   canUpdateDevice=await Gate.CanAsync(Permissions.DevicesUpdate) || await Gate.CanAsync(Permissions.UsersManage);
   canFinanceLock=await Gate.CanAsync(Permissions.FinancePay) || await Gate.CanAsync(Permissions.UsersManage);
   canViewLog=await Gate.CanViewSystemLogsAsync();
+  canViewRowLog=await Gate.CanViewRowLogsAsync();
   canActive=await Gate.CanAsync(Permissions.DevicesActiveView);
   canOverdue=await Gate.CanAsync(Permissions.DevicesOverdueView);
   canDue10=await Gate.CanAsync(Permissions.DevicesDue10View);

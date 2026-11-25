@@ -161,10 +161,12 @@ public static class FlowTester
 
                 // Kiểm tra khóa cứng quyền xem Lịch sử / Lưu vết / Log: chỉ Main, Owner, Admin được xem và không thể tùy chỉnh
                 Assert(auth.CanViewSystemLogs(ownerId), "Tài khoản Owner phải có quyền xem Log hệ thống.");
+                Assert(auth.CanViewRowLogs(ownerId), "Tài khoản Owner phải có quyền xem Log từng dòng trên bảng.");
                 var adminRoleId = roles.First(r => r.Code == "ADMIN").Id;
                 auth.CreateUser(ownerId, "admin_test", "Quản trị viên Test", "AdminPass2026", [adminRoleId]);
                 var adminUserId = auth.AllUsers().First(u => u.Username == "admin_test").Id;
-                Assert(auth.CanViewSystemLogs(adminUserId), "Vai trò ADMIN phải có quyền xem Log hệ thống.");
+                Assert(auth.CanViewSystemLogs(adminUserId), "Vai trò ADMIN phải có quyền xem Log chung tổng.");
+                Assert(!auth.CanViewRowLogs(adminUserId), "Vai trò ADMIN không được phép xem Log từng dòng trên bảng (chỉ Main & Owner).");
                 Assert(!auth.CanViewSystemLogs(staffUserId) && !auth.CanViewSystemLogs(accUserId),
                     "Vai trò WAREHOUSE và ACCOUNTANT không được phép xem Log / Lịch sử / Lưu vết.");
                 Assert(!accRights.Contains(Permissions.ReportsAuditView) && !accRights.Contains(Permissions.InventoryLedgerView) && !accRights.Contains(Permissions.DevicesRenewalsView),

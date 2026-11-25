@@ -100,7 +100,7 @@
                     </td>
                     <td>@p.WarrantyMonths tháng</td><td>@(p.IsActive?"Đang bán":"Ngừng bán")</td>
                     <td>
-                        @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="()=>OpenRecordLog(p.Id)">Xem log</button>}
+                        @if(canViewRowLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="()=>OpenRecordLog(p.Id)">Xem log</button>}
                         @if(canUpdate&&p.IsActive){<button type="button" class="btn secondary btn-sm" @onclick="()=>Edit(p)">Sửa</button>}
                         @if(canUpdate&&p.IsActive)
                         {
@@ -133,13 +133,13 @@
 @code {
     private List<ProductMaster.ProductRow> products=[];
     private List<ProductMaster.GroupRow> groups=[];
-    private bool canCreate,canUpdate,canExport,canAudit,showEditor,scrollEditorPending,showLogModal;
+    private bool canCreate,canUpdate,canExport,canAudit,canViewRowLog,showEditor,scrollEditorPending,showLogModal;
     private string? logInitialTable;
     private long? logInitialRecordId;
     private static readonly string[] productLogTables = ["products", "product_groups", "product_catalog_metadata", "v7_sku_sequences"];
     private static readonly string[] productAuditEntities = ["PRODUCT", "PRODUCT_GROUP"];
     private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
-    private void OpenRecordLog(long id) { logInitialTable = "products"; logInitialRecordId = id; showLogModal = true; }
+    private void OpenRecordLog(long id) { if (!canViewRowLog) return; logInitialTable = "products"; logInitialRecordId = id; showLogModal = true; }
     private readonly HashSet<long> selected=[];
     private readonly PagerState prodPager = new();
     private string query="",search="",statusFilter="ACTIVE",message="",name="",kind="GOODS",unit="Cái",editingSku="";
@@ -193,6 +193,7 @@
         canCreate=await Gate.CanAsync(Permissions.ProductsCreate);
         canUpdate=await Gate.CanAsync(Permissions.ProductsUpdate);
         canAudit=await Gate.CanViewSystemLogsAsync();
+        canViewRowLog=await Gate.CanViewRowLogsAsync();
         canExport=await Gate.CanAsync(Permissions.ProductsExport);
         Reload();
     }

@@ -22,6 +22,11 @@ public sealed class PermissionGate(AuthenticationStateProvider stateProvider, Au
         var state = await stateProvider.GetAuthenticationStateAsync();
         return repository.CanViewSystemLogs(state.User);
     }
+    public async Task<bool> CanViewRowLogsAsync()
+    {
+        var state = await stateProvider.GetAuthenticationStateAsync();
+        return repository.CanViewRowLogs(state.User);
+    }
     public async Task<long> RequireSystemLogsAsync()
     {
         var state = await stateProvider.GetAuthenticationStateAsync();

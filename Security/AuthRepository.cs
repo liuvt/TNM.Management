@@ -415,6 +415,21 @@ public sealed class AuthRepository
         using var c = Open();
         return IsAdmin(c, id);
     }
+    /// <summary>Xem log trực tiếp trên từng dòng của bảng dữ liệu: chỉ áp dụng cho Main và Owner.</summary>
+    public bool CanViewRowLogs(long userId)
+    {
+        if (userId <= 0 || MustChangePassword(userId)) return false;
+        using var c = Open();
+        var active = Convert.ToInt64(Scalar(c, "SELECT count(*) FROM app_users WHERE id=$id AND is_active=1 AND deleted_at IS NULL", ("$id", userId))) > 0;
+        return active && IsOwner(c, userId);
+    }
+    public bool CanViewRowLogs(ClaimsPrincipal principal)
+    {
+        var id = PrincipalId(principal);
+        if (id <= 0 || !Valid(id, PrincipalStamp(principal)) || MustChangePassword(id)) return false;
+        using var c = Open();
+        return IsOwner(c, id);
+    }
     public bool HasPermission(ClaimsPrincipal principal, string permission)
     {
         if (!Permissions.Definitions.Any(p=>p.Key==permission)) return false;

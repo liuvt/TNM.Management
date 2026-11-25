@@ -29,7 +29,7 @@
 <td>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
 @if(!u.IsOwner && u.Id!=myId && (canManageUsers || canUserPermissions)){<button class="btn secondary btn-sm" data-confirm="none" @onclick="()=>EditUser(u)">Phân quyền / Sửa</button>}
-@if(canViewLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="()=>OpenUserRecordLog(u.Id)">Xem log</button>}
+@if(canViewRowLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="()=>OpenUserRecordLog(u.Id)">Xem log</button>}
 </div>
 </td></tr>}
 </tbody></table></div>
@@ -144,13 +144,13 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
     private IEnumerable<PermissionDefinition> FilteredPermissions => Permissions.Definitions.Where(p=>
         (areaFilter=="ALL"||p.Area==areaFilter) &&
         (string.IsNullOrWhiteSpace(permissionSearch) || (p.Area+" "+p.Feature+" "+p.Label+" "+p.Key).Contains(permissionSearch,StringComparison.OrdinalIgnoreCase)));
-    private bool canManageUsers,canManageRoles,canUserPermissions,canViewLog,showLogModal;
+    private bool canManageUsers,canManageRoles,canUserPermissions,canViewLog,canViewRowLog,showLogModal;
     private string? logInitialTable;
     private long? logInitialRecordId;
     private static readonly string[] adminLogTables = ["app_users", "roles", "user_roles", "role_permissions", "user_permission_overrides", "user_scope_settings", "user_warehouse_scopes"];
     private static readonly string[] adminAuditEntities = ["APP_USER", "ROLE", "USER_SCOPE"];
     private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
-    private void OpenUserRecordLog(long id) { logInitialTable = "app_users"; logInitialRecordId = id; showLogModal = true; }
+    private void OpenUserRecordLog(long id) { if (!canViewRowLog) return; logInitialTable = "app_users"; logInitialRecordId = id; showLogModal = true; }
     private string activeMode="ACTIVE";
     private bool active { get => activeMode=="ACTIVE"; set => activeMode = value ? "ACTIVE" : "LOCKED"; }
     private bool IsAdminRole => roles.Any(x=>x.Id==selectedRoleId && x.Code=="ADMIN");
@@ -173,6 +173,7 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
         canManageRoles=await Gate.CanAsync(Permissions.RolesManage);
         canUserPermissions=await Gate.CanAsync(Permissions.UsersPermissions);
         canViewLog=await Gate.CanViewSystemLogsAsync();
+        canViewRowLog=await Gate.CanViewRowLogsAsync();
         Reload();
         selectedRoleId=roles.FirstOrDefault(x=>x.Code=="WAREHOUSE")?.Id ?? roles.FirstOrDefault()?.Id ?? 0;
         RefreshRoleMatrix();ResetForm();showUserEditor=false;

@@ -578,7 +578,7 @@ else
                                 </td>
                                 <td class="catalog-row-actions">
                                     <button type="button" class="btn secondary btn-sm" data-confirm="none" onclick="window.tnmOpenRowDetail(this)">Xem chi tiết</button>
-                                    @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
+                                    @if(canViewRowLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
                                     @if(canUpdate)
                                     {
                                         <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Cấu hình &amp; Sửa</button>
@@ -608,7 +608,7 @@ else
                         <th>Doanh thu bán mới</th>
                         <th>Gia hạn thiết bị (Doanh thu)</th>
                         <th>Định mức &amp; Hoa hồng dự kiến</th>
-                        @if(canUpdate || canAudit){<th>Thao tác</th>}
+                        @if(canUpdate || canViewRowLog){<th>Thao tác</th>}
                     </tr></thead>
                     <tbody>
                         @foreach(var (stt, row) in pagedCatalogRows)
@@ -643,10 +643,10 @@ else
                                     <div><strong style="color:#d97706">@Money(sl?.EstimatedCommissionVnd ?? 0)</strong></div>
                                     <small style="color:#64748b">Bán: @Money(sl?.OrderCommissionVnd ?? 0)/TB · GH: @Money(sl?.RenewalCommissionVnd ?? 0)/lượt</small>
                                 </td>
-                                @if(canUpdate || canAudit)
+                                @if(canUpdate || canViewRowLog)
                                 {
                                     <td class="catalog-row-actions">
-                                        @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
+                                        @if(canViewRowLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
                                         @if(canUpdate)
                                         {
                                             <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Sửa</button>
@@ -658,7 +658,7 @@ else
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?11:10)">Chưa có nhân viên bán hàng nào. Bấm <strong>“+ Khai báo nhân viên bán hàng”</strong> ở góc phải để thêm nhân viên bán hàng.</td></tr>
+                            <tr><td colspan="@(canUpdate||canViewRowLog?11:10)">Chưa có nhân viên bán hàng nào. Bấm <strong>“+ Khai báo nhân viên bán hàng”</strong> ở góc phải để thêm nhân viên bán hàng.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -670,7 +670,7 @@ else
                         <th>STT</th>
                         <th><input type="checkbox" aria-label="Chọn tất cả dòng đang hiển thị" checked="@PageAllSelected" @onchange="TogglePage" /></th>
                         <th>Mã định danh</th><th>Tên / Đối tượng</th><th>Nhóm / Khu vực</th><th>Thông tin chi tiết</th>
-                        @if(canUpdate || canAudit){<th>Thao tác</th>}
+                        @if(canUpdate || canViewRowLog){<th>Thao tác</th>}
                     </tr></thead>
                     <tbody>
                         @foreach(var (stt, row) in pagedCatalogRows)
@@ -679,10 +679,10 @@ else
                                 <td><strong>@stt</strong></td>
                                 <td><input type="checkbox" aria-label="@($"Chọn {row.Name}")" checked="@selected.Contains(row.Id)" @onchange="e => ToggleRow(row.Id,e.Value is bool b && b)" /></td>
                                 <td><strong>@row.Code</strong></td><td class="name-cell">@row.Name</td><td>@row.Group</td><td class="wrap-cell">@row.Details</td>
-                                @if(canUpdate || canAudit)
+                                @if(canUpdate || canViewRowLog)
                                 {
                                     <td class="catalog-row-actions">
-                                        @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
+                                        @if(canViewRowLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
                                         @if(canCreate && CurrentSection=="customer-groups" && customerGroups.FirstOrDefault(g => g.Id == row.Id)?.ParentId is null)
                                         {
                                             <button type="button" class="btn secondary btn-sm" style="color:#0f766e;border-color:#5eead4" @onclick="() => AddChildGroup(row.Id)">+ Thêm nhóm con</button>
@@ -698,7 +698,7 @@ else
                         }
                         @if(PageRows.Count==0)
                         {
-                            <tr><td colspan="@(canUpdate||canAudit?7:6)">Không có dữ liệu phù hợp. Bấm “Thêm mới” để khai báo.</td></tr>
+                            <tr><td colspan="@(canUpdate||canViewRowLog?7:6)">Không có dữ liệu phù hợp. Bấm “Thêm mới” để khai báo.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -725,11 +725,11 @@ else
     private readonly PagerState instProdPager = new();
     private readonly PagerState catalogPager = new();
     private long? editingId,pendingDelete;
-    private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending,showQuickSubGroup,showLogModal;
+    private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,canViewRowLog,scrollEditorPending,showQuickSubGroup,showLogModal;
     private string? logInitialTable;
     private long? logInitialRecordId;
     private void OpenModuleLog() { logInitialTable = ActivityTable; logInitialRecordId = null; showLogModal = true; }
-    private void OpenRecordLog(long id) { logInitialTable = ActivityTable; logInitialRecordId = id; showLogModal = true; }
+    private void OpenRecordLog(long id) { if (!canViewRowLog) return; logInitialTable = ActivityTable; logInitialRecordId = id; showLogModal = true; }
     private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật",installerProdSearch="",quickSubGroupName="";
     private long groupId,parentGroupId,subGroupId,productId,buyPrice,standard,installed,renewal,bulkInstallerRate=150000,selectedSellerId;
     private int discount;
@@ -827,6 +827,7 @@ else
         canCreate=await Gate.CanAsync(CreatePermission);
         canUpdate=await Gate.CanAsync(UpdatePermission);
         canAudit=await Gate.CanViewSystemLogsAsync();
+        canViewRowLog=await Gate.CanViewRowLogsAsync();
         canExport=canView;
         showLogModal=false;
         selected.Clear();catalogPager.Reset();instProdPager.Reset();search=query="";CloseEditor();message="";
