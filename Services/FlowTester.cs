@@ -140,12 +140,12 @@ public static class FlowTester
                 var roles = auth.AllRoles();
                 var whRoleId = roles.First(r => r.Code == "WAREHOUSE").Id;
                 auth.CreateUser(ownerId, "nv_kho_test", "Nhân viên Kho Test", "KhoPassword2026", [whRoleId],
-                    new Dictionary<string, string> { [Permissions.PurchaseCreate] = "ALLOW", [Permissions.InventoryReceive] = "DENY" });
+                    new Dictionary<string, string> { [Permissions.ProductsCreate] = "ALLOW", [Permissions.InventoryReceive] = "DENY" });
 
                 var created = auth.AllUsers().First(u => u.Username == "nv_kho_test");
                 staffUserId = created.Id;
                 var rights = auth.AllowedPermissions(staffUserId);
-                Assert(rights.Contains(Permissions.PurchaseCreate), "Quyền ALLOW riêng (purchase.create) chưa có hiệu lực.");
+                Assert(rights.Contains(Permissions.ProductsCreate), "Quyền ALLOW riêng (products.create) chưa có hiệu lực.");
                 Assert(!rights.Contains(Permissions.InventoryReceive), "Quyền DENY riêng (inventory.receive) chưa chặn được quyền Role.");
 
                 // Kiểm tra role ACCOUNTANT có đủ 4 quyền xem phân mục công nợ
@@ -251,23 +251,19 @@ public static class FlowTester
             });
 
             // =========================================================================
-            // 4. MUA HÀNG NCC (PO), KHO SỐ LƯỢNG, ĐIỀU CHUYỂN & KIỂM KÊ SỐ LƯỢNG
+            // 4. KHO SỐ LƯỢNG, ĐIỀU CHUYỂN LIÊN KHO & KIỂM KÊ TỒN KHO
             // =========================================================================
-            Step("4. Kho Số lượng & PO", "Lập đơn mua PO -> Nhận hàng vào kho -> Kiểm tra tăng tồn sổ cái", () =>
+            Step("4. Kho Số lượng", "Nhập kho số lượng trực tiếp -> Kiểm tra tăng tồn sổ cái & sinh Công nợ NCC", () =>
             {
-                var poId = ops.CreatePurchase(ownerId, supplierId, qtyProdId, wh1Id, loc1Id, 50, 150_000, "Nhập lô thẻ nhớ đợt 1");
-                Assert(ops.Balances(ownerId).Where(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Sum(b => b.Quantity) == 0,
-                    "PO ở trạng thái DRAFT không được làm tăng tồn kho.");
-
-                ops.ReceivePurchase(ownerId, poId);
+                ops.MoveQuantity(ownerId, qtyProdId, wh1Id, loc1Id, 50, incoming: true, "Nhập lô thẻ nhớ đợt 1");
                 var bal = ops.Balances(ownerId).First(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Quantity;
-                Assert(bal == 50, $"Tồn kho sau khi nhận PO phải bằng 50, thực tế = {bal}");
+                Assert(bal == 50, $"Tồn kho sau khi nhập kho số lượng phải bằng 50, thực tế = {bal}");
                 Assert(db.Invoices().Any(i => i.Type == "PURCHASE" && i.Total == 7_500_000),
-                    "Sau khi nhận PO phải tự động sinh hóa đơn Công nợ Sản phẩm (PURCHASE) 7.500.000 ₫.");
-                return $"PO #{poId} đã nhận hàng · Tồn kho DX00002 = {bal} · Tự động sinh công nợ NCC 7.500.000 ₫.";
+                    "Sau khi nhập kho số lượng phải tự động sinh hóa đơn Công nợ Nhà cung cấp (PURCHASE) 7.500.000 ₫.");
+                return $"Đã nhập kho số lượng · Tồn kho DX00002 = {bal} · Tự động sinh công nợ NCC 7.500.000 ₫.";
             });
 
-            Step("4. Kho Số lượng & PO", "Xuất kho, Điều chuyển liên kho & Chặn xuất âm tồn", () =>
+            Step("4. Kho Số lượng", "Xuất kho, Điều chuyển liên kho & Chặn xuất âm tồn", () =>
             {
                 ops.MoveQuantity(ownerId, qtyProdId, wh1Id, loc1Id, 10, incoming: false, "Xuất 10 thẻ nhớ lẻ");
                 ops.TransferQuantity(ownerId, qtyProdId, wh1Id, loc1Id, wh2Id, loc2Id, 15, "Chuyển 15 cái sang Kho Thủ Đức");
@@ -280,7 +276,7 @@ public static class FlowTester
                 return $"Sau xuất & điều chuyển: Kho Q7 còn {bal1}, Kho Thủ Đức có {bal2} · Chặn xuất vượt tồn thành công.";
             });
 
-            Step("4. Kho Số lượng & PO", "Kiểm kê Số lượng (DRAFT -> Đếm -> Duyệt điều chỉnh ADJUST 1 lần)", () =>
+            Step("4. Kho Số lượng", "Kiểm kê Số lượng (DRAFT -> Đếm -> Duyệt điều chỉnh ADJUST 1 lần)", () =>
             {
                 var countId = ops.StartCount(ownerId, wh1Id, loc1Id, "Kiểm kê định kỳ Q7");
                 ops.SetCountLine(ownerId, countId, qtyProdId, 23); // Hao hụt 2 cái so với tồn sổ 25

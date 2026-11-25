@@ -10,7 +10,7 @@
     <div>
         <div class="eyebrow">KINH DOANH / SẢN PHẨM</div>
         <h1>Sản phẩm — Chi tiết Sản phẩm</h1>
-        <p>Danh mục sử dụng chung cho đơn mua hàng, đơn lắp đặt, quản lý kho, IMEI, bảng giá và gia hạn.</p>
+        <p>Danh mục sử dụng chung cho quản lý kho, đơn lắp đặt, IMEI, bảng giá và gia hạn.</p>
     </div>
     <div class="button-group">
         @if(canAudit){<button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button>}
@@ -52,7 +52,7 @@
             <label>Thời hạn bảo hành (tháng) <input type="number" min="0" max="240" @bind="warrantyMonths" /></label>
             <label class="checkbox-row"><input type="checkbox" @bind="imei" disabled="@(kind!="GOODS")" /> Quản lý theo IMEI / số sê-ri</label>
         </div>
-        <p class="panel-note">Quy tắc tra giá tự động: <strong>Nhóm con HTX → Nhóm cha → Giá sản phẩm khai báo mặc định tại đây</strong>. Tồn kho được sinh tự động từ đơn mua hàng, đơn lắp đặt hoặc phiếu điều chỉnh kho.</p>
+        <p class="panel-note">Quy tắc tra giá tự động: <strong>Nhóm con HTX → Nhóm cha → Giá sản phẩm khai báo mặc định tại đây</strong>. Tồn kho được cập nhật tự động từ nhập kho, đơn lắp đặt hoặc phiếu kiểm kê tồn kho.</p>
         <div class="form-actions">
             <button type="button" class="btn" data-confirm="@(editingId.HasValue ? "edit" : "add")" data-confirm-msg="@(editingId.HasValue ? "Bạn có chắc chắn muốn lưu thay đổi thông tin sản phẩm này không?" : "Bạn có chắc chắn muốn tạo sản phẩm mới này không?")" @onclick="Save">@(editingId.HasValue?"Lưu thay đổi":"Tạo sản phẩm")</button>
             <button type="button" class="btn secondary" @onclick="()=>showEditor=false">Hủy</button>

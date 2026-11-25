@@ -585,7 +585,7 @@
             TabBadge: "2 Phân mục",
             Actor: "Quản lý / Admin / Kế toán kho",
             Summary: "Quản lý danh mục sản phẩm (Hàng hóa có IMEI, Hàng hóa theo số lượng, Dịch vụ / Bộ trọn gói), giá bán mặc định, giá gia hạn và nhóm sản phẩm.",
-            Purpose: "Chuẩn hóa danh mục sản phẩm dùng chung xuyên suốt toàn hệ thống: Mua hàng NCC (PO), Nhập kho IMEI/Số lượng, Đơn hàng lắp đặt (SO), Định mức công lắp kỹ thuật và Bảng giá.",
+            Purpose: "Chuẩn hóa danh mục sản phẩm dùng chung xuyên suốt toàn hệ thống: Nhập kho IMEI & Kho số lượng, Đơn hàng lắp đặt (SO), Định mức công lắp kỹ thuật và Bảng giá.",
             RequiredAnyPermissions: [Permissions.ProductsView],
             DetailPermissionKeys: [Permissions.ProductsView, Permissions.ProductsCreate, Permissions.ProductsUpdate, Permissions.ProductsExport],
             Tabs:
@@ -615,7 +615,7 @@
             TabBadge: "2 Phân mục",
             Actor: "Quản lý / Thu mua / Kế toán",
             Summary: "Quản lý danh sách Nhà cung cấp / Hãng thiết bị, phân nhóm NCC để áp bảng giá nhập và chọn nhanh Hãng lắp đặt.",
-            Purpose: "Lưu trữ thông tin đối tác cung cấp thiết bị/vật tư phục vụ nhập kho IMEI, lập đơn mua hàng PO, gửi bảo hành RMA, đối chiếu công nợ phải trả NCC và chọn 'Hãng lắp đặt' trên đơn hàng SO.",
+            Purpose: "Lưu trữ thông tin đối tác cung cấp thiết bị/vật tư phục vụ nhập kho IMEI & kho số lượng, gửi bảo hành RMA, đối chiếu công nợ phải trả NCC và chọn 'Hãng lắp đặt' trên đơn hàng SO.",
             RequiredAnyPermissions: [Permissions.MasterDataManage],
             DetailPermissionKeys: [Permissions.MasterDataManage],
             Tabs:
@@ -633,7 +633,7 @@
             [
                 "Tên Nhà cung cấp khai báo tại đây đồng thời xuất hiện trong danh sách chọn nhanh 'Hãng lắp đặt' trên Đơn hàng SO và danh sách Hãng tiếp nhận tại mục Bảo hành."
             ],
-            DataFlow: "Lưu tại supplier_groups & suppliers → Liên kết với Giá nhập (/catalog/buy-prices), Kho (/inventory), Mua hàng (/purchases), Bảo hành (/warranties) và Công nợ NCC (/finance)."),
+            DataFlow: "Lưu tại supplier_groups & suppliers → Liên kết với Giá nhập (/catalog/buy-prices), Kho (/inventory), Bảo hành (/warranties) và Công nợ NCC (/finance)."),
 
         ["customers"] = new(
             Key: "customers",
@@ -742,7 +742,7 @@
             Steps:
             [
                 "Mở mục 'Giá & chương trình' trên menu Kinh doanh.",
-                "Khai báo Giá nhập theo Nhóm NCC tại tab 1 để tự động áp giá vốn khi lập PO hoặc nhập kho IMEI.",
+                "Khai báo Giá nhập theo Nhóm NCC tại tab 1 để tự động áp giá vốn khi nhập kho IMEI hoặc nhập kho số lượng.",
                 "Chuyển sang tab 'Giá khách hàng' để khai báo đủ Giá chưa lắp, Giá có lắp và Giá gia hạn cho từng Nhóm KH.",
                 "Nếu có chiến dịch khuyến mãi theo kỳ, khai báo % giảm giá tại tab 'Chương trình ưu đãi'."
             ],
@@ -751,7 +751,7 @@
                 "Khi đơn hàng SO tích 'Không tính công lắp', hệ thống tự động lấy cột 'Giá bán chưa lắp'; khi bỏ tích sẽ tự động lấy cột 'Giá bán có lắp đặt'.",
                 "Đơn hàng đã hoàn thành luôn giữ nguyên mức giá cố định (Snapshot) tại thời điểm phát sinh, không bị nhảy số khi thay đổi bảng giá trong tương lai."
             ],
-            DataFlow: "Lưu tại v7_supplier_group_prices, v7_group_prices, v7_group_campaigns → Báo giá tự động cho Đơn mua (/purchases), Kho (/inventory), Đơn hàng (/sales-orders) và Gia hạn (/devices)."),
+            DataFlow: "Lưu tại v7_supplier_group_prices, v7_group_prices, v7_group_campaigns → Báo giá tự động cho Kho (/inventory), Đơn hàng (/sales-orders) và Gia hạn (/devices)."),
 
         ["sales-orders"] = new(
             Key: "sales-orders",
@@ -784,35 +784,6 @@
                 "Chỉ khi loại đơn vị lắp đặt là 'Hãng lắp đặt' mới được phép bật 'Không trừ tồn kho'."
             ],
             DataFlow: "Cập nhật v7_orders, v7_order_lines, v7_order_events, v7_stock_effects → Đồng bộ sang stock_units, quantity_movements, activations (/devices) và invoices SALE / SERVICE (/finance)."),
-
-        ["purchases"] = new(
-            Key: "purchases",
-            Category: "2. KINH DOANH",
-            Title: "Mua hàng Nhà cung cấp (PO)",
-            RouteLabel: "/purchases",
-            PrimaryHref: "/purchases",
-            TabBadge: "Đơn mua số lượng",
-            Actor: "Thu mua / Thủ kho / Kế toán",
-            Summary: "Lập đơn mua hàng Nhà cung cấp (PO) cho hàng hóa theo số lượng và xác nhận nhận đủ hàng vào kho/vị trí.",
-            Purpose: "Kiểm soát chặt chẽ đơn đặt mua hàng số lượng từ lúc đặt hàng (Chờ nhận hàng) đến khi hàng thực tế nhập kho (Đã nhập kho) và ghi nhận công nợ phải trả NCC.",
-            RequiredAnyPermissions: [Permissions.PurchaseView],
-            DetailPermissionKeys: [Permissions.PurchaseView, Permissions.PurchaseCreate, Permissions.PurchaseReceive],
-            Tabs:
-            [
-                new("Biểu mẫu + Lập đơn mua", "Chọn Nhà cung cấp (hỗ trợ tạo nhanh NCC mới tại chỗ), Hàng hóa không IMEI, Kho nhận & Vị trí nhận, tự động gợi ý giá nhập theo Bảng giá NCC."),
-                new("Danh sách Đơn mua hàng", "Lọc theo trạng thái Chờ nhận hàng / Đã nhập kho, xuất Excel và bấm 'Xác nhận nhận đủ' khi hàng về.")
-            ],
-            Steps:
-            [
-                "Vào mục 'Mua hàng NCC' trên menu Kinh doanh → bấm '+ Lập đơn mua'.",
-                "Chọn Nhà cung cấp, Hàng hóa, Kho & Vị trí nhận, kiểm tra Số lượng và Đơn giá nhập → tạo đơn mua (chưa cộng tồn kho).",
-                "Khi hàng về tới kho, bấm 'Xác nhận nhận đủ' trên dòng đơn mua và xác nhận trên hộp thoại để cộng tồn kho và sinh công nợ NCC."
-            ],
-            Notes:
-            [
-                "Đối với thiết bị quản lý theo từng mã IMEI/Seri, thực hiện nhập lô IMEI trực tiếp tại màn hình 'Kho → Kho IMEI'."
-            ],
-            DataFlow: "Lưu tại purchase_orders, purchase_order_lines, goods_receipts → Tăng tồn tại quantity_movements và sinh Công nợ Nhà cung cấp (PURCHASE) tại (/finance)."),
 
         ["inventory"] = new(
             Key: "inventory",
@@ -869,7 +840,7 @@
             ],
             Notes:
             [
-                "Mỗi kho mới tạo sẽ tự động sinh sẵn vị trí mặc định 'MAIN' để có thể nhận hàng mua PO hoặc nhập kho số lượng ngay lập tức."
+                "Mỗi kho mới tạo sẽ tự động sinh sẵn vị trí mặc định 'MAIN' để có thể nhập kho số lượng ngay lập tức."
             ],
             DataFlow: "Lưu tại warehouse_areas, warehouses & warehouse_locations → Phục vụ phân quyền phạm vi kho (/admin/warehouses) và điều phối tại (/inventory), (/sales-orders)."),
 
@@ -1019,7 +990,7 @@
                 "Mở mục 'Công nợ & thanh toán' (/finance) và chọn Kỳ công nợ cần làm việc trên thanh lọc đầu trang.",
                 "Để thu nợ khách hàng hoặc chi trả NCC / Kỹ thuật / Hoa hồng: bấm nút Thu/Chi trên dòng chứng từ (hoặc mở hộp thoại lập Phiếu Thu / Phiếu Chi ở Sổ quỹ) → chọn đúng Loại Khoản Thu / Khoản Chi thông qua ô tìm kiếm thông minh → chọn Tiền mặt hoặc Ngân hàng → xác nhận ghi sổ.",
                 "Khi cần chỉnh sửa hoặc xóa Phiếu Thu/Chi hay Chứng từ công nợ (chưa khóa sổ): bấm nút Sửa/Xóa để thao tác trên Hộp thoại kèm cảnh báo xác nhận.",
-                "Bấm '↻ Đồng bộ dữ liệu Kế toán' bất kỳ lúc nào để rà soát đảm bảo 100% đơn mua, đơn lắp hoàn thành và đợt gia hạn đều khớp chứng từ kế toán."
+                "Bấm '↻ Đồng bộ dữ liệu Kế toán' bất kỳ lúc nào để rà soát đảm bảo 100% phiếu nhập kho, đơn lắp hoàn thành và đợt gia hạn đều khớp chứng từ kế toán."
             ],
             Notes:
             [
@@ -1127,7 +1098,7 @@
             TabBadge: "Danh mục & Định giá",
             Actor: "Admin / Quản lý kinh doanh / Kế toán / CSKH",
             Summary: "Sản phẩm, Nhà cung cấp, Khách hàng (Nhóm cha – con), Nhân viên bán hàng, Người lắp đặt & Bảng giá (Giá nhập / Giá chưa lắp / Giá có lắp / Giá gia hạn).",
-            Purpose: "Thiết lập chuẩn dữ liệu đầu vào một lần để toàn bộ quy trình Mua hàng, Kho, Đơn hàng lắp đặt, Gia hạn và Hoa hồng tự động nội suy chính xác đơn giá mà không cần nhập tay.",
+            Purpose: "Thiết lập chuẩn dữ liệu đầu vào một lần để toàn bộ quy trình Kho, Đơn hàng lắp đặt, Gia hạn và Hoa hồng tự động nội suy chính xác đơn giá mà không cần nhập tay.",
             RequiredAnyPermissions: [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView, Permissions.OrdersView],
             DetailPermissionKeys: [Permissions.ProductsView, Permissions.ProductsCreate, Permissions.ProductsUpdate, Permissions.CustomersView, Permissions.CustomersCreate, Permissions.CustomersUpdate, Permissions.PricesView, Permissions.PricesUpdate, Permissions.MasterDataManage],
             Tabs:
@@ -1147,28 +1118,28 @@
             [
                 "Mọi bảng danh mục đều hỗ trợ nhấp đúp dòng để xem Chi tiết bản ghi và xuất tệp Excel (.xlsx) tiếng Việt."
             ],
-            DataFlow: "Cấp dữ liệu chuẩn cho Kho (/inventory), Mua hàng (/purchases), Đơn hàng (/sales-orders), Gia hạn (/devices) và Kế toán (/finance)."),
+            DataFlow: "Cấp dữ liệu chuẩn cho Kho (/inventory), Đơn hàng (/sales-orders), Gia hạn (/devices) và Kế toán (/finance)."),
 
         ["mod-02"] = new(
             Key: "mod-02",
             Category: "PHÂN HỆ CỐT LÕI 02",
-            Title: "02. Mua hàng PO, Vận hành Kho (IMEI & Số lượng), Kiểm kê & Bảo hành",
-            RouteLabel: "/purchases · /inventory · /quantity-counts · /warranties",
+            Title: "02. Vận hành Kho (IMEI & Số lượng), Kiểm kê & Bảo hành",
+            RouteLabel: "/inventory · /quantity-counts · /warranties",
             PrimaryHref: "/inventory",
             TabBadge: "Kho vận & RMA",
-            Actor: "Thủ kho / Thu mua / Kỹ thuật",
-            Summary: "Đơn mua NCC (PO), Kho IMEI & Kho số lượng (hiển thị Tồn khả dụng trực tiếp trên menu), Kiểm kê duyệt lệch và Bảo hành 3 bước.",
-            Purpose: "Kiểm soát chặt chẽ từng mã IMEI thiết bị lẫn từng đơn vị vật tư số lượng từ khâu nhập hàng, ký gửi, giao kỹ thuật cho tới kiểm kê và bảo hành hãng.",
-            RequiredAnyPermissions: [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty, Permissions.PurchaseView],
-            DetailPermissionKeys: [Permissions.InventoryView, Permissions.InventoryReceive, Permissions.InventoryConsignOut, Permissions.InventoryTechOut, Permissions.InventoryWarranty, Permissions.QuantityStockView, Permissions.QuantityMove, Permissions.QuantityCountView, Permissions.QuantityCountCreate, Permissions.QuantityCountApprove, Permissions.PurchaseView, Permissions.PurchaseCreate, Permissions.PurchaseReceive],
+            Actor: "Thủ kho / Quản lý kho / Kỹ thuật",
+            Summary: "Kho IMEI & Kho số lượng (hiển thị Tồn khả dụng trực tiếp trên menu), Kiểm kê duyệt lệch và Bảo hành 3 bước.",
+            Purpose: "Kiểm soát chặt chẽ từng mã IMEI thiết bị lẫn từng đơn vị vật tư số lượng từ khâu nhập kho, ký gửi, giao kỹ thuật cho tới kiểm kê và bảo hành hãng.",
+            RequiredAnyPermissions: [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty],
+            DetailPermissionKeys: [Permissions.InventoryView, Permissions.InventoryReceive, Permissions.InventoryConsignOut, Permissions.InventoryTechOut, Permissions.InventoryWarranty, Permissions.QuantityStockView, Permissions.QuantityMove, Permissions.QuantityCountView, Permissions.QuantityCountCreate, Permissions.QuantityCountApprove],
             Tabs:
             [
-                new("Mua hàng PO (/purchases) & Kho (/inventory)", "Nhận hàng số lượng từ PO hoặc dán lô IMEI trực tiếp từ NCC, tự động cộng tồn kho khả dụng và sinh công nợ NCC."),
+                new("Kho IMEI & Kho số lượng (/inventory)", "Dán lô IMEI từ NCC hoặc nhập/xuất/điều chuyển kho số lượng, tự động cộng tồn kho khả dụng và sinh công nợ NCC."),
                 new("Kiểm kê (/quantity-counts) & Bảo hành (/warranties)", "Chốt chênh lệch tồn kho qua phê duyệt 1 lần và xử lý bảo hành Tiếp nhận → Gửi NCC → Trả khách/Nhập kho.")
             ],
             Steps:
             [
-                "Nhập hàng số lượng qua '/purchases' (Lập PO → Xác nhận nhận đủ) hoặc nhập lô thiết bị có IMEI tại '/inventory' (Tab Kho IMEI).",
+                "Nhập lô thiết bị có IMEI tại '/inventory' (Tab Kho IMEI) hoặc nhập hàng số lượng tại Tab Kho số lượng.",
                 "Thực hiện xuất ký gửi, giao kỹ thuật hoặc điều chuyển kho tại '/inventory'.",
                 "Định kỳ mở phiên kiểm đếm và duyệt điều chỉnh tại '/quantity-counts'; tiếp nhận và xử lý thiết bị lỗi tại '/warranties'."
             ],
@@ -1381,12 +1352,12 @@
             Actor: "Kế toán / Kho / CSKH",
             Summary: "Mọi nghiệp vụ Kho / Đơn hàng / Gia hạn tự động sinh Công nợ; mọi Phiếu Thu / Phiếu Chi trong Sổ quỹ gắn chặt với danh mục Khoản Thu / Khoản Chi do Kế toán quản lý.",
             Purpose: "Chống bỏ sót công nợ và chuẩn hóa phân loại dòng tiền Thu – Chi trên toàn hệ thống mà không phải nhập liệu lặp lại ở nhiều nơi.",
-            RequiredAnyPermissions: [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.PurchaseView, Permissions.ArchitectureView],
+            RequiredAnyPermissions: [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.ArchitectureView],
             DetailPermissionKeys: [Permissions.FinanceView, Permissions.FinanceSupplierView, Permissions.FinanceCustomerView, Permissions.FinanceRenewView, Permissions.FinanceOtherView, Permissions.FinancePay],
             Tabs: [],
             Steps:
             [
-                "Nhập kho IMEI / Nhận PO → tự động sinh Công nợ Nhà cung cấp (PURCHASE).",
+                "Nhập kho IMEI / Nhập kho số lượng → tự động sinh Công nợ Nhà cung cấp (PURCHASE).",
                 "Hoàn thành đơn SO → tự động sinh Công nợ Khách hàng (SALE) và Công nợ Kỹ thuật (SERVICE, nếu có công lắp).",
                 "Gia hạn thiết bị → tự động sinh Công nợ Gia hạn (RENEWAL) và Phiếu Thu ngay nếu thanh toán tiền mặt.",
                 "Lập Phiếu Thu / Phiếu Chi tại '/finance' → chọn trực tiếp từ danh mục Khoản Thu (+) / Khoản Chi (−) đang hoạt động tại '/expenses'."
@@ -1395,7 +1366,7 @@
             [
                 "Hàm ReconcileAccountingData hoạt động chống trùng lặp tuyệt đối (Idempotent), đảm bảo mỗi nghiệp vụ gốc chỉ sinh đúng 1 chứng từ kế toán."
             ],
-            DataFlow: "Kết nối tự động từ stock_units, purchase_orders, v7_orders, renewals, expense_categories sang invoices & payments."),
+            DataFlow: "Kết nối tự động từ stock_units, quantity_movements, v7_orders, renewals, expense_categories sang invoices & payments."),
 
         ["rule-5"] = new(
             Key: "rule-5",
@@ -1462,8 +1433,7 @@
             AllGuides["sellers"],
             AllGuides["installers"],
             AllGuides["prices"],
-            AllGuides["sales-orders"],
-            AllGuides["purchases"]
+            AllGuides["sales-orders"]
         ]),
         new("3. KHO & THIẾT BỊ",
         [
@@ -1489,7 +1459,7 @@
     private static readonly List<CoreModuleVm> CoreModules =
     [
         new("mod-01", "01", "Danh mục Nền tảng & Chính sách Giá 3 tầng", "Sản phẩm, Nhà cung cấp, Khách hàng (Nhóm cha – con), NV bán hàng, Người lắp đặt & Bảng giá (Giá nhập / Chưa lắp / Có lắp / Gia hạn)", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView, Permissions.OrdersView]),
-        new("mod-02", "02", "Mua hàng PO, Kho IMEI / Số lượng, Kiểm kê & Bảo hành", "Đơn mua NCC (PO), Kho IMEI & Kho số lượng (huy hiệu Tồn khả dụng trên menu), Kiểm kê duyệt lệch & Bảo hành 3 bước", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty, Permissions.PurchaseView]),
+        new("mod-02", "02", "Vận hành Kho IMEI / Số lượng, Kiểm kê & Bảo hành", "Kho IMEI & Kho số lượng (huy hiệu Tồn khả dụng trên menu), Kiểm kê duyệt lệch & Bảo hành 3 bước", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.QuantityCountView, Permissions.InventoryWarranty]),
         new("mod-03", "03", "Đơn hàng & Điều phối lắp đặt đa chế độ (SO)", "Hộp thoại tạo & xử lý đơn, chế độ Có lắp / Không tính công lắp, hoàn thành linh hoạt & đồng bộ ngược trước chốt số", [Permissions.OrdersView]),
         new("mod-04", "04", "Thiết bị đang hoạt động & Tái tục Gia hạn", "Cảnh báo thiết bị còn hạn ≤ 10 ngày trực tiếp trên menu trái, thêm thiết bị & gia hạn 12 tháng gắn hoa hồng NV bán hàng", [Permissions.DevicesView]),
         new("mod-05", "05", "Quản lý Thu/Chi, Công nợ Sổ quỹ & Báo cáo Kỳ", "Tùy biến loại Khoản Thu/Chi (/expenses) map với Phiếu Thu/Chi Sổ quỹ (/finance), quyết toán hoa hồng & Báo cáo tổng hợp (/reports)", [Permissions.FinanceView, Permissions.ReportsView]),
@@ -1501,7 +1471,7 @@
         new("rule-1", "Q1", "Vòng đời IMEI duy nhất & Khử trùng thông minh", "Mỗi thiết bị chỉ ở 1 trạng thái tại 1 thời điểm; tự động lọc trùng và khôi phục an toàn IMEI xóa mềm khi nhập kho", [Permissions.InventoryView, Permissions.OrdersView, Permissions.DevicesView, Permissions.InventoryWarranty, Permissions.ArchitectureView]),
         new("rule-2", "Q2", "Trừ kho khi Hoàn thành & Bổ sung IMEI linh hoạt", "Tạo đơn chưa trừ kho; chỉ trừ kho 1 lần khi Hoàn thành đơn, hỗ trợ bổ sung IMEI sau và chế độ Hãng lắp không trừ kho", [Permissions.OrdersView, Permissions.InventoryView, Permissions.QuantityStockView, Permissions.ArchitectureView]),
         new("rule-3", "Q3", "Chuẩn giá Công lắp & Bảo toàn Snapshot lịch sử", "Tích Không tính công lắp tự động áp Giá chưa lắp (công = 0 ₫); bảo toàn Snapshot đơn hoàn thành & đồng bộ khi Main điều chỉnh trước chốt số", [Permissions.OrdersView, Permissions.PricesView, Permissions.FinanceView, Permissions.ReportsView, Permissions.ArchitectureView]),
-        new("rule-4", "Q4", "Liên thông Quản lý Thu/Chi ↔ Công nợ & Sổ quỹ", "Nhập kho, Đơn hàng, Gia hạn tự động sinh Công nợ; các loại Khoản Thu/Chi tại /expenses map trực tiếp vào Phiếu Thu/Chi tại /finance", [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.PurchaseView, Permissions.ArchitectureView]),
+        new("rule-4", "Q4", "Liên thông Quản lý Thu/Chi ↔ Công nợ & Sổ quỹ", "Nhập kho, Đơn hàng, Gia hạn tự động sinh Công nợ; các loại Khoản Thu/Chi tại /expenses map trực tiếp vào Phiếu Thu/Chi tại /finance", [Permissions.FinanceView, Permissions.OrdersView, Permissions.InventoryView, Permissions.DevicesView, Permissions.ArchitectureView]),
         new("rule-5", "Q5", "Hộp thoại Xác nhận Thêm/Sửa/Xóa & Chống xóa cứng", "Mọi thao tác Thêm/Sửa/Xóa đều có hộp thoại cảnh báo xác nhận; SQLite Trigger chặn xóa cứng và hỗ trợ nhấp đúp xem Chi tiết dòng", []),
         new("rule-6", "Q6", "Phân quyền cố định Hộp thoại Xem Log (Không tùy chỉnh)", "Nút '📋 Xem log' chung chỉ hiện cho Main, Owner, Admin; nút 'Xem log' từng dòng chỉ hiện cho Main & Owner; các vai trò khác ẩn hoàn toàn", [])
     ];
@@ -1509,7 +1479,7 @@
     private static readonly List<WorkflowStageVm> WorkflowStages =
     [
         new("mod-01", 1, "B1. Danh mục & Bảng giá 3 tầng", "Quản lý khai báo Sản phẩm, NCC, Khách hàng, NV bán hàng, Người lắp đặt & Giá (/products, /catalog/*)", "Quản lý Danh mục & Nội suy Bảng giá", "Sản phẩm, Nhà cung cấp, Khách hàng, NV bán hàng, Người lắp đặt, Bảng giá", "Chuẩn hóa mã SP, Giá nhập, Giá chưa lắp, Giá có lắp, Giá gia hạn & Định mức hoa hồng", [Permissions.ProductsView, Permissions.MasterDataManage, Permissions.CustomersView, Permissions.PricesView]),
-        new("inventory", 2, "B2. Mua hàng PO & Nhập Kho IMEI/SL", "Thu mua nhận đơn PO (/purchases) hoặc Thủ kho dán lô IMEI / nhập số lượng (/inventory)", "Tiếp nhận Đơn mua & Vận hành Kho", "Đơn mua NCC, Thiết bị IMEI, Phiếu xuất nhập kho, Sổ kho số lượng", "Tăng Tồn kho khả dụng (cập nhật menu) + Tự động sinh Công nợ NCC", [Permissions.InventoryView, Permissions.QuantityStockView, Permissions.PurchaseView]),
+        new("inventory", 2, "B2. Nhập & Vận hành Kho IMEI / Số lượng", "Thủ kho dán lô IMEI từ NCC hoặc nhập/xuất/điều chuyển kho số lượng (/inventory)", "Vận hành Kho IMEI & Kho số lượng", "Thiết bị IMEI, Phiếu xuất nhập kho, Sổ kho số lượng", "Tăng Tồn kho khả dụng (cập nhật menu) + Tự động sinh Công nợ NCC", [Permissions.InventoryView, Permissions.QuantityStockView]),
         new("sales-orders", 3, "B3. Tạo đơn SO & Điều phối lắp đặt", "CSKH bấm '+ Tạo đơn lắp đặt' hoặc dán nhanh tin nhắn NV bán hàng (/sales-orders)", "Tiếp nhận & Điều phối đơn lắp đặt", "Đơn hàng lắp đặt (Chờ điều phối → Đang đi lắp), Chi tiết mặt hàng", "Áp đúng Giá có lắp / Giá chưa lắp (0 ₫ công lắp); tăng bộ đếm đơn chờ lắp; chưa trừ kho", [Permissions.OrdersView]),
         new("sales-orders", 4, "B4. Nhập IMEI, Kích hoạt & Hoàn thành SO", "CSKH mở Hộp thoại xử lý đơn → điền IMEI/biển số & bấm Hoàn thành (/sales-orders)", "Ghi nhận IMEI & Đồng bộ hoàn thành", "Đơn hàng hoàn thành, Hiệu ứng tồn kho, Thiết bị IMEI, Thuê bao kích hoạt", "Trừ tồn kho + Kích hoạt thiết bị + Sinh Hóa đơn Khách hàng & Công kỹ thuật", [Permissions.OrdersView]),
         new("devices", 5, "B5. Cảnh báo hạn ≤ 10 ngày & Gia hạn TB", "CSKH theo dõi cảnh báo hạn ≤ 10 ngày, gia hạn 12 tháng gắn NV bán hàng (/devices)", "Gia hạn thuê bao & Đồng bộ hạn", "Thuê bao kích hoạt, Lịch sử gia hạn, Hóa đơn công nợ gia hạn", "Cộng thêm 12 tháng hạn sử dụng + Sinh Công nợ Gia hạn & Hoa hồng NV bán hàng", [Permissions.DevicesView]),

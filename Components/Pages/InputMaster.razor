@@ -156,7 +156,7 @@ else
             <div class="panel-head">
                 <div>
                     <h2>@(editingId.HasValue ? "Cập nhật" : "Khai báo mới") — @Title</h2>
-                    <p>@(CurrentSection=="installers" ? "Khai báo hồ sơ người lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm." : CurrentSection=="sellers" ? "Khai báo nhân viên bán hàng của công ty để đồng bộ Khách hàng, Đơn hàng lắp đặt, Gia hạn thiết bị và thống kê hoa hồng cuối kỳ." : "Thông tin được dùng chung ở các luồng đơn mua hàng, đơn lắp đặt, quản lý kho và thanh toán.")</p>
+                    <p>@(CurrentSection=="installers" ? "Khai báo hồ sơ người lắp đặt và thiết lập bảng định mức tiền công đi lắp theo từng sản phẩm." : CurrentSection=="sellers" ? "Khai báo nhân viên bán hàng của công ty để đồng bộ Khách hàng, Đơn hàng lắp đặt, Gia hạn thiết bị và thống kê hoa hồng cuối kỳ." : "Thông tin được dùng chung ở các luồng quản lý kho, đơn lắp đặt, gia hạn và thanh toán.")</p>
                 </div>
                 <button type="button" class="btn secondary" @onclick="CloseEditor">Đóng</button>
             </div>

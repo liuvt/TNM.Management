@@ -101,6 +101,15 @@ public sealed class AuthRepository
             else
                 Exec(c, @"DELETE FROM user_permission_overrides WHERE permission_key=$k", ("$k", fixedKey));
         }
+        // Dọn dẹp các khóa quyền luồng Mua hàng NCC cũ (đã loại bỏ)
+        if (rpHasDeletedAt)
+            Exec(c, "UPDATE role_permissions SET deleted_at=CURRENT_TIMESTAMP WHERE permission_key LIKE 'purchase.%' AND deleted_at IS NULL");
+        else
+            Exec(c, "DELETE FROM role_permissions WHERE permission_key LIKE 'purchase.%'");
+        if (uoHasDeletedAt)
+            Exec(c, "UPDATE user_permission_overrides SET deleted_at=CURRENT_TIMESTAMP WHERE permission_key LIKE 'purchase.%' AND deleted_at IS NULL");
+        else
+            Exec(c, "DELETE FROM user_permission_overrides WHERE permission_key LIKE 'purchase.%'");
         Exec(c, @"INSERT INTO user_security(user_id,security_stamp)
             SELECT u.id,lower(hex(randomblob(16))) FROM app_users u
             WHERE NOT EXISTS(SELECT 1 FROM user_security s WHERE s.user_id=u.id)");
@@ -444,7 +453,7 @@ public sealed class AuthRepository
         var permissions=AllowedPermissions(userId).ToHashSet(StringComparer.Ordinal);
         (string key,string path)[] options = [
             (Permissions.DashboardView,"/"),(Permissions.QuantityStockView,"/quantity-stock"),
-            (Permissions.QuantityCountView,"/quantity-counts"),(Permissions.PurchaseView,"/purchases"),
+            (Permissions.QuantityCountView,"/quantity-counts"),
             (Permissions.ProductsView,"/products"),
             (Permissions.CustomersView,"/catalog/customers"),
             (Permissions.InventoryView,"/inventory"),(Permissions.OrdersView,"/sales-orders"),

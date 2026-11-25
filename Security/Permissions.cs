@@ -76,9 +76,6 @@ public static class Permissions
     public const string QuantityCountView = "stock_count.quantity.view";
     public const string QuantityCountCreate = "stock_count.quantity.create";
     public const string QuantityCountApprove = "stock_count.quantity.approve";
-    public const string PurchaseView = "purchase.view";
-    public const string PurchaseCreate = "purchase.create";
-    public const string PurchaseReceive = "purchase.receive";
     public const string WarehouseScopeManage = "users.warehouse_scope.manage";
     public const string MasterDataManage = "system.master_data.manage";
 
@@ -158,9 +155,6 @@ public static class Permissions
         new(QuantityCountView,"Quản lý kho","Kiểm kê số lượng","Xem các phiên kiểm kê số lượng",35,true),
         new(QuantityCountCreate,"Quản lý kho","Kiểm kê số lượng","Mở phiên, ghi số thực kiểm",35,true),
         new(QuantityCountApprove,"Quản lý kho","Kiểm kê số lượng","Phê duyệt và ghi điều chỉnh tồn",35,true),
-        new(PurchaseView,"Mua hàng NCC","Đơn mua","Xem phiếu mua hàng và nhận hàng",18,true),
-        new(PurchaseCreate,"Mua hàng NCC","Đơn mua","Tạo phiếu mua số lượng",18,true),
-        new(PurchaseReceive,"Mua hàng NCC","Nhận hàng","Nhận hàng và ghi số lượng nhập kho",18,true),
         new(WarehouseScopeManage,"Hệ thống","Phân quyền kho","Giới hạn các kho tài khoản được thao tác",1,true),
         new(MasterDataManage,"Hệ thống","Danh mục nền","Tạo NCC, nhân sự, kho và vị trí chính",1,true),
     ];
@@ -238,8 +232,6 @@ public static class Permissions
         [WarehouseLocationManage] = QuantityStockView,
         [QuantityCountCreate] = QuantityCountView,
         [QuantityCountApprove] = QuantityCountView,
-        [PurchaseCreate] = PurchaseView,
-        [PurchaseReceive] = PurchaseView,
         [WarehouseScopeManage] = UsersView,
         [MasterDataManage] = UsersView,
     };
@@ -258,9 +250,9 @@ public static class Permissions
     public static readonly Dictionary<string, string[]> Defaults = new()
     {
         ["ADMIN"] = Definitions.Select(x => x.Key).ToArray(),
-        ["MANAGER"] = [QuantityStockView, QuantityMove, WarehouseLocationManage, QuantityCountView, QuantityCountCreate, QuantityCountApprove, PurchaseView, PurchaseCreate, PurchaseReceive, CustomersUpdate, OrdersUpdate, InventoryWarranty, DashboardView, DashboardRevenue, DashboardProfit, DashboardStock, DashboardDebt, DashboardOrders, DashboardDevices, DashboardRenewals, ProductsView, ProductsCreate, ProductsUpdate, ProductsExport, StockCountView, StockCountReview, CustomersView, CustomersCreate, PricesView, PricesUpdate, InventoryView, InventoryReceive, InventoryMove, InventoryConsignOut, InventoryConsignReturn, InventoryTechOut, InventoryTechReturn, OrdersView, OrdersCreate, OrdersActivate, OrdersCancel, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenew, FinanceView, FinanceSupplierView, FinanceCustomerView, FinanceRenewView, FinanceOtherView, FinancePay, FinanceExport, ReportsView, ReportsExport, ArchitectureView],
-        ["ACCOUNTANT"] = [PurchaseView, QuantityStockView, DashboardView, DashboardRevenue, DashboardProfit, DashboardStock, DashboardDebt, DashboardOrders, DashboardDevices, DashboardRenewals, ProductsView, ProductsExport, StockCountView, CustomersView, PricesView, InventoryView, OrdersView, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, FinanceView, FinanceSupplierView, FinanceCustomerView, FinanceRenewView, FinanceOtherView, FinancePay, FinanceExport, ReportsView, ReportsExport],
-        ["WAREHOUSE"] = [QuantityStockView, QuantityMove, QuantityCountView, QuantityCountCreate, PurchaseView, PurchaseReceive, InventoryWarranty, DashboardView, ProductsView, StockCountView, StockCountReview, InventoryView, InventoryReceive, InventoryMove, ReportsView, ReportsExport],
+        ["MANAGER"] = [QuantityStockView, QuantityMove, WarehouseLocationManage, QuantityCountView, QuantityCountCreate, QuantityCountApprove, CustomersUpdate, OrdersUpdate, InventoryWarranty, DashboardView, DashboardRevenue, DashboardProfit, DashboardStock, DashboardDebt, DashboardOrders, DashboardDevices, DashboardRenewals, ProductsView, ProductsCreate, ProductsUpdate, ProductsExport, StockCountView, StockCountReview, CustomersView, CustomersCreate, PricesView, PricesUpdate, InventoryView, InventoryReceive, InventoryMove, InventoryConsignOut, InventoryConsignReturn, InventoryTechOut, InventoryTechReturn, OrdersView, OrdersCreate, OrdersActivate, OrdersCancel, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenew, FinanceView, FinanceSupplierView, FinanceCustomerView, FinanceRenewView, FinanceOtherView, FinancePay, FinanceExport, ReportsView, ReportsExport, ArchitectureView],
+        ["ACCOUNTANT"] = [QuantityStockView, DashboardView, DashboardRevenue, DashboardProfit, DashboardStock, DashboardDebt, DashboardOrders, DashboardDevices, DashboardRenewals, ProductsView, ProductsExport, StockCountView, CustomersView, PricesView, InventoryView, OrdersView, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, FinanceView, FinanceSupplierView, FinanceCustomerView, FinanceRenewView, FinanceOtherView, FinancePay, FinanceExport, ReportsView, ReportsExport],
+        ["WAREHOUSE"] = [QuantityStockView, QuantityMove, QuantityCountView, QuantityCountCreate, InventoryWarranty, DashboardView, ProductsView, StockCountView, StockCountReview, InventoryView, InventoryReceive, InventoryMove, ReportsView, ReportsExport],
         ["CSKH"] = [CustomersUpdate, OrdersUpdate, InventoryWarranty, DashboardView, ProductsView, CustomersView, CustomersCreate, PricesView, PricesUpdate, OrdersView, OrdersCreate, OrdersCancel, DevicesView, DevicesActiveView, DevicesOverdueView, DevicesDue10View, DevicesDue30View, DevicesDue60View, DevicesRenew, ReportsView],
         ["TECH"] = [QuantityStockView, InventoryWarranty, DashboardView, ProductsView, StockCountView, InventoryView, OrdersView, OrdersActivate, DevicesView, DevicesActiveView]
     };

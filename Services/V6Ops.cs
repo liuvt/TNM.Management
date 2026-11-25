@@ -9,7 +9,6 @@ public record QuantityBalance(long ProductId, long WarehouseId, long LocationId,
 public record QuantityEntry(long Id, string Document, string When, string Sku, string Warehouse, string Location, long Delta, string Type, string Note);
 public record QuantityCount(long Id, string Code, string Warehouse, string Location, string Status, string Note, string Created);
 public record QuantityCountLine(long Id, long ProductId, string Sku, string Product, long Book, long Counted);
-public record PurchaseOrderRow(long Id, string Code, string Supplier, string Warehouse, string Sku, long Qty, long Cost, string Status);
 public record WarrantyRow(long Id, string Imei, string Product, string Status, string Problem, string Received, string Notes,
     string PlateNo = "", string CustomerName = "", string OwnerName = "", string OwnerPhone = "", string SupplierName = "",
     string SentSupplierAt = "", string CompletedAt = "", long? CustomerId = null, long? SupplierId = null, long StockUnitId = 0);
@@ -259,62 +258,6 @@ public sealed class V6Ops(IWebHostEnvironment environment)
             }
             Execute(c, "UPDATE quantity_counts SET status='APPROVED',approved_by=$u,approved_at=CURRENT_TIMESTAMP WHERE id=$id AND status='DRAFT'", ("$u", user), ("$id", countId));
             Audit(c, user, "COUNT_APPROVE", "COUNT", countId, $"{lines.Count} dòng kiểm kê"); return 0;
-        });
-    }
-    public List<PurchaseOrderRow> Purchases(long user)
-    {
-        using var c = Open(); return Read(c, @"
-      SELECT po.id,po.po_no,s.name,w.name,p.sku,l.quantity,l.unit_cost_vnd,po.status,po.warehouse_id
-      FROM purchase_orders po JOIN suppliers s ON s.id=po.supplier_id JOIN warehouses w ON w.id=po.warehouse_id
-      JOIN purchase_order_lines l ON l.po_id=po.id JOIN products p ON p.id=l.product_id
-      WHERE po.deleted_at IS NULL
-      ORDER BY po.id DESC
-      ", r => (W: r.GetInt64(8), Row: new PurchaseOrderRow(r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), r.GetInt64(5), r.GetInt64(6), Text(r, 7))))
-      .Where(x => CanWarehouse(c, user, x.W)).Select(x => x.Row).ToList();
-    }
-    public long CreatePurchase(long user, long supplier, long product, long warehouse, long location, long qty, long unitCost, string note)
-    {
-        if (qty <= 0 || unitCost < 0) throw new InvalidOperationException("Số lượng và giá nhập không hợp lệ.");
-        return Transact(user, c => {
-            EnsureWarehouse(c, user, warehouse); CheckLocation(c, warehouse, location); CheckProduct(c, product);
-            if (Scalar(c, "SELECT count(*) FROM suppliers WHERE id=$id AND deleted_at IS NULL", ("$id", supplier)) == 0) throw new InvalidOperationException("Nhà cung cấp không hợp lệ.");
-            Execute(c, @"INSERT INTO purchase_orders(po_no,supplier_id,warehouse_id,location_id,note,created_by)
-                VALUES('PO-'||lower(hex(randomblob(7))),$s,$w,$l,$n,$u)",
-                ("$s", supplier), ("$w", warehouse), ("$l", location), ("$n", note), ("$u", user));
-            var id = InsertId(c); Execute(c, "INSERT INTO purchase_order_lines(po_id,product_id,quantity,unit_cost_vnd) VALUES($id,$p,$q,$v)", ("$id", id), ("$p", product), ("$q", qty), ("$v", unitCost));
-            Audit(c, user, "PO_CREATE", "PURCHASE_ORDER", id, note); return id;
-        });
-    }
-    public void ReceivePurchase(long user, long purchaseId)
-    {
-        Transact(user, c => {
-            var header = Read(c, "SELECT warehouse_id,location_id,status,supplier_id,po_no FROM purchase_orders WHERE id=$id", r => (W: r.GetInt64(0), L: r.GetInt64(1), S: Text(r, 2), Sup: r.GetInt64(3), PoNo: Text(r, 4)), ("$id", purchaseId)).FirstOrDefault();
-            if (header.W == 0 || header.S != "DRAFT") throw new InvalidOperationException("PO không ở trạng thái chờ nhận."); EnsureWarehouse(c, user, header.W);
-            var lines = Read(c, "SELECT l.product_id,l.quantity,l.unit_cost_vnd,p.name FROM purchase_order_lines l JOIN products p ON p.id=l.product_id WHERE l.po_id=$id", r => (P: r.GetInt64(0), Q: r.GetInt64(1), Cost: r.GetInt64(2), Name: Text(r, 3)), ("$id", purchaseId));
-            foreach (var line in lines) RecordMovement(c, user, line.P, header.W, header.L, line.Q, "PURCHASE_RECEIVE", $"Nhận PO #{purchaseId}", "PURCHASE", purchaseId);
-            Execute(c, "INSERT INTO goods_receipts(receipt_no,po_id,received_by) VALUES('GR-'||lower(hex(randomblob(7))),$id,$u)", ("$id", purchaseId), ("$u", user));
-            Execute(c, "UPDATE purchase_orders SET status='RECEIVED',received_at=CURRENT_TIMESTAMP WHERE id=$id", ("$id", purchaseId));
-
-            // Tự động tạo hóa đơn công nợ phải trả Nhà cung cấp (PURCHASE) — ngoại trừ nguồn Thiết bị hoàn trả (HOANTRA)
-            var isReturnSup = Scalar(c, @"SELECT COUNT(*) FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id
-                WHERE s.id=$sup AND (UPPER(COALESCE(sg.code,''))='HOANTRA' OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%' OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
-                ("$sup", header.Sup)) > 0;
-            var totalCost = isReturnSup ? 0 : lines.Sum(x => x.Q * x.Cost);
-            if (!isReturnSup && totalCost > 0)
-            {
-                var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-                Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,notes)
-                    VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$note)",
-                    ("$no", invNo), ("$sup", header.Sup), ("$amt", totalCost), ("$note", $"Nhập hàng theo {header.PoNo}"));
-                var invId = InsertId(c);
-                foreach (var line in lines)
-                {
-                    Execute(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,$q,$c)",
-                        ("$i", invId), ("$d", $"Nhập hàng NCC ({header.PoNo}): {line.Name}"), ("$p", line.P), ("$q", line.Q), ("$c", line.Cost));
-                }
-            }
-
-            Audit(c, user, "PO_RECEIVE", "PURCHASE_ORDER", purchaseId, "Nhận hàng hoàn tất & ghi nhận công nợ NCC"); return 0;
         });
     }
     public List<WarrantyRow> Warranties()
