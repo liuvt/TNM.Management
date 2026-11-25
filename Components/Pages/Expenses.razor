@@ -33,6 +33,12 @@
         <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportCategoriesExcel">
             📥 Xuất Excel (@FilteredCategories.Count)
         </button>
+        @if (canViewLog)
+        {
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showLogModal = true">
+                📋 Xem log
+            </button>
+        }
         <a class="btn secondary" href="/finance?tab=PAYMENTS">↗ Sang Công nợ &amp; Thanh toán</a>
     </div>
 </div>
@@ -572,7 +578,18 @@
     </div>
 }
 
+@if (canViewLog)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Quản lý Thu/Chi"
+                    ScopedTables="@expenseLogTables"
+                    ScopedAuditEntities="@expenseAuditEntities" />
+}
+
 @code {
+    private static readonly string[] expenseLogTables = ["expense_categories", "payments", "payment_allocations"];
+    private static readonly string[] expenseAuditEntities = ["EXPENSE_CATEGORY", "EXPENSE", "PAYMENT"];
     private static readonly (string Code, string Icon, string Title, string Desc)[] TargetEntityOptions =
     [
         ("CUSTOMER", "👤", "Khách hàng / HTX", "Map danh sách Khách hàng & Đại lý"),
@@ -584,7 +601,7 @@
 
     private readonly PagerState categoryPager = new();
 
-    private bool canEdit;
+    private bool canEdit, canViewLog, showLogModal;
     private string message = "", modalError = "", openDropdown = "";
     private string filterDirection = "", filterGroup = "", searchText = "", filterStatus = "";
 
@@ -641,6 +658,7 @@
         var actor = await Gate.RequireAsync(Permissions.FinanceView);
         Db.ActorId = actor;
         canEdit = await Gate.CanAsync(Permissions.FinancePay);
+        canViewLog = await Gate.CanViewSystemLogsAsync();
         RefreshData();
     }
 

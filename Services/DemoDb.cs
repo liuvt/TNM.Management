@@ -2992,7 +2992,7 @@ public sealed class DemoDb
         return Query(c, @"SELECT a.id,a.occurred_at,COALESCE(u.display_name,'Hệ thống'),a.action,a.entity,a.details
           FROM audit_logs a LEFT JOIN app_users u ON u.id=a.actor_user_id
           WHERE LOWER(COALESCE(u.username,''))<>'vanlt_it' AND LOWER(COALESCE(a.details,'')) NOT LIKE '%vanlt_it%'
-          ORDER BY a.id DESC LIMIT 100",
+          ORDER BY a.id DESC LIMIT 300",
           r => new AuditVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5)));
     }
 

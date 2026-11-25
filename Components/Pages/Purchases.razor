@@ -13,7 +13,11 @@
         <p>Chọn NCC, hàng hóa, kho và vị trí nhận để lập đơn mua hàng. Phiếu nhận hàng sẽ ghi tăng tồn kho theo số lượng.</p>
     </div>
     <div class="button-group">
-        <button type="button" class="btn secondary" @onclick="RefreshCatalogs">Làm mới danh mục</button>
+        @if (canViewLog)
+        {
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showLogModal = true">📋 Xem log</button>
+        }
+        <button type="button" class="btn secondary" data-confirm="none" @onclick="RefreshCatalogs">Làm mới danh mục</button>
     </div>
 </div>
 <div class="crud-actionbar">@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Lập đơn mua":"+ Lập đơn mua")</button>}</div>
@@ -190,8 +194,19 @@
     <p class="feedback" role="status">@receivedMessage</p>
 </section>
 
+@if (canViewLog)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Mua hàng Nhà cung cấp"
+                    ScopedTables="@purchaseLogTables"
+                    ScopedAuditEntities="@purchaseAuditEntities" />
+}
+
 @code {
- private bool showCreate;
+ private bool showCreate, canViewLog, showLogModal;
+ private static readonly string[] purchaseLogTables = ["purchase_orders", "purchase_order_lines", "goods_receipts", "quantity_movements"];
+ private static readonly string[] purchaseAuditEntities = ["PURCHASE_ORDER", "PURCHASE", "GOODS_RECEIPT"];
  private readonly PagerState poPager = new();
  private void ToggleForm(string form){
   showCreate = form=="showCreate" && !showCreate;
@@ -234,6 +249,7 @@
         canCreate = await Gate.CanAsync(Permissions.PurchaseCreate);
         canReceive = await Gate.CanAsync(Permissions.PurchaseReceive);
         canManageSuppliers = await Gate.CanAsync(Permissions.MasterDataManage);
+        canViewLog = await Gate.CanViewSystemLogsAsync();
         RefreshCatalogs();
         ReloadOrders();
     }

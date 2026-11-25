@@ -468,6 +468,8 @@
             return "/catalog/installer-rates";
         if (item.Key == "reports-activity" && !effectivePermissions.Contains(Permissions.ReportsView) && effectivePermissions.Contains(Permissions.ReportsAuditView))
             return "/activity";
+        if (item.PrimaryHref == "/activity" && !effectivePermissions.Contains(Permissions.ReportsAuditView))
+            return "";
         if (item.Key == "admin-security")
         {
             if (effectivePermissions.Contains(Permissions.UsersView)) return "/admin/users";

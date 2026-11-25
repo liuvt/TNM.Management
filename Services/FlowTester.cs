@@ -159,9 +159,24 @@ public static class FlowTester
                        accRights.Contains(Permissions.FinanceOtherView),
                     "Vai trò ACCOUNTANT phải có đầy đủ 4 quyền xem phân mục công nợ.");
 
+                // Kiểm tra khóa cứng quyền xem Lịch sử / Lưu vết / Log: chỉ Main, Owner, Admin được xem và không thể tùy chỉnh
+                Assert(auth.CanViewSystemLogs(ownerId), "Tài khoản Owner phải có quyền xem Log hệ thống.");
+                var adminRoleId = roles.First(r => r.Code == "ADMIN").Id;
+                auth.CreateUser(ownerId, "admin_test", "Quản trị viên Test", "AdminPass2026", [adminRoleId]);
+                var adminUserId = auth.AllUsers().First(u => u.Username == "admin_test").Id;
+                Assert(auth.CanViewSystemLogs(adminUserId), "Vai trò ADMIN phải có quyền xem Log hệ thống.");
+                Assert(!auth.CanViewSystemLogs(staffUserId) && !auth.CanViewSystemLogs(accUserId),
+                    "Vai trò WAREHOUSE và ACCOUNTANT không được phép xem Log / Lịch sử / Lưu vết.");
+                Assert(!accRights.Contains(Permissions.ReportsAuditView) && !accRights.Contains(Permissions.InventoryLedgerView) && !accRights.Contains(Permissions.DevicesRenewalsView),
+                    "Vai trò ACCOUNTANT không được kế thừa các quyền Lịch sử / Lưu vết cố định.");
+                AssertThrows(() => auth.SaveUserPermissions(ownerId, accUserId, new Dictionary<string, string> { [Permissions.ReportsAuditView] = "ALLOW" }),
+                    "Chặn tùy chỉnh cấp riêng quyền xem Log cho cá nhân ngoài Main/Owner/Admin");
+                AssertThrows(() => auth.SaveRolePermissions(ownerId, accRoleId, [Permissions.FinanceView, Permissions.ReportsAuditView]),
+                    "Chặn tùy chỉnh gán quyền xem Log vào vai trò mẫu ngoài Admin");
+
                 // Kiểm tra chống khóa/sửa Owner
                 AssertThrows(() => auth.UpdateUser(staffUserId, ownerId, "Hack", false, "", [whRoleId]), "Chặn sửa tài khoản Owner");
-                return $"Tạo User #{staffUserId} (nv_kho_test) & Kế toán #{accUserId} · Override ALLOW/DENY & Bảo vệ Owner hoạt động đúng.";
+                return $"Tạo User #{staffUserId}, Kế toán #{accUserId} & Admin #{adminUserId} · Khóa cứng quyền Xem Log (Main/Owner/Admin) & Bảo vệ Owner hoạt động đúng.";
             });
 
             // =========================================================================

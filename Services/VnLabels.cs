@@ -217,7 +217,7 @@ public static class VnLabels
         "invoice_lines" => "Chi tiết hạng mục chứng từ công nợ",
         "payments" => "Phiếu Thu / Phiếu Chi Sổ quỹ",
         "payment_allocations" => "Phân bổ thanh toán chứng từ",
-        "expense_categories" => "Danh mục Loại khoản chi",
+        "expense_categories" => "Danh mục Loại Khoản Thu / Khoản Chi",
         "app_users" => "Tài khoản người dùng",
         "roles" => "Vai trò phân quyền mẫu",
         "user_roles" => "Gán vai trò cho tài khoản",

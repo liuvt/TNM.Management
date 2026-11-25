@@ -13,6 +13,7 @@
         <p>Danh mục sử dụng chung cho đơn mua hàng, đơn lắp đặt, quản lý kho, IMEI, bảng giá và gia hạn.</p>
     </div>
     <div class="button-group">
+        @if(canAudit){<button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button>}
         @if(canCreate){<button type="button" class="btn" @onclick="Create">+ Tạo sản phẩm</button>}
     </div>
 </div>
@@ -99,7 +100,7 @@
                     </td>
                     <td>@p.WarrantyMonths tháng</td><td>@(p.IsActive?"Đang bán":"Ngừng bán")</td>
                     <td>
-                        @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/products/{p.Id}")">Lịch sử</a>}
+                        @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="()=>OpenRecordLog(p.Id)">Xem log</button>}
                         @if(canUpdate&&p.IsActive){<button type="button" class="btn secondary btn-sm" @onclick="()=>Edit(p)">Sửa</button>}
                         @if(canUpdate&&p.IsActive)
                         {
@@ -118,10 +119,27 @@
     <TablePager Pager="prodPager" TotalCount="totalFiltered" OnChange="StateHasChanged" />
 </section>
 
+@if(canAudit)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Danh mục Sản phẩm"
+                    ScopedTables="@productLogTables"
+                    ScopedAuditEntities="@productAuditEntities"
+                    InitialTable="@logInitialTable"
+                    InitialRecordId="@logInitialRecordId" />
+}
+
 @code {
     private List<ProductMaster.ProductRow> products=[];
     private List<ProductMaster.GroupRow> groups=[];
-    private bool canCreate,canUpdate,canExport,canAudit,showEditor,scrollEditorPending;
+    private bool canCreate,canUpdate,canExport,canAudit,showEditor,scrollEditorPending,showLogModal;
+    private string? logInitialTable;
+    private long? logInitialRecordId;
+    private static readonly string[] productLogTables = ["products", "product_groups", "product_catalog_metadata", "v7_sku_sequences"];
+    private static readonly string[] productAuditEntities = ["PRODUCT", "PRODUCT_GROUP"];
+    private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
+    private void OpenRecordLog(long id) { logInitialTable = "products"; logInitialRecordId = id; showLogModal = true; }
     private readonly HashSet<long> selected=[];
     private readonly PagerState prodPager = new();
     private string query="",search="",statusFilter="ACTIVE",message="",name="",kind="GOODS",unit="Cái",editingSku="";
@@ -174,7 +192,7 @@
         await Gate.RequireAsync(Permissions.ProductsView);
         canCreate=await Gate.CanAsync(Permissions.ProductsCreate);
         canUpdate=await Gate.CanAsync(Permissions.ProductsUpdate);
-        canAudit=await Gate.CanAsync(Permissions.ReportsAuditView);
+        canAudit=await Gate.CanViewSystemLogsAsync();
         canExport=await Gate.CanAsync(Permissions.ProductsExport);
         Reload();
     }

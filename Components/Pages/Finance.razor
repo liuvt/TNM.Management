@@ -15,6 +15,12 @@
     </p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    @if (canViewLog)
+    {
+      <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showLogModal = true">
+        📋 Xem log
+      </button>
+    }
     <button type="button"
             class="btn secondary"
             data-confirm="edit"
@@ -1795,8 +1801,20 @@ else
   </section>
 }
 
+@if (canViewLog)
+{
+  <SystemLogModal IsOpen="showLogModal"
+                  OnClose="() => showLogModal = false"
+                  Title="Lịch sử &amp; Lưu vết — Công nợ &amp; Thanh toán (Sổ quỹ)"
+                  ScopedTables="@financeLogTables"
+                  ScopedAuditEntities="@financeAuditEntities" />
+}
+
 @code {
   private sealed record PeriodPillVm(string Key, int Year, int Month, string Label, int InvoiceCount, long CustomerBalanceVnd, long SupplierBalanceVnd);
+  private static readonly string[] financeLogTables = ["invoices", "invoice_lines", "payments", "payment_allocations", "expense_categories"];
+  private static readonly string[] financeAuditEntities = ["INVOICE", "PAYMENT", "EXPENSE", "EXPENSE_CATEGORY", "FINANCE"];
+  private bool canViewLog, showLogModal;
 
   [SupplyParameterFromQuery(Name = "tab")] public string? QueryTab { get; set; }
   [SupplyParameterFromQuery(Name = "catId")] public long? QueryCatId { get; set; }
@@ -2239,6 +2257,7 @@ else
     var actor = await Gate.RequireAsync(Permissions.FinanceView);
     Db.ActorId = actor;
     isMainDev = Db.IsMainDeveloperActor(actor);
+    canViewLog = await Gate.CanViewSystemLogsAsync();
 
     canCustomer = await Gate.CanAsync(Permissions.FinanceCustomerView);
     canRenewal = await Gate.CanAsync(Permissions.FinanceRenewView);

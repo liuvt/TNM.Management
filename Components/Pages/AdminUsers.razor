@@ -5,7 +5,9 @@
 @inject IJSRuntime JS
 <PageTitle>Người dùng và phân quyền · TNM.Management</PageTitle>
 <div class="page-head"><div><div class="eyebrow">HỆ THỐNG / TÀI KHOẢN → VAI TRÒ → PHÂN QUYỀN CHỨC NĂNG</div><h1>Người dùng &amp; phân quyền chức năng</h1>
-<p>Chủ sở hữu hệ thống được gán toàn bộ vai trò và toàn quyền chức năng đã triển khai. Các tài khoản nhân sự khác sử dụng vai trò mẫu hoặc cấp quyền riêng.</p></div></div>
+<p>Chủ sở hữu hệ thống được gán toàn bộ vai trò và toàn quyền chức năng đã triển khai. Các tài khoản nhân sự khác sử dụng vai trò mẫu hoặc cấp quyền riêng.</p></div>
+@if(canViewLog){<div class="button-group"><button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button></div>}
+</div>
 <div class="stats-grid three">
     <div class="stat"><small>Tài khoản</small><strong>@users.Count</strong><span>@users.Count(x=>x.IsActive) đang hoạt động</span></div>
     <div class="stat"><small>Vai trò mẫu</small><strong>@roles.Count</strong><span>Có thể tạo tài khoản chỉ với quyền trực tiếp</span></div>
@@ -24,7 +26,12 @@
 <td>@u.DisplayName</td><td>@(u.RoleIds.Count==0 ? "Cấp quyền trực tiếp" : string.Join(", ",roles.Where(r=>u.RoleIds.Contains(r.Id)).Select(x=>VnLabels.RoleName(x.Code))))</td>
 <td><span class="chip blue-chip">@(u.IsActive?Accounts.AllowedPermissions(u.Id).Count:0) / @Permissions.Definitions.Count(p=>p.Implemented)</span></td>
 <td><span class="chip @(u.IsActive?"green-chip":"orange-chip")">@(u.IsActive?"Hoạt động":"Đã khóa")</span></td>
-<td>@if(!u.IsOwner && u.Id!=myId && (canManageUsers || canUserPermissions)){<button class="btn secondary" data-confirm="none" @onclick="()=>EditUser(u)">Phân quyền / Sửa</button>}</td></tr>}
+<td>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+@if(!u.IsOwner && u.Id!=myId && (canManageUsers || canUserPermissions)){<button class="btn secondary btn-sm" data-confirm="none" @onclick="()=>EditUser(u)">Phân quyền / Sửa</button>}
+@if(canViewLog){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="()=>OpenUserRecordLog(u.Id)">Xem log</button>}
+</div>
+</td></tr>}
 </tbody></table></div>
 <TablePager Pager="userPager" TotalCount="totalUsers" OnChange="StateHasChanged" />
 </section>
@@ -52,14 +59,24 @@
 <div class="form-grid"><label>Tìm chức năng nghiệp vụ<input @bind="permissionSearch" @bind:event="oninput" placeholder="VD: thu hồi ký gửi, D+30, công nợ..." /></label>
 <label>Phân hệ<select @bind="areaFilter"><option value="ALL">Tất cả phân hệ</option>@foreach(var areaName in Permissions.Definitions.Select(p=>p.Area).Distinct()){<option value="@areaName">@areaName</option>}</select></label></div>
 @if(IsEditingAdmin){<div class="panel-note">Tài khoản Quản trị viên có toàn quyền cố định; không chỉnh quyền riêng để bảo vệ quyền quản trị.</div>}
+<div class="panel-note" style="margin-bottom:10px">🔒 <strong>Tính năng cố định hệ thống:</strong> Quyền xem <strong>Lịch sử / Lưu vết / Nhật ký / Log</strong> chỉ áp dụng cố định cho các vai trò <strong>Main</strong>, <strong>Chủ sở hữu (Owner)</strong> và <strong>Quản trị viên (Admin)</strong> — không thể tùy chỉnh cho các vai trò hay cá nhân khác.</div>
 var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserPerms);
 <div class="table-wrap"><table class="permissions-table"><thead><tr><th>STT</th><th>PHÂN HỆ</th><th>NHÁNH / CHỨC NĂNG</th><th>QUYỀN VAI TRÒ</th><th>QUYỀN CÁ NHÂN</th><th>HIỆU LỰC</th></tr></thead><tbody>
 @foreach(var (stt, perm) in pagedUserPerms){<tr><td><strong>@stt</strong></td><td><strong>@perm.Area</strong></td><td><strong>@perm.Feature</strong> / @perm.Label <small class="permission-key">Hạng mục #@perm.ExcelRow</small>
  @if(!perm.Implemented){<span class="chip orange-chip">Chưa triển khai</span>}</td>
- <td>@(inheritedPermissions.Contains(perm.Key) ? "Có" : "Không")</td>
- <td><select class="search-input" value="@OverrideMode(perm.Key)" disabled="@(IsEditingAdmin || !perm.Implemented)" @onchange="e => ChangeOverride(perm.Key,e)">
-   <option value="INHERIT">Theo vai trò</option><option value="ALLOW">Cho phép riêng</option><option value="DENY">Từ chối riêng</option>
- </select></td>
+ <td>@(Permissions.IsFixedSystemLogPermission(perm.Key) ? (IsEditingAdmin ? "Có (Admin)" : "Khóa cố định") : (inheritedPermissions.Contains(perm.Key) ? "Có" : "Không"))</td>
+ <td>
+ @if(Permissions.IsFixedSystemLogPermission(perm.Key))
+ {
+   <span class="chip blue-chip" title="Tính năng cố định chỉ dành cho Main, Owner và Admin — không thể tùy chỉnh">🔒 Cố định: Main / Owner / Admin</span>
+ }
+ else
+ {
+   <select class="search-input" value="@OverrideMode(perm.Key)" disabled="@(IsEditingAdmin || !perm.Implemented)" @onchange="e => ChangeOverride(perm.Key,e)">
+     <option value="INHERIT">Theo vai trò</option><option value="ALLOW">Cho phép riêng</option><option value="DENY">Từ chối riêng</option>
+   </select>
+ }
+ </td>
  <td><span class="chip @(HasEffective(perm.Key)?"green-chip":"orange-chip")">@(HasEffective(perm.Key)?"Được truy cập":perm.Implemented?"Không truy cập":"Chưa có chức năng")</span></td></tr>}
 </tbody></table></div>
 <TablePager Pager="userPermPager" TotalCount="totalUserPerms" OnChange="StateHasChanged" />
@@ -74,12 +91,23 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
 <div class="panel-head"><div><h2>Ma trận quyền theo vai trò (mẫu chung)</h2><p>Chỉnh sửa vai trò sẽ áp dụng cho toàn bộ tài khoản kế thừa vai trò này, trừ những quyền đã cho phép/từ chối riêng.</p></div>
 <select class="search-input" @bind="selectedRoleId" @bind:after="RefreshRoleMatrix">@foreach(var r in roles){<option value="@r.Id">@VnLabels.RoleName(r.Code)</option>}</select></div>
 @{ var pagedRolePerms = rolePermPager.Slice(Permissions.Definitions, out var totalRolePerms); }
+<div class="panel-note" style="margin-bottom:10px">🔒 Các hạng mục <strong>Lịch sử / Lưu vết / Nhật ký / Log</strong> thuộc tính năng cố định cho <strong>Main / Owner / Admin</strong>, không tùy chỉnh trên các vai trò khác.</div>
 <div class="table-wrap"><table><thead><tr><th>STT</th><th>PHÂN HỆ</th><th>QUYỀN HẠN</th><th>CHO PHÉP</th></tr></thead><tbody>
-@foreach(var (stt, perm) in pagedRolePerms){<tr><td><strong>@stt</strong></td><td>@perm.Area / @perm.Feature</td><td>@perm.Label <small class="permission-key">Hạng mục #@perm.ExcelRow</small>@if(!perm.Implemented){<span class="chip orange-chip">Chưa triển khai</span>}</td><td><input type="checkbox" checked="@rolePermissionKeys.Contains(perm.Key)" disabled="@(IsAdminRole || !perm.Implemented)" @onchange="e => ToggleRolePermission(perm.Key,e.Value is bool b && b)" /></td></tr>}
+@foreach(var (stt, perm) in pagedRolePerms){<tr><td><strong>@stt</strong></td><td>@perm.Area / @perm.Feature</td><td>@perm.Label <small class="permission-key">Hạng mục #@perm.ExcelRow</small>@if(!perm.Implemented){<span class="chip orange-chip">Chưa triển khai</span>}</td><td>@if(Permissions.IsFixedSystemLogPermission(perm.Key)){<span class="chip blue-chip">🔒 Cố định: Main / Owner / Admin</span>}else{<input type="checkbox" checked="@rolePermissionKeys.Contains(perm.Key)" disabled="@(IsAdminRole || !perm.Implemented)" @onchange="e => ToggleRolePermission(perm.Key,e.Value is bool b && b)" />}</td></tr>}
 </tbody></table></div>
 <TablePager Pager="rolePermPager" TotalCount="totalRolePerms" OnChange="StateHasChanged" />
 <div class="form-actions"><button class="btn" disabled="@IsAdminRole" @onclick="SaveRoleMatrix">Lưu quyền vai trò</button><span class="feedback">@roleMessage</span></div>
 </section>}
+@if(canViewLog)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Tài khoản &amp; Phân quyền"
+                    ScopedTables="@adminLogTables"
+                    ScopedAuditEntities="@adminAuditEntities"
+                    InitialTable="@logInitialTable"
+                    InitialRecordId="@logInitialRecordId" />
+}
 @code {
     private bool showUserEditor,showRoleEditor;
     private readonly PagerState userPager = new();
@@ -116,7 +144,13 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
     private IEnumerable<PermissionDefinition> FilteredPermissions => Permissions.Definitions.Where(p=>
         (areaFilter=="ALL"||p.Area==areaFilter) &&
         (string.IsNullOrWhiteSpace(permissionSearch) || (p.Area+" "+p.Feature+" "+p.Label+" "+p.Key).Contains(permissionSearch,StringComparison.OrdinalIgnoreCase)));
-    private bool canManageUsers,canManageRoles,canUserPermissions;
+    private bool canManageUsers,canManageRoles,canUserPermissions,canViewLog,showLogModal;
+    private string? logInitialTable;
+    private long? logInitialRecordId;
+    private static readonly string[] adminLogTables = ["app_users", "roles", "user_roles", "role_permissions", "user_permission_overrides", "user_scope_settings", "user_warehouse_scopes"];
+    private static readonly string[] adminAuditEntities = ["APP_USER", "ROLE", "USER_SCOPE"];
+    private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
+    private void OpenUserRecordLog(long id) { logInitialTable = "app_users"; logInitialRecordId = id; showLogModal = true; }
     private string activeMode="ACTIVE";
     private bool active { get => activeMode=="ACTIVE"; set => activeMode = value ? "ACTIVE" : "LOCKED"; }
     private bool IsAdminRole => roles.Any(x=>x.Id==selectedRoleId && x.Code=="ADMIN");
@@ -127,6 +161,7 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
     private bool HasEffective(string key)
     {
         if(!Permissions.IsImplemented(key))return false;
+        if(Permissions.IsFixedSystemLogPermission(key))return IsEditingAdmin;
         if(IsEditingAdmin)return true;
         var grant=directOverrides.TryGetValue(key,out var effect) ? effect=="ALLOW" : inheritedPermissions.Contains(key);
         return grant && (!Permissions.RequiredView.TryGetValue(key,out var parent) || HasEffective(parent));
@@ -137,6 +172,7 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
         canManageUsers=await Gate.CanAsync(Permissions.UsersManage);
         canManageRoles=await Gate.CanAsync(Permissions.RolesManage);
         canUserPermissions=await Gate.CanAsync(Permissions.UsersPermissions);
+        canViewLog=await Gate.CanViewSystemLogsAsync();
         Reload();
         selectedRoleId=roles.FirstOrDefault(x=>x.Code=="WAREHOUSE")?.Id ?? roles.FirstOrDefault()?.Id ?? 0;
         RefreshRoleMatrix();ResetForm();showUserEditor=false;
@@ -146,19 +182,19 @@ var pagedUserPerms = userPermPager.Slice(FilteredPermissions, out var totalUserP
     private void ToggleAssignedRole(long id,bool value){if(value)assignedRoles.Add(id);else assignedRoles.Remove(id);if(IsEditingAdmin)directOverrides.Clear();RecalculateInherited();}
     private void ChangeOverride(string key,ChangeEventArgs e)
     {
-        if(IsEditingAdmin || !Permissions.IsImplemented(key)) return;
+        if(IsEditingAdmin || !Permissions.IsImplemented(key) || Permissions.IsFixedSystemLogPermission(key)) return;
         var effect=e.Value?.ToString() ?? "INHERIT";
         if(effect=="INHERIT")directOverrides.Remove(key);
         else if(effect=="ALLOW"||effect=="DENY") directOverrides[key]=effect;
     }
-    private void ToggleRolePermission(string key,bool value){if(IsAdminRole)return;if(value)rolePermissionKeys.Add(key);else rolePermissionKeys.Remove(key);}
-    private void RefreshRoleMatrix(){rolePermissionKeys=Accounts.RolePermissions(selectedRoleId).Where(Permissions.IsImplemented).ToHashSet(StringComparer.Ordinal);roleMessage="";}
+    private void ToggleRolePermission(string key,bool value){if(IsAdminRole || Permissions.IsFixedSystemLogPermission(key))return;if(value)rolePermissionKeys.Add(key);else rolePermissionKeys.Remove(key);}
+    private void RefreshRoleMatrix(){rolePermissionKeys=Accounts.RolePermissions(selectedRoleId).Where(k => Permissions.IsImplemented(k) && (!Permissions.IsFixedSystemLogPermission(k) || IsAdminRole)).ToHashSet(StringComparer.Ordinal);roleMessage="";}
     private void EditUser(ManagedUser u)
     {showUserEditor=true;
         if(u.Id==myId || u.IsOwner)return;
         editUserId=u.Id;username=u.Username;displayName=u.DisplayName;active=u.IsActive;password="";
         assignedRoles=u.RoleIds.ToHashSet();
-        directOverrides=Accounts.UserOverrides(u.Id).ToDictionary(x=>x.Key,x=>x.Value,StringComparer.Ordinal);
+        directOverrides=Accounts.UserOverrides(u.Id).Where(x => !Permissions.IsFixedSystemLogPermission(x.Key)).ToDictionary(x=>x.Key,x=>x.Value,StringComparer.Ordinal);
         RecalculateInherited();userMessage="Đang phân quyền tài khoản "+u.Username;
     }
     private void ResetForm(){showUserEditor=true;editUserId=null;username="";displayName="";password="";active=true;assignedRoles=[];directOverrides=new(StringComparer.Ordinal);RecalculateInherited();userMessage="";}

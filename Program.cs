@@ -277,8 +277,8 @@ app.MapPost("/account/logout", async (HttpContext http, IAntiforgery xsrf, Audit
 }).RequireAuthorization();
 app.MapGet("/account/denied", () => Results.Content(AuthPages.Denied(),"text/html; charset=utf-8")).AllowAnonymous();
 
-app.MapGet("/export/inventory.csv", (DemoDb db, V6Ops ops, HttpContext http) =>
-    ops.IsWarehouseRestricted(AuthRepository.PrincipalId(http.User)) ? (IResult)Results.Forbid()
+app.MapGet("/export/inventory.csv", (DemoDb db, V6Ops ops, AuthRepository repository, HttpContext http) =>
+    !repository.CanViewSystemLogs(http.User) || ops.IsWarehouseRestricted(AuthRepository.PrincipalId(http.User)) ? (IResult)Results.Forbid()
     : Results.File(CsvExports.Inventory(db), "text/csv; charset=utf-8", "tnm-inventory.csv"))
     .RequireAuthorization(Permissions.InventoryLedgerExport,Permissions.InventoryView);
 app.MapGet("/export/invoices.csv", (DemoDb db, AuthRepository repository, HttpContext http, string? type) =>
@@ -303,10 +303,12 @@ app.MapGet("/export/product-catalog.csv", (ProductMaster master,V6Ops ops,HttpCo
     ops.IsWarehouseRestricted(AuthRepository.PrincipalId(http.User)) ? (IResult)Results.Forbid()
     : Results.File(CsvExports.ProductCatalog(master),"text/csv; charset=utf-8","tnm-danh-muc-san-pham.csv"))
     .RequireAuthorization(Permissions.ProductsExport,Permissions.ProductsView);
-app.MapGet("/export/quantity.csv", (V6Ops ops,HttpContext http) => Results.File(
-    CsvExports.QuantityLedger(ops,AuthRepository.PrincipalId(http.User)),
-    "text/csv; charset=utf-8","tnm-so-kho-so-luong.csv"))
-    .RequireAuthorization(Permissions.QuantityStockView);
+app.MapGet("/export/quantity.csv", (V6Ops ops, AuthRepository repository, HttpContext http) =>
+    !repository.CanViewSystemLogs(http.User) ? (IResult)Results.Forbid()
+    : Results.File(
+        CsvExports.QuantityLedger(ops,AuthRepository.PrincipalId(http.User)),
+        "text/csv; charset=utf-8","tnm-so-kho-so-luong.csv"))
+    .RequireAuthorization(Permissions.InventoryLedgerView, Permissions.QuantityStockView);
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 

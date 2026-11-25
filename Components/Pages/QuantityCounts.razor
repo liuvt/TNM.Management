@@ -4,7 +4,9 @@
 @inject PermissionGate Gate
 @inject IJSRuntime JS
 <PageTitle>Kiểm kê tồn kho · TNM.Management</PageTitle>
-<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / KIỂM KÊ TỒN KHO</div><h1>Kiểm kê, duyệt chênh lệch</h1><p>Chốt tồn tại thời điểm đếm, sau đó quản lý duyệt một lần để tạo giao dịch điều chỉnh.</p></div></div>
+<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / KIỂM KÊ TỒN KHO</div><h1>Kiểm kê, duyệt chênh lệch</h1><p>Chốt tồn tại thời điểm đếm, sau đó quản lý duyệt một lần để tạo giao dịch điều chỉnh.</p></div>
+@if(canViewLog){<div class="button-group"><button type="button" class="btn secondary" data-confirm="none" @onclick="() => showLogModal = true">📋 Xem log</button></div>}
+</div>
 <div class="crud-actionbar">@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showCreate))">@(showCreate?"Đóng · + Mở kiểm kê":"+ Mở kiểm kê")</button>}@if(canCreate){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showLine))">@(showLine?"Đóng · + Ghi thực kiểm":"+ Ghi thực kiểm")</button>}</div>
 
 
@@ -57,8 +59,18 @@
     </div>
   </div>
 </div>}
+@if(canViewLog)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Kiểm kê tồn kho"
+                    ScopedTables="@countLogTables"
+                    ScopedAuditEntities="@countAuditEntities" />
+}
 @code {
- private bool showCreate, showLine;
+ private bool showCreate, showLine, canViewLog, showLogModal;
+ private static readonly string[] countLogTables = ["quantity_counts", "quantity_count_lines", "quantity_movements"];
+ private static readonly string[] countAuditEntities = ["QUANTITY_COUNT", "STOCK_COUNT"];
  private readonly PagerState countPager = new();
  private readonly PagerState linePager = new();
  private void ToggleForm(string form){
@@ -89,6 +101,7 @@
  }
  protected override async Task OnInitializedAsync(){actor=await Gate.RequireAsync(Permissions.QuantityCountView);
     canCreate=await Gate.CanAsync(Permissions.QuantityCountCreate);canApprove=await Gate.CanAsync(Permissions.QuantityCountApprove);
+    canViewLog=await Gate.CanViewSystemLogsAsync();
     warehouses=Ops.Warehouses(actor);locations=Ops.Locations(actor);products=Ops.QuantityProducts();warehouseId=warehouses.FirstOrDefault()?.Id??0;
     locationId=locations.FirstOrDefault(x=>x.WarehouseId==warehouseId)?.Id??0;productId=products.FirstOrDefault()?.Id??0;Reload();}
  private void Reload(){counts=Ops.Counts(actor);countId=counts.FirstOrDefault(x=>x.Status=="DRAFT")?.Id??0;

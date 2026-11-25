@@ -11,6 +11,12 @@
         <h1>Bảo hành &amp; Bảo trì thiết bị</h1>
         <p>Luồng phối hợp CSKH ↔ Kỹ thuật ↔ Kho: Tiếp nhận báo lỗi từ khách hàng/kho → Gửi Nhà cung cấp (Hãng) → Hoàn tất trả lại xe khách hàng hoặc nhập lại kho.</p>
     </div>
+    @if (canViewLog)
+    {
+        <div class="button-group">
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showLogModal = true">📋 Xem log</button>
+        </div>
+    }
 </div>
 
 <div class="crud-actionbar">
@@ -372,8 +378,19 @@
     <TablePager Pager="warrantyPager" TotalCount="totalWarranties" OnChange="StateHasChanged" />
 </section>
 
+@if (canViewLog)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Bảo hành &amp; Bảo trì"
+                    ScopedTables="@warrantyLogTables"
+                    ScopedAuditEntities="@warrantyAuditEntities" />
+}
+
 @code {
-    private bool showCreate, showStatus;
+    private bool showCreate, showStatus, canViewLog, showLogModal;
+    private static readonly string[] warrantyLogTables = ["warranty_cases", "warranty_events", "stock_units"];
+    private static readonly string[] warrantyAuditEntities = ["WARRANTY", "WARRANTY_CASE"];
     private readonly PagerState warrantyPager = new();
 
     private void ToggleForm(string form)
@@ -398,6 +415,7 @@
     protected override async Task OnInitializedAsync()
     {
         actor = await Gate.RequireAsync(Permissions.InventoryWarranty);
+        canViewLog = await Gate.CanViewSystemLogsAsync();
         warehouses = Ops.AllWarehouses();
         suppliers = Ops.Suppliers();
         supplier = suppliers.FirstOrDefault()?.Id ?? 0;

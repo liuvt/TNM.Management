@@ -55,6 +55,15 @@ public sealed class AuthRepository
         cmd.ExecuteNonQuery();
     }
     private static long Id(SqliteConnection c) => Convert.ToInt64(Scalar(c, "SELECT last_insert_rowid()"));
+    private static bool HasColumn(SqliteConnection c, string table, string column)
+    {
+        using var cmd = Cmd(c, $"PRAGMA table_info(\"{table.Replace("\"", "\"\"")}\")");
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
 
     public void Initialize()
     {
@@ -71,6 +80,26 @@ public sealed class AuthRepository
                         ("$r",roleId),("$p",permission));
                 Exec(c,"INSERT OR IGNORE INTO role_defaults_initialized(role_id) VALUES($id)",("$id",roleId));
             }
+        }
+        // Quyền xem Lịch sử / Lưu vết / Log cố định cho Main, Owner, Admin — gỡ khỏi mọi vai trò khác và quyền cá nhân cũ
+        var rpHasDeletedAt = HasColumn(c, "role_permissions", "deleted_at");
+        var uoHasDeletedAt = HasColumn(c, "user_permission_overrides", "deleted_at");
+        foreach (var fixedKey in Permissions.FixedSystemLogKeys)
+        {
+            if (rpHasDeletedAt)
+                Exec(c, @"UPDATE role_permissions SET deleted_at=CURRENT_TIMESTAMP
+                          WHERE permission_key=$k AND deleted_at IS NULL
+                            AND role_id NOT IN (SELECT id FROM roles WHERE code='ADMIN')", ("$k", fixedKey));
+            else
+                Exec(c, @"DELETE FROM role_permissions
+                          WHERE permission_key=$k
+                            AND role_id NOT IN (SELECT id FROM roles WHERE code='ADMIN')", ("$k", fixedKey));
+
+            if (uoHasDeletedAt)
+                Exec(c, @"UPDATE user_permission_overrides SET deleted_at=CURRENT_TIMESTAMP
+                          WHERE permission_key=$k AND deleted_at IS NULL", ("$k", fixedKey));
+            else
+                Exec(c, @"DELETE FROM user_permission_overrides WHERE permission_key=$k", ("$k", fixedKey));
         }
         Exec(c, @"INSERT INTO user_security(user_id,security_stamp)
             SELECT u.id,lower(hex(randomblob(16))) FROM app_users u
@@ -318,6 +347,9 @@ public sealed class AuthRepository
             else result.Add(r.GetString(0));
         }
         Permissions.EnforceDependencies(result);
+        // Khóa cứng: các quyền Lịch sử / Lưu vết / Log chỉ dành riêng cho Main, Owner, Admin (không thể tùy chỉnh)
+        result.ExceptWith(Permissions.FixedSystemLogKeys);
+        Permissions.EnforceDependencies(result);
         if (Convert.ToInt64(Scalar(c,"SELECT count(*) FROM user_scope_settings WHERE user_id=$id AND warehouse_mode='SELECTED'",("$id",userId))) > 0)
         {
             // Legacy v5 pages are not row-level scoped: deny their entire parent route.
@@ -363,17 +395,33 @@ public sealed class AuthRepository
             using var cmd=Cmd(c,"SELECT permission_key FROM role_permissions WHERE role_id=$id AND deleted_at IS NULL",("$id",roleId));
             using var reader=cmd.ExecuteReader();while(reader.Read())rights.Add(reader.GetString(0));
         }
+        rights.ExceptWith(Permissions.FixedSystemLogKeys);
         return rights;
     }
     public static long PrincipalId(ClaimsPrincipal principal) =>
         long.TryParse(principal.FindFirst(ClaimTypes.NameIdentifier)?.Value,out var id)?id:0;
     public static string PrincipalStamp(ClaimsPrincipal principal) => principal.FindFirst("tnm_stamp")?.Value ?? "";
+    public bool CanViewSystemLogs(long userId)
+    {
+        if (userId <= 0 || MustChangePassword(userId)) return false;
+        using var c = Open();
+        var active = Convert.ToInt64(Scalar(c, "SELECT count(*) FROM app_users WHERE id=$id AND is_active=1 AND deleted_at IS NULL", ("$id", userId))) > 0;
+        return active && IsAdmin(c, userId);
+    }
+    public bool CanViewSystemLogs(ClaimsPrincipal principal)
+    {
+        var id = PrincipalId(principal);
+        if (id <= 0 || !Valid(id, PrincipalStamp(principal)) || MustChangePassword(id)) return false;
+        using var c = Open();
+        return IsAdmin(c, id);
+    }
     public bool HasPermission(ClaimsPrincipal principal, string permission)
     {
         if (!Permissions.Definitions.Any(p=>p.Key==permission)) return false;
         var id=PrincipalId(principal);
         if (id<=0 || !Valid(id,PrincipalStamp(principal)) || MustChangePassword(id)) return false;
         using var c=Open();
+        if (Permissions.IsFixedSystemLogPermission(permission)) return IsAdmin(c, id);
         return EffectivePermissions(c,id).Contains(permission);
     }
     public string LandingPath(long userId)
@@ -405,8 +453,13 @@ public sealed class AuthRepository
     }
     public IReadOnlySet<string> RolePermissions(long roleId)
     {
-        using var c=Open();using var cmd=Cmd(c,"SELECT permission_key FROM role_permissions WHERE role_id=$id AND deleted_at IS NULL",("$id",roleId));using var r=cmd.ExecuteReader();
-        var result=new HashSet<string>(StringComparer.Ordinal);while(r.Read())result.Add(r.GetString(0));return result;
+        using var c=Open();
+        var code = Scalar(c, "SELECT code FROM roles WHERE id=$id", ("$id", roleId)) as string;
+        if (code == "ADMIN") return Permissions.Definitions.Where(p => p.Implemented).Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+        using var cmd=Cmd(c,"SELECT permission_key FROM role_permissions WHERE role_id=$id AND deleted_at IS NULL",("$id",roleId));using var r=cmd.ExecuteReader();
+        var result=new HashSet<string>(StringComparer.Ordinal);while(r.Read())result.Add(r.GetString(0));
+        result.ExceptWith(Permissions.FixedSystemLogKeys);
+        return result;
     }
     private static void Rotate(SqliteConnection c, long userId) => Exec(c,@"INSERT INTO user_security(user_id,security_stamp) VALUES($id,lower(hex(randomblob(16))))
         ON CONFLICT(user_id) DO UPDATE SET security_stamp=lower(hex(randomblob(16))),failed_attempts=0,locked_until=0",("$id",userId));
@@ -456,8 +509,12 @@ public sealed class AuthRepository
         if(IsAdmin(c,userId) && overrides.Count>0)
             throw new InvalidOperationException("Tài khoản Quản trị viên có toàn quyền cố định, không cấp/từ chối quyền riêng.");
         foreach(var (key,effect) in overrides)
+        {
             if(!Permissions.IsImplemented(key) || (effect!="ALLOW" && effect!="DENY"))
                 throw new InvalidOperationException("Quyền trực tiếp không hợp lệ.");
+            if(Permissions.IsFixedSystemLogPermission(key))
+                throw new InvalidOperationException("Quyền xem Lịch sử / Lưu vết / Log là tính năng cố định chỉ dành cho Main, Chủ sở hữu (Owner) và Quản trị viên (Admin), không thể tùy chỉnh.");
+        }
         Exec(c,"UPDATE user_permission_overrides SET deleted_at=CURRENT_TIMESTAMP WHERE user_id=$id AND deleted_at IS NULL",("$id",userId));
         foreach(var (key,effect) in overrides)
             Exec(c,"INSERT INTO user_permission_overrides(user_id,permission_key,effect) VALUES($id,$key,$effect) ON CONFLICT(user_id,permission_key) DO UPDATE SET effect=excluded.effect,deleted_at=NULL,deleted_by=NULL",
@@ -558,6 +615,8 @@ public sealed class AuthRepository
     {
         using var auditActor = TNM.Management.Services.AuditRuntime.As(actor);
         if(!selected.All(Permissions.IsImplemented))throw new InvalidOperationException("Quyền không hợp lệ.");
+        if(selected.Any(Permissions.IsFixedSystemLogPermission))
+            throw new InvalidOperationException("Quyền xem Lịch sử / Lưu vết / Log là tính năng cố định chỉ dành cho Main, Chủ sở hữu (Owner) và Quản trị viên (Admin), không thể tùy chỉnh cho vai trò khác.");
         using var c=Open();Exec(c,"BEGIN IMMEDIATE;");try{
         if(!HasPermission(c,actor,Permissions.RolesManage))throw new UnauthorizedAccessException("Không có quyền quản trị vai trò.");
         var code=Scalar(c,"SELECT code FROM roles WHERE id=$id",("$id",roleId)) as string ?? throw new InvalidOperationException("Không tìm thấy vai trò.");

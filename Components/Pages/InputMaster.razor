@@ -14,6 +14,10 @@
         <p>@Description</p>
     </div>
     <div class="button-group">
+        @if(canAudit && IsValidSection)
+        {
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button>
+        }
         @if(canCreate && IsValidSection)
         {
             <button type="button" class="btn" @onclick="Create">@(CurrentSection=="installers" ? "+ Khai báo người lắp đặt" : CurrentSection=="sellers" ? "+ Khai báo nhân viên bán hàng" : CurrentSection=="warehouses" ? "+ Thêm Kho mới" : CurrentSection=="areas" ? "+ Thêm Khu vực" : "+ Thêm mới")</button>
@@ -574,7 +578,7 @@ else
                                 </td>
                                 <td class="catalog-row-actions">
                                     <button type="button" class="btn secondary btn-sm" data-confirm="none" onclick="window.tnmOpenRowDetail(this)">Xem chi tiết</button>
-                                    @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/{ActivityTable}/{row.Id}")">Lịch sử</a>}
+                                    @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
                                     @if(canUpdate)
                                     {
                                         <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Cấu hình &amp; Sửa</button>
@@ -642,7 +646,7 @@ else
                                 @if(canUpdate || canAudit)
                                 {
                                     <td class="catalog-row-actions">
-                                        @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/{ActivityTable}/{row.Id}")">Lịch sử</a>}
+                                        @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
                                         @if(canUpdate)
                                         {
                                             <button type="button" class="btn secondary btn-sm" @onclick="() => EditRow(row)">Sửa</button>
@@ -678,7 +682,7 @@ else
                                 @if(canUpdate || canAudit)
                                 {
                                     <td class="catalog-row-actions">
-                                        @if(canAudit){<a class="btn secondary btn-sm" href="@($"/activity/{ActivityTable}/{row.Id}")">Lịch sử</a>}
+                                        @if(canAudit){<button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenRecordLog(row.Id)">Xem log</button>}
                                         @if(canCreate && CurrentSection=="customer-groups" && customerGroups.FirstOrDefault(g => g.Id == row.Id)?.ParentId is null)
                                         {
                                             <button type="button" class="btn secondary btn-sm" style="color:#0f766e;border-color:#5eead4" @onclick="() => AddChildGroup(row.Id)">+ Thêm nhóm con</button>
@@ -704,6 +708,15 @@ else
     </section>
 
 }
+@if(canAudit && IsValidSection)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="@($"Lịch sử & Lưu vết — {Title}")"
+                    ScopedTables="@(new[] { ActivityTable })"
+                    InitialTable="@logInitialTable"
+                    InitialRecordId="@logInitialRecordId" />
+}
 @code {
     [Parameter] public string? Section { get; set; }
     private const int MaxPageSize=100;
@@ -712,7 +725,11 @@ else
     private readonly PagerState instProdPager = new();
     private readonly PagerState catalogPager = new();
     private long? editingId,pendingDelete;
-    private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending,showQuickSubGroup;
+    private bool showEditor,canView,canCreate,canUpdate,canExport,canAudit,scrollEditorPending,showQuickSubGroup,showLogModal;
+    private string? logInitialTable;
+    private long? logInitialRecordId;
+    private void OpenModuleLog() { logInitialTable = ActivityTable; logInitialRecordId = null; showLogModal = true; }
+    private void OpenRecordLog(long id) { logInitialTable = ActivityTable; logInitialRecordId = id; showLogModal = true; }
     private string query="",search="",message="",code="",name="",phone="",address="",tax="",sourceName="",representativeName="",department="Kỹ thuật",installerProdSearch="",quickSubGroupName="";
     private long groupId,parentGroupId,subGroupId,productId,buyPrice,standard,installed,renewal,bulkInstallerRate=150000,selectedSellerId;
     private int discount;
@@ -809,8 +826,9 @@ else
         canView=await Gate.CanAsync(ReadPermission);
         canCreate=await Gate.CanAsync(CreatePermission);
         canUpdate=await Gate.CanAsync(UpdatePermission);
-        canAudit=await Gate.CanAsync(Permissions.ReportsAuditView);
+        canAudit=await Gate.CanViewSystemLogsAsync();
         canExport=canView;
+        showLogModal=false;
         selected.Clear();catalogPager.Reset();instProdPager.Reset();search=query="";CloseEditor();message="";
         if(canView && IsValidSection)Reload();
     }

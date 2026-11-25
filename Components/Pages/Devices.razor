@@ -4,12 +4,15 @@
 @inject PermissionGate Gate
 @inject IJSRuntime JS
 <PageTitle>Thiết bị · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / QUẢN LÝ THIẾT BỊ &amp; GIA HẠN</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt, hạn gia hạn và toàn bộ các lần gia hạn.</p></div></div>
+<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / QUẢN LÝ THIẾT BỊ &amp; GIA HẠN</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt và thời hạn sử dụng thiết bị.</p></div>
+@if(canViewLog){<div class="button-group"><button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button></div>}
+</div>
 <div class="crud-actionbar">
     @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Thời gian gia hạn & Ngày KH":"Cập nhật Thời gian gia hạn & Ngày kích hoạt")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showCreateDevice?"":"secondary")" @onclick="()=>ToggleForm(nameof(showCreateDevice))">@(showCreateDevice?"Đóng · + Thêm thiết bị":"+ Thêm thiết bị")</button>}
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
+    @if(canViewLog){<button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button>}
 </div>
 
 @if(canRenew || canUpdateDevice){
@@ -394,8 +397,12 @@
                             data-confirm-title="@(isMainRole ? "Xác nhận xóa vĩnh viễn thiết bị & toàn bộ luồng liên quan" : "Xác nhận xóa thiết bị & loại bỏ công nợ liên quan")"
                             data-confirm-msg="@(isMainRole
                                 ? $"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)}) cùng toàn bộ lịch sử gia hạn, đơn hàng và chứng từ kế toán công nợ liên quan phía sau khỏi hệ thống không?"
-                                : $"Bạn có chắc chắn muốn xóa thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận lưu vết bên dưới phần Lịch sử.")"
+                                : $"Bạn có chắc chắn muốn xóa thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận vào Lưu vết hệ thống.")"
                             @onclick="() => DeleteDevice(x)">Xóa</button>
+                    }
+                    @if(canViewLog)
+                    {
+                        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenDeviceRecordLog(x.ActivationId)">Xem log</button>
                     }
                 </div>
             }
@@ -405,246 +412,255 @@
 </tbody></table></div>
 <TablePager Pager="devicePager" TotalCount="totalDevices" OnChange="StateHasChanged" />
 </section>
-@if(canHistory){<section class="panel"><div class="panel-head"><div><h2>Lịch sử các lần gia hạn &amp; Thống kê theo Nhân viên bán hàng</h2><p>Khi cập nhật hoặc xóa lịch sử gia hạn (trước khi Kế toán chốt số / khóa số), hạn thiết bị, doanh thu kế toán, sổ quỹ và hoa hồng nhân viên bán hàng sẽ tự động cập nhật đồng bộ.</p></div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-<input class="search-input" style="min-width:210px" @bind="historySearch" @bind:event="oninput" @bind:after="() => renewalPager.Reset()" placeholder="Tìm IMEI, thiết bị, KH, biển số..." />
-<select class="search-input" style="min-width:220px" @bind="historySellerFilter" @bind:after="() => renewalPager.Reset()">
-    <option value="">— Tất cả NV bán hàng gia hạn —</option>
-    @foreach(var sl in sellerChoices)
-    {
-        <option value="@sl.Name">@sl.Code — @sl.Name</option>
-    }
-</select>
-<button type="button" class="btn secondary" data-confirm="none" @onclick="ExportRenewalsExcel">📥 Xuất Excel (@FilteredRenewals.Count())</button>
-</div>
-</div>
-
-@if(!string.IsNullOrWhiteSpace(historyMessage))
+@if(canViewLog)
 {
-    <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
-        @historyMessage
-    </div>
-}
-
-@if(editingRenewalId > 0 && (canUpdateDevice || canRenew))
-{
-    <div class="panel edit-panel" style="margin-bottom:14px;background:#f8fafc;border:1px solid #93c5fd">
-        <div class="panel-head">
-            <div>
-                <h2>Cập nhật Lịch sử gia hạn #@editingRenewalId (IMEI: @editingRenewalImei · Thiết bị: @editingRenewalDeviceName)</h2>
-                <p>Thay đổi thời gian gia hạn, số tiền, hình thức thanh toán hoặc nhân viên bán hàng sẽ tự động cập nhật lại hạn thiết bị và các luồng Kế toán (Doanh thu, Công nợ, Sổ quỹ &amp; Hoa hồng nhân viên bán hàng).</p>
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Thiết bị &amp; Gia hạn"
+                    ScopedTables="@deviceLogTables"
+                    ScopedAuditEntities="@deviceAuditEntities"
+                    InitialTable="@logInitialTable"
+                    InitialRecordId="@logInitialRecordId"
+                    CustomTab1Label="@($"Lưu vết xóa mềm ({deletedDevices.Count})")"
+                    CustomTab2Label="@($"Lịch sử gia hạn ({renewals.Count})")">
+        <CustomTab1Content>
+            @{ var pagedDeleted = deletedDevicePager.Slice(FilteredDeletedDevices, out var totalDeletedDevices); }
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:13px;color:#475569">Lưu vết đầy đủ các thiết bị đã thực hiện xóa mềm (thời gian xóa, người thực hiện và chi tiết các luồng gia hạn / công nợ kế toán phía sau đã tự động loại bỏ).</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <input class="search-input" style="min-width:220px" @bind="deletedSearch" @bind:event="oninput" @bind:after="() => deletedDevicePager.Reset()" placeholder="Tìm IMEI, biển số, KH, người xóa..." />
+                    <span class="chip orange-chip">Đã xóa mềm: @totalDeletedDevices thiết bị</span>
+                </div>
             </div>
-            <button type="button" class="btn secondary btn-sm" @onclick="CancelEditRenewal">Đóng</button>
-        </div>
-        <div class="form-grid">
-            <label>Tên thiết bị (Mã sản phẩm)
-                <input readonly value="@editingRenewalDeviceName" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
-            </label>
-            <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
-                <select @bind="editRenewalSellerId">
-                    <option value="0">— Chưa gán nhân viên bán hàng —</option>
-                    @foreach(var sl in sellerChoices)
-                    {
-                        <option value="@sl.Id">@sl.Code — @sl.Name [HH gia hạn: @sl.RenewalCommissionVnd.ToString("N0") ₫]</option>
-                    }
-                </select>
-            </label>
-            <label>Nguồn gia hạn *
-                <select @bind="editRenewalSource">
-                    <option value="TNM">Trường Nhật Minh</option>
-                    <option value="NCC">Nhà cung cấp</option>
-                    <option value="HTX">Hợp tác xã / Đại lý</option>
-                    <option value="B2C">Khách lẻ trực tiếp</option>
-                </select>
-            </label>
-            <label>Ngày thực hiện gia hạn *
-                <input type="date" @bind="editRenewalStartDate" />
-            </label>
-            <label>Hạn cũ (Trước khi gia hạn) *
-                <input type="date" @bind="editRenewalPrevExpiry" />
-            </label>
-            <label>Hạn mới (Thời gian gia hạn mới của TB) *
-                <input type="date" @bind="editRenewalEndDate" />
-            </label>
-            <label>Số tiền gia hạn / Doanh thu (VND) *
-                <input type="number" min="0" step="10000" @bind="editRenewalPrice" />
-            </label>
-            <label>Hình thức thanh toán *
-                <select @bind="editRenewalPayMethod">
-                    <option value="DEBT">Ghi công nợ (Chưa thanh toán)</option>
-                    <option value="CASH">Thanh toán ngay (Thu tiền mặt)</option>
-                </select>
-            </label>
-        </div>
-        <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật Lịch sử gia hạn" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật lịch sử gia hạn #{editingRenewalId} (IMEI: {editingRenewalImei} · Thiết bị: {editingRenewalDeviceName}) và đồng bộ lại Kế toán không?")" @onclick="SaveRenewalEdit">Lưu cập nhật &amp; Đồng bộ Kế toán</button>
-            <button type="button" class="btn secondary" data-confirm="none" @onclick="CancelEditRenewal">Hủy</button>
-        </div>
-    </div>
-}
-
-@if(renewals.Count > 0)
-{
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-        @foreach(var grp in renewals.GroupBy(r => string.IsNullOrWhiteSpace(r.SellerName) ? "Chưa gán NV bán hàng" : r.SellerName))
-        {
-            <div style="padding:8px 12px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;font-size:12.5px">
-                <strong>@grp.Key:</strong> <span class="chip blue-chip">@grp.Count() lượt gia hạn</span> · Tổng doanh thu gia hạn: <strong style="color:#0284c7">@grp.Sum(x => x.Price).ToString("N0") ₫</strong>
-            </div>
-        }
-    </div>
-}
-@{ var pagedRenewals = renewalPager.Slice(FilteredRenewals, out var totalRenewals); }
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>TÊN THIẾT BỊ</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>NV BÁN HÀNG GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN CŨ → HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th><th>TRẠNG THÁI KT</th><th>THAO TÁC</th></tr></thead><tbody>
-@foreach(var (stt, x) in pagedRenewals){<tr @key="x.Id">
-    <td><strong>@stt</strong></td>
-    <td><strong>@x.Imei</strong></td>
-    <td>
-        <span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.DeviceName) ? (string.IsNullOrWhiteSpace(x.ProductSku) ? "—" : x.ProductSku) : x.DeviceName)</span>
-        @if(!string.IsNullOrWhiteSpace(x.ProductSku))
-        {
-            <div><small style="color:#64748b">@x.ProductSku</small></div>
-        }
-    </td>
-    <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td>
-    <td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td>
-    <td>@VnLabels.RenewalSource(x.Source)</td>
-    <td>@x.StartDate</td>
-    <td>
-        <div><small style="color:#64748b">@(string.IsNullOrWhiteSpace(x.PreviousExpiry) ? "—" : x.PreviousExpiry)</small> → <strong>@x.EndDate</strong></div>
-    </td>
-    <td><strong>@x.Price.ToString("N0") ₫</strong></td>
-    <td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td>
-    <td>
-        @if(x.IsLocked)
-        {
-            <span class="chip orange-chip" title="Đã chốt số lúc @x.LockedAt">🔒 Đã chốt số KT</span>
-        }
-        else
-        {
-            <span class="chip blue-chip">Chưa chốt số</span>
-        }
-    </td>
-    <td>
-        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-            @if(!x.IsLocked && (canUpdateDevice || canRenew))
+            @if(!string.IsNullOrWhiteSpace(deletedHistoryMessage))
             {
-                <button type="button" class="btn secondary btn-sm" @onclick="() => StartEditRenewal(x)">Sửa</button>
-                <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa lịch sử gia hạn của IMEI {x.Imei} (Thiết bị: {(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)} · Hạn {x.PreviousExpiry} → {x.EndDate}, số tiền {x.Price:N0} ₫) và đồng bộ lại Kế toán không?")" @onclick="() => ConfirmDeleteRenewal(x.Id)">Xóa</button>
+                <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+                    @deletedHistoryMessage
+                </div>
             }
-            else if(x.IsLocked)
-            {
-                <small style="color:#b45309;font-weight:600">Đã khóa sổ</small>
-            }
-            @if(canFinanceLock)
-            {
-                <button type="button" class="btn secondary btn-sm" data-confirm="edit" data-confirm-title="@(x.IsLocked ? "Xác nhận Mở khóa chốt số Kế toán" : "Xác nhận Chốt số / Khóa sổ Kế toán")" data-confirm-msg="@(x.IsLocked ? $"Bạn có chắc chắn muốn mở khóa chốt số Kế toán cho đợt gia hạn IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)}) không?" : $"Bạn có chắc chắn muốn Chốt số / Khóa sổ Kế toán cho đợt gia hạn IMEI {x.Imei} (Thiết bị: {(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)} · Số tiền: {x.Price:N0} ₫) không?")" title="@(x.IsLocked ? "Mở khóa chốt số Kế toán" : "Kế toán chốt số / khóa số đợt gia hạn này")" @onclick="() => ToggleRenewalLock(x)">
-                    @(x.IsLocked ? "🔓 Mở khóa" : "🔒 Chốt số")
-                </button>
-            }
-        </div>
-    </td>
-</tr>}
-</tbody></table></div>
-<TablePager Pager="renewalPager" TotalCount="totalRenewals" OnChange="StateHasChanged" />
-</section>}
-
-@if(canHistory || canSoftDeleteDevice || isMainRole)
-{
-    var pagedDeleted = deletedDevicePager.Slice(FilteredDeletedDevices, out var totalDeletedDevices);
-    <section class="panel">
-        <div class="panel-head">
-            <div>
-                <h2>Lịch sử thiết bị đã xóa mềm (Lưu vết kiểm soát)</h2>
-                <p>Lưu vết đầy đủ các thiết bị đã thực hiện xóa mềm (thời gian xóa, người thực hiện và chi tiết các luồng gia hạn / công nợ kế toán phía sau đã tự động loại bỏ).</p>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <input class="search-input" style="min-width:220px" @bind="deletedSearch" @bind:event="oninput" @bind:after="() => deletedDevicePager.Reset()" placeholder="Tìm IMEI, biển số, KH, người xóa..." />
-                <span class="chip orange-chip">Đã xóa mềm: @totalDeletedDevices thiết bị</span>
-            </div>
-        </div>
-        @if(!string.IsNullOrWhiteSpace(deletedHistoryMessage))
-        {
-            <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
-                @deletedHistoryMessage
-            </div>
-        }
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>STT</th>
-                        <th>BIỂN SỐ</th>
-                        <th>SỐ IMEI</th>
-                        <th>TÊN THIẾT BỊ</th>
-                        <th>ĐẠI LÝ / KHÁCH HÀNG</th>
-                        <th>CHỦ XE &amp; SĐT</th>
-                        <th>KÍCH HOẠT → HẾT HẠN</th>
-                        <th>THỜI GIAN &amp; NGƯỜI XÓA</th>
-                        <th>LUỒNG KẾ TOÁN / GIA HẠN ĐÃ LOẠI BỎ</th>
-                        @if(isMainRole)
-                        {
-                            <th>THAO TÁC</th>
-                        }
-                    </tr>
-                </thead>
-                <tbody>
-                    @if(pagedDeleted.Count == 0)
-                    {
+            <div class="table-wrap">
+                <table>
+                    <thead>
                         <tr>
-                            <td colspan="@(isMainRole ? 10 : 9)" style="text-align:center;padding:18px;color:#64748b">
-                                Chưa có thiết bị nào trong danh sách lưu vết xóa mềm.
-                            </td>
+                            <th>STT</th>
+                            <th>BIỂN SỐ</th>
+                            <th>SỐ IMEI</th>
+                            <th>TÊN THIẾT BỊ</th>
+                            <th>ĐẠI LÝ / KHÁCH HÀNG</th>
+                            <th>CHỦ XE &amp; SĐT</th>
+                            <th>KÍCH HOẠT → HẾT HẠN</th>
+                            <th>THỜI GIAN &amp; NGƯỜI XÓA</th>
+                            <th>LUỒNG KẾ TOÁN / GIA HẠN ĐÃ LOẠI BỎ</th>
+                            @if(isMainRole)
+                            {
+                                <th>THAO TÁC</th>
+                            }
                         </tr>
+                    </thead>
+                    <tbody>
+                        @if(pagedDeleted.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="@(isMainRole ? 10 : 9)" style="text-align:center;padding:18px;color:#64748b">
+                                    Chưa có thiết bị nào trong danh sách lưu vết xóa mềm.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach(var (stt, dx) in pagedDeleted)
+                            {
+                                <tr @key="dx.ActivationId" style="background:#fffaf5">
+                                    <td><strong>@stt</strong></td>
+                                    <td><strong>@(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)</strong></td>
+                                    <td><strong style="text-decoration:line-through;color:#64748b">@dx.Imei</strong></td>
+                                    <td>
+                                        <span class="chip orange-chip">@dx.DeviceTypeLabel</span>
+                                        <div><small style="color:#64748b">@dx.Sku</small></div>
+                                    </td>
+                                    <td class="wrap-cell"><strong>@dx.CustomerName</strong></td>
+                                    <td class="wrap-cell">
+                                        <div>@(string.IsNullOrWhiteSpace(dx.OwnerName) ? "—" : dx.OwnerName)</div>
+                                        @if(!string.IsNullOrWhiteSpace(dx.OwnerPhone))
+                                        {
+                                            <small>📞 @dx.OwnerPhone</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div><small style="color:#64748b">@dx.ActivatedAt</small> → <strong>@dx.ExpiresAt</strong></div>
+                                    </td>
+                                    <td class="wrap-cell">
+                                        <div><strong>@dx.DeletedAt</strong></div>
+                                        <small style="color:#b45309;font-weight:600">Bởi: @dx.DeletedByName</small>
+                                    </td>
+                                    <td class="wrap-cell">
+                                        <span style="font-size:12.5px;color:#334155">@dx.DeletedSummary</span>
+                                    </td>
+                                    @if(isMainRole)
+                                    {
+                                        <td>
+                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5"
+                                                data-confirm="delete"
+                                                data-confirm-title="Xác nhận xóa vĩnh viễn bản ghi lưu vết"
+                                                data-confirm-msg="@($"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {dx.Imei} ({(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)}) cùng toàn bộ dữ liệu liên quan khỏi hệ thống không?")"
+                                                @onclick="() => HardDeleteFromHistory(dx.ActivationId)">Xóa</button>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <TablePager Pager="deletedDevicePager" TotalCount="totalDeletedDevices" OnChange="StateHasChanged" />
+        </CustomTab1Content>
+        <CustomTab2Content>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:13px;color:#475569">Khi cập nhật hoặc xóa lịch sử gia hạn (trước khi Kế toán chốt số / khóa số), hạn thiết bị, doanh thu kế toán, sổ quỹ và hoa hồng nhân viên bán hàng sẽ tự động cập nhật đồng bộ.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <input class="search-input" style="min-width:210px" @bind="historySearch" @bind:event="oninput" @bind:after="() => renewalPager.Reset()" placeholder="Tìm IMEI, thiết bị, KH, biển số..." />
+                    <select class="search-input" style="min-width:220px" @bind="historySellerFilter" @bind:after="() => renewalPager.Reset()">
+                        <option value="">— Tất cả NV bán hàng gia hạn —</option>
+                        @foreach(var sl in sellerChoices)
+                        {
+                            <option value="@sl.Name">@sl.Code — @sl.Name</option>
+                        }
+                    </select>
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportRenewalsExcel">📥 Xuất Excel (@FilteredRenewals.Count())</button>
+                </div>
+            </div>
+
+            @if(!string.IsNullOrWhiteSpace(historyMessage))
+            {
+                <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600">
+                    @historyMessage
+                </div>
+            }
+
+            @if(editingRenewalId > 0 && (canUpdateDevice || canRenew))
+            {
+                <div class="panel edit-panel" style="margin-bottom:14px;background:#f8fafc;border:1px solid #93c5fd">
+                    <div class="panel-head">
+                        <div>
+                            <h2>Cập nhật Lịch sử gia hạn #@editingRenewalId (IMEI: @editingRenewalImei · Thiết bị: @editingRenewalDeviceName)</h2>
+                            <p>Thay đổi thời gian gia hạn, số tiền, hình thức thanh toán hoặc nhân viên bán hàng sẽ tự động cập nhật lại hạn thiết bị và các luồng Kế toán.</p>
+                        </div>
+                        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CancelEditRenewal">Đóng</button>
+                    </div>
+                    <div class="form-grid">
+                        <label>Tên thiết bị (Mã sản phẩm)
+                            <input readonly value="@editingRenewalDeviceName" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
+                        </label>
+                        <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
+                            <select @bind="editRenewalSellerId">
+                                <option value="0">— Chưa gán nhân viên bán hàng —</option>
+                                @foreach(var sl in sellerChoices)
+                                {
+                                    <option value="@sl.Id">@sl.Code — @sl.Name [HH gia hạn: @sl.RenewalCommissionVnd.ToString("N0") ₫]</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Nguồn gia hạn *
+                            <select @bind="editRenewalSource">
+                                <option value="TNM">Trường Nhật Minh</option>
+                                <option value="NCC">Nhà cung cấp</option>
+                                <option value="HTX">Hợp tác xã / Đại lý</option>
+                                <option value="B2C">Khách lẻ trực tiếp</option>
+                            </select>
+                        </label>
+                        <label>Ngày thực hiện gia hạn *
+                            <input type="date" @bind="editRenewalStartDate" />
+                        </label>
+                        <label>Hạn cũ (Trước khi gia hạn) *
+                            <input type="date" @bind="editRenewalPrevExpiry" />
+                        </label>
+                        <label>Hạn mới (Thời gian gia hạn mới của TB) *
+                            <input type="date" @bind="editRenewalEndDate" />
+                        </label>
+                        <label>Số tiền gia hạn / Doanh thu (VND) *
+                            <input type="number" min="0" step="10000" @bind="editRenewalPrice" />
+                        </label>
+                        <label>Hình thức thanh toán *
+                            <select @bind="editRenewalPayMethod">
+                                <option value="DEBT">Ghi công nợ (Chưa thanh toán)</option>
+                                <option value="CASH">Thanh toán ngay (Thu tiền mặt)</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="form-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật Lịch sử gia hạn" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật lịch sử gia hạn #{editingRenewalId} (IMEI: {editingRenewalImei} · Thiết bị: {editingRenewalDeviceName}) và đồng bộ lại Kế toán không?")" @onclick="SaveRenewalEdit">Lưu cập nhật &amp; Đồng bộ Kế toán</button>
+                        <button type="button" class="btn secondary" data-confirm="none" @onclick="CancelEditRenewal">Hủy</button>
+                    </div>
+                </div>
+            }
+
+            @if(renewals.Count > 0)
+            {
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+                    @foreach(var grp in renewals.GroupBy(r => string.IsNullOrWhiteSpace(r.SellerName) ? "Chưa gán NV bán hàng" : r.SellerName))
+                    {
+                        <div style="padding:8px 12px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;font-size:12.5px">
+                            <strong>@grp.Key:</strong> <span class="chip blue-chip">@grp.Count() lượt gia hạn</span> · Tổng doanh thu gia hạn: <strong style="color:#0284c7">@grp.Sum(x => x.Price).ToString("N0") ₫</strong>
+                        </div>
+                    }
+                </div>
+            }
+
+            @{ var pagedRenewals = renewalPager.Slice(FilteredRenewals, out var totalRenewals); }
+            <div class="table-wrap"><table><thead><tr><th>STT</th><th>IMEI</th><th>TÊN THIẾT BỊ</th><th>KHÁCH HÀNG / BIỂN SỐ</th><th>NV BÁN HÀNG GIA HẠN</th><th>NGUỒN</th><th>NGÀY GIA HẠN</th><th>HẠN CŨ → HẠN MỚI</th><th>SỐ TIỀN GIA HẠN</th><th>THANH TOÁN</th><th>TRẠNG THÁI KT</th><th>THAO TÁC</th></tr></thead><tbody>
+            @foreach(var (stt, x) in pagedRenewals){<tr @key="x.Id">
+                <td><strong>@stt</strong></td>
+                <td><strong>@x.Imei</strong></td>
+                <td>
+                    <span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.DeviceName) ? (string.IsNullOrWhiteSpace(x.ProductSku) ? "—" : x.ProductSku) : x.DeviceName)</span>
+                    @if(!string.IsNullOrWhiteSpace(x.ProductSku))
+                    {
+                        <div><small style="color:#64748b">@x.ProductSku</small></div>
+                    }
+                </td>
+                <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.CustomerName) ? "—" : x.CustomerName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.PlateNo)){<small>Biển số: @x.PlateNo</small>}</td>
+                <td><span class="chip green-chip">@(string.IsNullOrWhiteSpace(x.SellerName) ? "—" : x.SellerName)</span></td>
+                <td>@VnLabels.RenewalSource(x.Source)</td>
+                <td>@x.StartDate</td>
+                <td>
+                    <div><small style="color:#64748b">@(string.IsNullOrWhiteSpace(x.PreviousExpiry) ? "—" : x.PreviousExpiry)</small> → <strong>@x.EndDate</strong></div>
+                </td>
+                <td><strong>@x.Price.ToString("N0") ₫</strong></td>
+                <td>@(x.PaymentMethod=="DEBT"?"Công nợ":"Thanh toán ngay")</td>
+                <td>
+                    @if(x.IsLocked)
+                    {
+                        <span class="chip orange-chip" title="Đã chốt số lúc @x.LockedAt">🔒 Đã chốt số KT</span>
                     }
                     else
                     {
-                        @foreach(var (stt, dx) in pagedDeleted)
-                        {
-                            <tr @key="dx.ActivationId" style="background:#fffaf5">
-                                <td><strong>@stt</strong></td>
-                                <td><strong>@(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)</strong></td>
-                                <td><strong style="text-decoration:line-through;color:#64748b">@dx.Imei</strong></td>
-                                <td>
-                                    <span class="chip orange-chip">@dx.DeviceTypeLabel</span>
-                                    <div><small style="color:#64748b">@dx.Sku</small></div>
-                                </td>
-                                <td class="wrap-cell"><strong>@dx.CustomerName</strong></td>
-                                <td class="wrap-cell">
-                                    <div>@(string.IsNullOrWhiteSpace(dx.OwnerName) ? "—" : dx.OwnerName)</div>
-                                    @if(!string.IsNullOrWhiteSpace(dx.OwnerPhone))
-                                    {
-                                        <small>📞 @dx.OwnerPhone</small>
-                                    }
-                                </td>
-                                <td>
-                                    <div><small style="color:#64748b">@dx.ActivatedAt</small> → <strong>@dx.ExpiresAt</strong></div>
-                                </td>
-                                <td class="wrap-cell">
-                                    <div><strong>@dx.DeletedAt</strong></div>
-                                    <small style="color:#b45309;font-weight:600">Bởi: @dx.DeletedByName</small>
-                                </td>
-                                <td class="wrap-cell">
-                                    <span style="font-size:12.5px;color:#334155">@dx.DeletedSummary</span>
-                                </td>
-                                @if(isMainRole)
-                                {
-                                    <td>
-                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5"
-                                            data-confirm="delete"
-                                            data-confirm-title="Xác nhận xóa vĩnh viễn bản ghi lưu vết"
-                                            data-confirm-msg="@($"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {dx.Imei} ({(string.IsNullOrWhiteSpace(dx.Plate) ? "—" : dx.Plate)}) cùng toàn bộ dữ liệu liên quan khỏi hệ thống không?")"
-                                            @onclick="() => HardDeleteFromHistory(dx.ActivationId)">Xóa</button>
-                                    </td>
-                                }
-                            </tr>
-                        }
+                        <span class="chip blue-chip">Chưa chốt số</span>
                     }
-                </tbody>
-            </table>
-        </div>
-        <TablePager Pager="deletedDevicePager" TotalCount="totalDeletedDevices" OnChange="StateHasChanged" />
-    </section>
+                </td>
+                <td>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+                        @if(!x.IsLocked && (canUpdateDevice || canRenew))
+                        {
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => StartEditRenewal(x)">Sửa</button>
+                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5" data-confirm="delete" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa lịch sử gia hạn của IMEI {x.Imei} (Thiết bị: {(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)} · Hạn {x.PreviousExpiry} → {x.EndDate}, số tiền {x.Price:N0} ₫) và đồng bộ lại Kế toán không?")" @onclick="() => ConfirmDeleteRenewal(x.Id)">Xóa</button>
+                        }
+                        else if(x.IsLocked)
+                        {
+                            <small style="color:#b45309;font-weight:600">Đã khóa sổ</small>
+                        }
+                        @if(canFinanceLock)
+                        {
+                            <button type="button" class="btn secondary btn-sm" data-confirm="edit" data-confirm-title="@(x.IsLocked ? "Xác nhận Mở khóa chốt số Kế toán" : "Xác nhận Chốt số / Khóa sổ Kế toán")" data-confirm-msg="@(x.IsLocked ? $"Bạn có chắc chắn muốn mở khóa chốt số Kế toán cho đợt gia hạn IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)}) không?" : $"Bạn có chắc chắn muốn Chốt số / Khóa sổ Kế toán cho đợt gia hạn IMEI {x.Imei} (Thiết bị: {(string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName)} · Số tiền: {x.Price:N0} ₫) không?")" title="@(x.IsLocked ? "Mở khóa chốt số Kế toán" : "Kế toán chốt số / khóa số đợt gia hạn này")" @onclick="() => ToggleRenewalLock(x)">
+                                @(x.IsLocked ? "🔓 Mở khóa" : "🔒 Chốt số")
+                            </button>
+                        }
+                    </div>
+                </td>
+            </tr>}
+            </tbody></table></div>
+            <TablePager Pager="renewalPager" TotalCount="totalRenewals" OnChange="StateHasChanged" />
+        </CustomTab2Content>
+    </SystemLogModal>
 }
 @code {
  private bool showRenew, showEditAct, showCreateDevice;
@@ -678,7 +694,13 @@
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
  private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
- private bool canRenew,canUpdateDevice,canFinanceLock,canHistory,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,isMainRole;
+ private bool canRenew,canUpdateDevice,canFinanceLock,canViewLog,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,isMainRole,showLogModal;
+ private string? logInitialTable;
+ private long? logInitialRecordId;
+ private static readonly string[] deviceLogTables = ["activations", "renewals", "stock_units"];
+ private static readonly string[] deviceAuditEntities = ["ACTIVATION", "RENEWAL", "DEVICE", "STOCK_UNIT"];
+ private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
+ private void OpenDeviceRecordLog(long actId) { logInitialTable = "activations"; logInitialRecordId = actId; showLogModal = true; }
 
  private IEnumerable<string> AvailableDeviceTypeLabels =>
   new[] { "XANHGPS", "NASAGPS", "TDCGPS", "mGPS", "AICAM", "CAM4CH", "TG2000" }
@@ -783,7 +805,7 @@
   canRenew=await Gate.CanAsync(Permissions.DevicesRenew);
   canUpdateDevice=await Gate.CanAsync(Permissions.DevicesUpdate) || await Gate.CanAsync(Permissions.UsersManage);
   canFinanceLock=await Gate.CanAsync(Permissions.FinancePay) || await Gate.CanAsync(Permissions.UsersManage);
-  canHistory=await Gate.CanAsync(Permissions.DevicesRenewalsView);
+  canViewLog=await Gate.CanViewSystemLogsAsync();
   canActive=await Gate.CanAsync(Permissions.DevicesActiveView);
   canOverdue=await Gate.CanAsync(Permissions.DevicesOverdueView);
   canDue10=await Gate.CanAsync(Permissions.DevicesDue10View);
@@ -822,8 +844,7 @@
    OnRenewDeviceSelected();
    if(!devices.Any(x => x.ActivationId == editActivationId)) { editActivationId = devices[0].ActivationId; OnEditDeviceSelected(); }
   }
-  if(canHistory)renewals=Db.Renewals();
-  if(canHistory || canSoftDeleteDevice || isMainRole)deletedDevices=Db.DeletedDevices();
+  if(canViewLog){renewals=Db.Renewals();deletedDevices=Db.DeletedDevices();}
  }
  private void RebuildAgencyOwners(){
   var list = new List<(string Key, string Name, string Phone)>();

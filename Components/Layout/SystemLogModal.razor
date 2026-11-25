@@ -1,0 +1,555 @@
+@inject AuditTrail Trail
+@inject DemoDb Db
+@inject PermissionGate Gate
+@inject IJSRuntime JS
+
+@if (IsOpen && canViewLog)
+{
+    <div class="so-modal-overlay" @onclick="Close">
+        <div class="so-modal-dialog" style="max-width:1200px;width:96vw;max-height:90vh;display:flex;flex-direction:column" @onclick:stopPropagation="true">
+            <div class="so-modal-header" style="flex-shrink:0">
+                <div>
+                    <div class="eyebrow" style="color:#0369a1">🔒 LỊCH SỬ / LƯU VẾT HỆ THỐNG · CỐ ĐỊNH CHO MAIN / OWNER / ADMIN</div>
+                    <h2 style="margin:2px 0 0">@Title</h2>
+                    @if (recordSummary is not null && InitialRecordId > 0)
+                    {
+                        <div style="margin-top:6px;font-size:12.5px;color:#475569">
+                            Bản ghi <strong>@VnLabels.TableName(recordSummary.Table) #@InitialRecordId</strong> ·
+                            Tạo mới: <strong>@recordSummary.Creates</strong> ·
+                            Cập nhật: <strong>@recordSummary.Updates</strong> lần ·
+                            Xóa: <strong>@recordSummary.Deletes</strong> lần ·
+                            Gần nhất: <strong>@VnDateTimeHelper.FormatDisplay(recordSummary.LastAt)</strong>
+                        </div>
+                    }
+                </div>
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="Close">✕ Đóng</button>
+            </div>
+
+            <div style="padding:10px 20px;border-bottom:1px solid #e2e8f0;background:#f8fafc;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;flex-shrink:0">
+                <div class="tc-seg" role="tablist" style="flex-wrap:wrap">
+                    @if (!string.IsNullOrWhiteSpace(CustomTab1Label) && CustomTab1Content is not null)
+                    {
+                        <button type="button" data-confirm="none" class="tc-seg-btn @(currentTab == "CUSTOM_1" ? "is-active" : "")" @onclick='() => SwitchTab("CUSTOM_1")'>
+                            @CustomTab1Label
+                        </button>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(CustomTab2Label) && CustomTab2Content is not null)
+                    {
+                        <button type="button" data-confirm="none" class="tc-seg-btn @(currentTab == "CUSTOM_2" ? "is-active" : "")" @onclick='() => SwitchTab("CUSTOM_2")'>
+                            @CustomTab2Label
+                        </button>
+                    }
+                    <button type="button" data-confirm="none" class="tc-seg-btn @(currentTab == "DATA_EVENTS" ? "is-active" : "")" @onclick='() => SwitchTab("DATA_EVENTS")'>
+                        Lưu vết dữ liệu (@totalEvents.ToString("N0"))
+                    </button>
+                    <button type="button" data-confirm="none" class="tc-seg-btn @(currentTab == "AUDIT_LOGS" ? "is-active" : "")" @onclick='() => SwitchTab("AUDIT_LOGS")'>
+                        Nhật ký nghiệp vụ (@FilteredAudits.Count.ToString("N0"))
+                    </button>
+                    @if (ShowImeiLedgerTab)
+                    {
+                        <button type="button" data-confirm="none" class="tc-seg-btn @(currentTab == "IMEI_LEDGER" ? "is-active" : "")" @onclick='() => SwitchTab("IMEI_LEDGER")'>
+                            Sổ xuất/nhập IMEI (@FilteredLedger.Count.ToString("N0"))
+                        </button>
+                    }
+                    @if (ShowAccessLogsTab)
+                    {
+                        <button type="button" data-confirm="none" class="tc-seg-btn @(currentTab == "ACCESS_LOGS" ? "is-active" : "")" @onclick='() => SwitchTab("ACCESS_LOGS")'>
+                            Truy cập &amp; Xuất BC (@recentActions.Count.ToString("N0"))
+                        </button>
+                    }
+                </div>
+
+                @if (ScopedTables is { Count: > 0 } && !showAllSystemTables)
+                {
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExpandToAllSystemTables" title="Mở rộng tra cứu sang toàn bộ các bảng dữ liệu trong hệ thống">
+                        🌐 Xem toàn hệ thống
+                    </button>
+                }
+            </div>
+
+            <div class="so-modal-body" style="overflow-y:auto;flex:1;padding:16px 20px">
+                @if (currentTab == "CUSTOM_1" && CustomTab1Content is not null)
+                {
+                    @CustomTab1Content
+                }
+                else if (currentTab == "CUSTOM_2" && CustomTab2Content is not null)
+                {
+                    @CustomTab2Content
+                }
+                else if (currentTab == "DATA_EVENTS")
+                {
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+                        <select class="search-input" style="min-width:210px" @bind="table" @bind:after="SearchEvents">
+                            <option value="">@(EffectiveAllowedTables is { Count: > 0 } ? "— Tất cả bảng thuộc phân hệ này —" : "— Tất cả bảng dữ liệu —")</option>
+                            @foreach (var item in AvailableTables)
+                            {
+                                <option value="@item">@VnLabels.TableName(item)</option>
+                            }
+                        </select>
+                        <select class="search-input" style="min-width:155px" @bind="action" @bind:after="SearchEvents">
+                            <option value="">— Mọi thao tác —</option>
+                            <option value="CREATE">Thêm mới</option>
+                            <option value="UPDATE">Cập nhật</option>
+                            <option value="DELETE">Xóa dữ liệu</option>
+                            <option value="RESTORE">Khôi phục</option>
+                        </select>
+                        <input class="search-input" style="min-width:200px;flex:1" @bind="key" @bind:event="oninput" @bind:after="SearchEvents" placeholder="Tìm ID bản ghi, mã, IMEI, nội dung..." />
+                        <input class="search-input" style="min-width:150px" @bind="actorFilter" @bind:event="oninput" @bind:after="SearchEvents" placeholder="Người thực hiện..." />
+                        <input type="date" class="search-input" style="width:142px" @bind="fromDate" @bind:after="SearchEvents" title="Từ ngày" />
+                        <input type="date" class="search-input" style="width:142px" @bind="toDate" @bind:after="SearchEvents" title="Đến ngày" />
+                        @if (!string.IsNullOrEmpty(table) || !string.IsNullOrEmpty(key) || !string.IsNullOrEmpty(action) || !string.IsNullOrEmpty(actorFilter) || fromDate.HasValue || toDate.HasValue)
+                        {
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ResetEvents">Xóa lọc</button>
+                        }
+                        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportEventsExcel">📥 Xuất Excel (@totalEvents)</button>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(error))
+                    {
+                        <div class="alert-error" style="margin-bottom:10px">@error</div>
+                    }
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>THỜI GIAN</th>
+                                    <th>NGƯỜI THỰC HIỆN</th>
+                                    <th>THAO TÁC</th>
+                                    <th>PHÂN HỆ DỮ LIỆU</th>
+                                    <th>MÃ BẢN GHI</th>
+                                    <th>CHI TIẾT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (results.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="7" style="text-align:center;padding:20px;color:#64748b">Không có bản ghi lưu vết thay đổi dữ liệu phù hợp bộ lọc.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    var rowIdx = 0;
+                                    @foreach (var row in results)
+                                    {
+                                        rowIdx++;
+                                        var stt = (eventPager.Page - 1) * eventPager.PageSize + rowIdx;
+                                        <tr @key="row.Id">
+                                            <td><strong>@stt</strong></td>
+                                            <td>@VnDateTimeHelper.FormatDisplay(row.At)</td>
+                                            <td><strong>@row.Actor</strong></td>
+                                            <td>
+                                                <span class="chip @(row.Action == "DELETE" ? "red-chip" : row.Action == "CREATE" ? "green-chip" : row.Action == "RESTORE" ? "orange-chip" : "")">
+                                                    @VnLabels.OperationName(row.Action)
+                                                </span>
+                                            </td>
+                                            <td>@VnLabels.TableName(row.Table)</td>
+                                            <td><code>@row.RecordKey</code></td>
+                                            <td>
+                                                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => selectedEventId = selectedEventId == row.Id ? null : row.Id">
+                                                    @(selectedEventId == row.Id ? "Ẩn chi tiết" : "Trước / Sau")
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        @if (selectedEventId == row.Id)
+                                        {
+                                            <tr>
+                                                <td colspan="7" style="background:#f8fafc">
+                                                    <div class="diff-grid">
+                                                        <section>
+                                                            <strong>Trước thao tác</strong>
+                                                            <pre>@Pretty(row.Before)</pre>
+                                                        </section>
+                                                        <section>
+                                                            <strong>Sau thao tác</strong>
+                                                            <pre>@Pretty(row.After)</pre>
+                                                        </section>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <TablePager Pager="eventPager" TotalCount="(int)totalEvents" OnChange="OnEventPagerChanged" />
+                }
+                else if (currentTab == "AUDIT_LOGS")
+                {
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:12px">
+                        <input class="search-input" style="min-width:260px;flex:1;max-width:440px" @bind="auditSearch" @bind:event="oninput" @bind:after="() => auditPager.Reset()" placeholder="Tìm người thực hiện, thao tác, phân hệ, nội dung chi tiết..." />
+                        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportAuditExcel">📥 Xuất Excel (@FilteredAudits.Count)</button>
+                    </div>
+                    var pagedAudit = auditPager.Slice(FilteredAudits, out var totalAudit);
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>MÃ SỐ</th>
+                                    <th>THỜI GIAN</th>
+                                    <th>NGƯỜI THỰC HIỆN</th>
+                                    <th>THAO TÁC NGHIỆP VỤ</th>
+                                    <th>PHÂN HỆ</th>
+                                    <th>NỘI DUNG CHI TIẾT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (pagedAudit.Count == 0)
+                                {
+                                    <tr><td colspan="7" style="text-align:center;padding:20px;color:#64748b">Chưa có nhật ký thao tác nghiệp vụ phù hợp.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (var (stt, a) in pagedAudit)
+                                    {
+                                        <tr @key="a.Id">
+                                            <td><strong>@stt</strong></td>
+                                            <td>#@a.Id</td>
+                                            <td>@VnDateTimeHelper.FormatDisplay(a.At)</td>
+                                            <td><strong>@a.Actor</strong></td>
+                                            <td><span class="chip">@VnLabels.AuditAction(a.Action)</span></td>
+                                            <td>@VnLabels.AuditEntity(a.Entity)</td>
+                                            <td class="wrap-cell">@VnLabels.LocalizeText(a.Details)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <TablePager Pager="auditPager" TotalCount="totalAudit" OnChange="StateHasChanged" />
+                }
+                else if (currentTab == "IMEI_LEDGER" && ShowImeiLedgerTab)
+                {
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:12px">
+                        <input class="search-input" style="min-width:260px;flex:1;max-width:440px" @bind="ledgerSearch" @bind:event="oninput" @bind:after="() => ledgerPager.Reset()" placeholder="Tìm IMEI, mã hàng, đối tượng nhận, người thực hiện..." />
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <a class="btn secondary btn-sm" data-confirm="none" href="/export/inventory.csv">↓ Tải báo cáo kho (.csv)</a>
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportLedgerExcel">📥 Xuất Excel (@FilteredLedger.Count)</button>
+                        </div>
+                    </div>
+                    var pagedLedger = ledgerPager.Slice(FilteredLedger, out var totalLedger);
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>MÃ GD</th>
+                                    <th>THỜI GIAN</th>
+                                    <th>NGHIỆP VỤ KHO</th>
+                                    <th>MÃ HÀNG</th>
+                                    <th>SỐ IMEI</th>
+                                    <th>ĐỐI TƯỢNG NHẬN</th>
+                                    <th>NGƯỜI THỰC HIỆN</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (pagedLedger.Count == 0)
+                                {
+                                    <tr><td colspan="8" style="text-align:center;padding:20px;color:#64748b">Chưa có giao dịch xuất / nhập / điều chuyển IMEI.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (var (stt, r) in pagedLedger)
+                                    {
+                                        <tr>
+                                            <td><strong>@stt</strong></td>
+                                            <td>#@r.Id</td>
+                                            <td>@VnDateTimeHelper.FormatDisplay(r.At)</td>
+                                            <td><span class="chip">@VnLabels.ImeiMovementType(r.Type)</span></td>
+                                            <td>@r.Sku</td>
+                                            <td><strong>@r.Imei</strong></td>
+                                            <td class="wrap-cell">@r.Target</td>
+                                            <td>@r.Actor</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <TablePager Pager="ledgerPager" TotalCount="totalLedger" OnChange="StateHasChanged" />
+                }
+                else if (currentTab == "ACCESS_LOGS" && ShowAccessLogsTab)
+                {
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:12px">
+                        <span style="font-size:13px;color:#475569">Ghi nhận tự động các lượt đăng nhập, đăng xuất và trích xuất báo cáo hệ thống.</span>
+                        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportActionsExcel">📥 Xuất Excel (@recentActions.Count)</button>
+                    </div>
+                    var pagedActions = actionPager.Slice(recentActions, out var totalActions);
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>THỜI GIAN</th>
+                                    <th>TÀI KHOẢN</th>
+                                    <th>THAO TÁC</th>
+                                    <th>PHÂN HỆ / MÀN HÌNH</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (pagedActions.Count == 0)
+                                {
+                                    <tr><td colspan="5" style="text-align:center;padding:20px;color:#64748b">Chưa có nhật ký truy cập.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (var (stt, x) in pagedActions)
+                                    {
+                                        <tr>
+                                            <td><strong>@stt</strong></td>
+                                            <td>@VnDateTimeHelper.FormatDisplay(x.At)</td>
+                                            <td><strong>@x.Actor</strong></td>
+                                            <td><span class="chip">@VnLabels.ActivityAction(x.Action)</span></td>
+                                            <td>@VnLabels.ActivityResource(x.Resource)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <TablePager Pager="actionPager" TotalCount="totalActions" OnChange="StateHasChanged" />
+                }
+            </div>
+
+            <div class="so-modal-footer" style="flex-shrink:0">
+                <button type="button" class="btn secondary" data-confirm="none" @onclick="Close">Đóng hộp thoại</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public string Title { get; set; } = "Nhật ký & Lưu vết hệ thống";
+    [Parameter] public IReadOnlyList<string>? ScopedTables { get; set; }
+    [Parameter] public IReadOnlyList<string>? ScopedAuditEntities { get; set; }
+    [Parameter] public string? InitialTable { get; set; }
+    [Parameter] public long? InitialRecordId { get; set; }
+    [Parameter] public string? DefaultTab { get; set; }
+    [Parameter] public string? CustomTab1Label { get; set; }
+    [Parameter] public RenderFragment? CustomTab1Content { get; set; }
+    [Parameter] public string? CustomTab2Label { get; set; }
+    [Parameter] public RenderFragment? CustomTab2Content { get; set; }
+    [Parameter] public bool ShowImeiLedgerTab { get; set; }
+    [Parameter] public bool ShowAccessLogsTab { get; set; }
+
+    private bool canViewLog;
+    private bool wasOpen;
+    private bool showAllSystemTables;
+    private string? lastInitialTable;
+    private long? lastInitialRecordId;
+    private string currentTab = "DATA_EVENTS";
+
+    private string table = "", key = "", action = "", actorFilter = "", error = "", auditSearch = "", ledgerSearch = "";
+    private DateTime? fromDate, toDate;
+    private long totalEvents;
+    private long? selectedEventId;
+
+    private readonly PagerState eventPager = new();
+    private readonly PagerState auditPager = new();
+    private readonly PagerState ledgerPager = new();
+    private readonly PagerState actionPager = new();
+
+    private List<string> allDbTables = [];
+    private List<ActivityRow> results = [];
+    private ActivitySummary? recordSummary;
+    private List<AuditVm> audits = [];
+    private List<LedgerVm> ledger = [];
+    private List<(long Id, string Actor, string Action, string Resource, string At)> recentActions = [];
+
+    private IReadOnlyCollection<string>? EffectiveAllowedTables =>
+        showAllSystemTables ? null : (ScopedTables is { Count: > 0 } ? ScopedTables : null);
+
+    private IEnumerable<string> AvailableTables =>
+        EffectiveAllowedTables is { Count: > 0 }
+            ? EffectiveAllowedTables.Union(allDbTables.Where(t => EffectiveAllowedTables.Contains(t, StringComparer.OrdinalIgnoreCase)), StringComparer.OrdinalIgnoreCase)
+            : allDbTables;
+
+    private List<AuditVm> FilteredAudits
+    {
+        get
+        {
+            IEnumerable<AuditVm> src = audits;
+            if (!showAllSystemTables && ScopedAuditEntities is { Count: > 0 })
+            {
+                src = src.Where(a => ScopedAuditEntities.Contains(a.Entity, StringComparer.OrdinalIgnoreCase));
+            }
+            if (!string.IsNullOrWhiteSpace(auditSearch))
+            {
+                var q = auditSearch.Trim();
+                src = src.Where(a => ($"{a.Actor} {VnLabels.AuditAction(a.Action)} {VnLabels.AuditEntity(a.Entity)} {VnLabels.LocalizeText(a.Details)} {VnDateTimeHelper.FormatDisplay(a.At)}")
+                    .Contains(q, StringComparison.OrdinalIgnoreCase));
+            }
+            return src.ToList();
+        }
+    }
+
+    private List<LedgerVm> FilteredLedger =>
+        string.IsNullOrWhiteSpace(ledgerSearch)
+            ? ledger
+            : ledger.Where(x => ($"{x.Imei} {x.Sku} {x.Target} {x.Actor} {VnLabels.ImeiMovementType(x.Type)}")
+                .Contains(ledgerSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        canViewLog = await Gate.CanViewSystemLogsAsync();
+        if (!IsOpen || !canViewLog)
+        {
+            wasOpen = false;
+            return;
+        }
+
+        var recordChanged = lastInitialTable != InitialTable || lastInitialRecordId != InitialRecordId;
+        if (!wasOpen || recordChanged)
+        {
+            wasOpen = true;
+            lastInitialTable = InitialTable;
+            lastInitialRecordId = InitialRecordId;
+            showAllSystemTables = false;
+            selectedEventId = null;
+            eventPager.Reset();
+            auditPager.Reset();
+            ledgerPager.Reset();
+            actionPager.Reset();
+
+            if (!string.IsNullOrWhiteSpace(InitialTable) && InitialRecordId is > 0)
+            {
+                currentTab = "DATA_EVENTS";
+                table = InitialTable;
+                key = "{\"id\":" + InitialRecordId.Value + "}";
+                recordSummary = Trail.Summary(InitialTable, InitialRecordId.Value);
+            }
+            else
+            {
+                recordSummary = null;
+                table = !string.IsNullOrWhiteSpace(InitialTable) ? InitialTable : "";
+                key = "";
+                if (!string.IsNullOrWhiteSpace(DefaultTab))
+                    currentTab = DefaultTab!;
+                else if (!string.IsNullOrWhiteSpace(CustomTab1Label) && CustomTab1Content is not null)
+                    currentTab = "CUSTOM_1";
+                else
+                    currentTab = "DATA_EVENTS";
+            }
+
+            LoadAuxiliaryStreams();
+            ReloadEvents();
+        }
+    }
+
+    private void SwitchTab(string tab) => currentTab = tab;
+
+    private void ExpandToAllSystemTables()
+    {
+        showAllSystemTables = true;
+        table = "";
+        eventPager.Reset();
+        auditPager.Reset();
+        ReloadEvents();
+    }
+
+    private void LoadAuxiliaryStreams()
+    {
+        try
+        {
+            allDbTables = Trail.Tables().ToList();
+            audits = Db.Audits();
+            if (ShowImeiLedgerTab) ledger = Db.Ledger();
+            if (ShowAccessLogsTab) recentActions = Trail.RecentActions(200);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private void ReloadEvents()
+    {
+        try
+        {
+            totalEvents = Trail.Count(table, key, action, actorFilter, DateFilter(fromDate), DateFilter(toDate), EffectiveAllowedTables);
+            var curPage = eventPager.CurrentPage((int)totalEvents);
+            eventPager.Page = curPage;
+            results = Trail.Search(table, key, action, curPage, eventPager.PageSize, actorFilter, DateFilter(fromDate), DateFilter(toDate), EffectiveAllowedTables);
+            error = "";
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private static string DateFilter(DateTime? value) => value?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+    private void SearchEvents() { eventPager.Reset(); selectedEventId = null; ReloadEvents(); }
+    private void ResetEvents()
+    {
+        table = "";
+        key = "";
+        action = "";
+        actorFilter = "";
+        fromDate = null;
+        toDate = null;
+        recordSummary = null;
+        selectedEventId = null;
+        eventPager.Reset();
+        ReloadEvents();
+    }
+    private void OnEventPagerChanged() { selectedEventId = null; ReloadEvents(); }
+
+    private async Task Close()
+    {
+        wasOpen = false;
+        if (OnClose.HasDelegate) await OnClose.InvokeAsync();
+    }
+
+    private async Task ExportEventsExcel()
+    {
+        var allFiltered = Trail.Search(table, key, action, 1, 10000, actorFilter, DateFilter(fromDate), DateFilter(toDate), EffectiveAllowedTables);
+        var headers = new[] { "STT", "Thời gian", "Người thực hiện", "Thao tác", "Phân hệ dữ liệu", "Mã bản ghi", "Dữ liệu trước", "Dữ liệu sau" };
+        var rows = allFiltered.Select((r, idx) => new object?[]
+        {
+            idx + 1, VnDateTimeHelper.FormatDisplay(r.At), r.Actor, VnLabels.OperationName(r.Action), VnLabels.TableName(r.Table), r.RecordKey, VnLabels.LocalizeText(r.Before), VnLabels.LocalizeText(r.After)
+        });
+        await ExcelExporter.DownloadAsync(JS, "luu-vet-thay-doi-du-lieu", "Lưu vết dữ liệu", headers, rows);
+    }
+
+    private async Task ExportAuditExcel()
+    {
+        var list = FilteredAudits;
+        var headers = new[] { "STT", "Mã số", "Thời gian", "Người thực hiện", "Thao tác nghiệp vụ", "Phân hệ", "Nội dung chi tiết" };
+        var rows = list.Select((a, idx) => new object?[] { idx + 1, a.Id, VnDateTimeHelper.FormatDisplay(a.At), a.Actor, VnLabels.AuditAction(a.Action), VnLabels.AuditEntity(a.Entity), VnLabels.LocalizeText(a.Details) });
+        await ExcelExporter.DownloadAsync(JS, "nhat-ky-kiem-toan-nghiep-vu", "Nhật ký nghiệp vụ", headers, rows);
+    }
+
+    private async Task ExportLedgerExcel()
+    {
+        var list = FilteredLedger;
+        var headers = new[] { "STT", "Mã giao dịch", "Thời gian", "Nghiệp vụ kho", "Mã hàng", "Số IMEI", "Đối tượng nhận", "Người thực hiện" };
+        var rows = list.Select((r, idx) => new object?[] { idx + 1, $"#{r.Id}", VnDateTimeHelper.FormatDisplay(r.At), VnLabels.ImeiMovementType(r.Type), r.Sku, r.Imei, r.Target, r.Actor });
+        await ExcelExporter.DownloadAsync(JS, "so-nhap-xuat-dieu-chuyen-imei", "Sổ xuất nhập IMEI", headers, rows);
+    }
+
+    private async Task ExportActionsExcel()
+    {
+        var headers = new[] { "STT", "Thời gian", "Tài khoản", "Thao tác", "Phân hệ / Màn hình" };
+        var rows = recentActions.Select((x, idx) => new object?[] { idx + 1, VnDateTimeHelper.FormatDisplay(x.At), x.Actor, VnLabels.ActivityAction(x.Action), VnLabels.ActivityResource(x.Resource) });
+        await ExcelExporter.DownloadAsync(JS, "nhat-ky-truy-cap-he-thong", "Nhật ký truy cập", headers, rows);
+    }
+
+    private static string Pretty(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "—";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var formatted = System.Text.Json.JsonSerializer.Serialize(doc.RootElement, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            return VnLabels.LocalizeText(formatted);
+        }
+        catch { return VnLabels.LocalizeText(json); }
+    }
+}

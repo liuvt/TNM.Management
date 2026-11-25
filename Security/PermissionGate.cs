@@ -17,4 +17,16 @@ public sealed class PermissionGate(AuthenticationStateProvider stateProvider, Au
             throw new UnauthorizedAccessException("Tài khoản không có quyền thực hiện thao tác hoặc phiên đăng nhập đã hết hiệu lực.");
         return AuthRepository.PrincipalId(state.User);
     }
+    public async Task<bool> CanViewSystemLogsAsync()
+    {
+        var state = await stateProvider.GetAuthenticationStateAsync();
+        return repository.CanViewSystemLogs(state.User);
+    }
+    public async Task<long> RequireSystemLogsAsync()
+    {
+        var state = await stateProvider.GetAuthenticationStateAsync();
+        if (!repository.CanViewSystemLogs(state.User))
+            throw new UnauthorizedAccessException("Chỉ tài khoản Main, Chủ sở hữu (Owner) và Quản trị viên (Admin) mới được phép xem Lịch sử / Lưu vết / Log hệ thống.");
+        return AuthRepository.PrincipalId(state.User);
+    }
 }

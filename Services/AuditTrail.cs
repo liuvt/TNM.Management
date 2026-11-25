@@ -186,25 +186,52 @@ public sealed class AuditTrail(IWebHostEnvironment env)
         using var c=Open();using var q=c.CreateCommand();q.CommandText="SELECT DISTINCT table_name FROM activity_events ORDER BY table_name";
         using var r=q.ExecuteReader();var rows=new List<string>();while(r.Read())rows.Add(r.GetString(0));return rows;
     }
-    public long Count(string? table=null,string? key=null,string? action=null,string? actor=null,string? from=null,string? to=null)
+    public long Count(string? table=null,string? key=null,string? action=null,string? actor=null,string? from=null,string? to=null,IReadOnlyCollection<string>? allowedTables=null)
     {
         using var c=Open();using var q=c.CreateCommand();
-        q.CommandText="SELECT COUNT(*) FROM activity_events WHERE LOWER(COALESCE(actor_username,''))<>'vanlt_it' AND NOT (table_name='app_users' AND (LOWER(COALESCE(before_json,'')) LIKE '%vanlt_it%' OR LOWER(COALESCE(after_json,'')) LIKE '%vanlt_it%')) AND ($t='' OR table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND record_key=$k) OR (substr($k,1,1)<>'{' AND record_key LIKE '%' || $k || '%')) AND ($a='' OR operation=$a) AND ($actor='' OR actor_username LIKE '%' || $actor || '%' OR CAST(actor_user_id AS TEXT)=$actor) AND ($from='' OR substr(occurred_at,1,10)>=$from) AND ($to='' OR substr(occurred_at,1,10)<=$to)";
+        var scopeClause = "";
+        if (allowedTables is { Count: > 0 })
+        {
+            var pNames = new List<string>();
+            int idx = 0;
+            foreach (var tb in allowedTables)
+            {
+                var pn = $"$st{idx++}";
+                pNames.Add(pn);
+                q.Parameters.AddWithValue(pn, tb);
+            }
+            scopeClause = $" AND table_name IN ({string.Join(",", pNames)})";
+        }
+        q.CommandText=$"SELECT COUNT(*) FROM activity_events WHERE LOWER(COALESCE(actor_username,''))<>'vanlt_it' AND NOT (table_name='app_users' AND (LOWER(COALESCE(before_json,'')) LIKE '%vanlt_it%' OR LOWER(COALESCE(after_json,'')) LIKE '%vanlt_it%')){scopeClause} AND ($t='' OR table_name=$t) AND ($k='' OR (substr($k,1,1)='{{' AND record_key=$k) OR (substr($k,1,1)<>'{{' AND (record_key LIKE '%' || $k || '%' OR before_json LIKE '%' || $k || '%' OR after_json LIKE '%' || $k || '%'))) AND ($a='' OR operation=$a) AND ($actor='' OR actor_username LIKE '%' || $actor || '%' OR CAST(actor_user_id AS TEXT)=$actor) AND ($from='' OR substr(occurred_at,1,10)>=$from) AND ($to='' OR substr(occurred_at,1,10)<=$to)";
         q.Parameters.AddWithValue("$t",table??"");q.Parameters.AddWithValue("$k",key??"");q.Parameters.AddWithValue("$a",action??"");
         q.Parameters.AddWithValue("$actor",actor??"");q.Parameters.AddWithValue("$from",from??"");q.Parameters.AddWithValue("$to",to??"");
         return Convert.ToInt64(q.ExecuteScalar()??0);
     }
-    public List<ActivityRow> Search(string? table=null,string? key=null,string? action=null,int page=1,int pageSize=50,string? actor=null,string? from=null,string? to=null)
+    public List<ActivityRow> Search(string? table=null,string? key=null,string? action=null,int page=1,int pageSize=50,string? actor=null,string? from=null,string? to=null,IReadOnlyCollection<string>? allowedTables=null)
     {
         using var c=Open();using var q=c.CreateCommand();
-        q.CommandText="""
+        var scopeClause = "";
+        if (allowedTables is { Count: > 0 })
+        {
+            var pNames = new List<string>();
+            int idx = 0;
+            foreach (var tb in allowedTables)
+            {
+                var pn = $"$st{idx++}";
+                pNames.Add(pn);
+                q.Parameters.AddWithValue(pn, tb);
+            }
+            scopeClause = $" AND e.table_name IN ({string.Join(",", pNames)})";
+        }
+        q.CommandText=$$"""
             SELECT e.id,e.table_name,e.record_key,e.operation,
                 COALESCE(e.actor_username, CASE WHEN e.actor_user_id IS NULL THEN '[Hệ thống / chưa xác định]' ELSE '#'||e.actor_user_id END),
                 e.occurred_at,COALESCE(e.before_json,''),COALESCE(e.after_json,'')
             FROM activity_events e
             WHERE LOWER(COALESCE(e.actor_username,''))<>'vanlt_it'
               AND NOT (e.table_name='app_users' AND (LOWER(COALESCE(e.before_json,'')) LIKE '%vanlt_it%' OR LOWER(COALESCE(e.after_json,'')) LIKE '%vanlt_it%'))
-              AND ($t='' OR e.table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND e.record_key=$k) OR (substr($k,1,1)<>'{' AND e.record_key LIKE '%' || $k || '%')) AND ($a='' OR e.operation=$a)
+              {{scopeClause}}
+              AND ($t='' OR e.table_name=$t) AND ($k='' OR (substr($k,1,1)='{' AND e.record_key=$k) OR (substr($k,1,1)<>'{' AND (e.record_key LIKE '%' || $k || '%' OR e.before_json LIKE '%' || $k || '%' OR e.after_json LIKE '%' || $k || '%'))) AND ($a='' OR e.operation=$a)
               AND ($actor='' OR e.actor_username LIKE '%' || $actor || '%' OR CAST(e.actor_user_id AS TEXT)=$actor)
               AND ($from='' OR substr(e.occurred_at,1,10)>=$from) AND ($to='' OR substr(e.occurred_at,1,10)<=$to)
             ORDER BY e.id DESC LIMIT $limit OFFSET $offset

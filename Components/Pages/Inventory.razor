@@ -19,10 +19,16 @@
       }
       else
       {
-        <span>Nhập, xuất, điều chuyển hàng hóa quản lý theo số lượng giữa các kho / vị trí và tra cứu sổ giao dịch.</span>
+        <span>Nhập, xuất, điều chuyển hàng hóa quản lý theo số lượng giữa các kho / vị trí lưu trữ.</span>
       }
     </p>
   </div>
+  @if (canViewLog)
+  {
+    <div class="button-group">
+      <button type="button" class="btn secondary" data-confirm="none" @onclick="() => showLogModal = true">📋 Xem log</button>
+    </div>
+  }
 </div>
 
 <div class="crud-actionbar" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
@@ -465,57 +471,75 @@ else if (activeTab == "QUANTITY" && canQtyView)
     </div>
     <TablePager Pager="balancePager" TotalCount="totalBalances" OnChange="StateHasChanged" />
   </section>
+}
 
-  <section class="panel">
-    <div class="panel-head">
-      <div>
-        <h2>Sổ giao dịch số lượng</h2>
-        <p>Đang hiển thị @FilteredMovements.Count / @movements.Count giao dịch.</p>
+@if (canViewLog)
+{
+  <SystemLogModal IsOpen="showLogModal"
+                  OnClose="() => showLogModal = false"
+                  Title="Lịch sử &amp; Lưu vết — Kho IMEI &amp; Kho số lượng"
+                  ScopedTables="@inventoryLogTables"
+                  ScopedAuditEntities="@inventoryAuditEntities"
+                  ShowImeiLedgerTab="true"
+                  CustomTab1Label="@($"Sổ giao dịch số lượng ({movements.Count})")">
+    <CustomTab1Content>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:13px;color:#475569">Đang hiển thị <strong>@FilteredMovements.Count</strong> / <strong>@movements.Count</strong> giao dịch kho số lượng.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input class="search-input" style="min-width:240px" @bind="moveSearch" @bind:event="oninput" @bind:after="() => movePager.Reset()" placeholder="Lọc phiếu, mã hàng, kho, nghiệp vụ, ghi chú..." />
+          <a class="btn secondary btn-sm" data-confirm="none" href="/export/quantity.csv">↓ Tải CSV</a>
+          <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ExportMovementsExcel">📥 Xuất Excel (@FilteredMovements.Count)</button>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input class="search-input" @bind="moveSearch" @bind:event="oninput" @bind:after="() => movePager.Reset()" placeholder="Lọc phiếu, mã hàng, kho, nghiệp vụ, ghi chú..." />
-        <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportMovementsExcel">📥 Xuất Excel (@FilteredMovements.Count)</button>
-      </div>
-    </div>
-    @{ var pagedMovements = movePager.Slice(FilteredMovements, out var totalMovements); }
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>STT</th>
-            <th>Thời gian</th>
-            <th>Số phiếu</th>
-            <th>Mã hàng</th>
-            <th>Kho / Vị trí</th>
-            <th>Số lượng ±</th>
-            <th>Nghiệp vụ kho</th>
-            <th>Ghi chú</th>
-          </tr>
-        </thead>
-        <tbody>
-          @foreach (var (stt, x) in pagedMovements)
-          {
+      @{ var pagedMovements = movePager.Slice(FilteredMovements, out var totalMovements); }
+      <div class="table-wrap">
+        <table>
+          <thead>
             <tr>
-              <td><strong>@stt</strong></td>
-              <td>@VnDateTimeHelper.FormatDisplay(x.When)</td>
-              <td>@x.Document</td>
-              <td>@x.Sku</td>
-              <td>@x.Warehouse / @x.Location</td>
-              <td><strong>@x.Delta</strong></td>
-              <td><span class="chip">@VnLabels.QuantityMovementType(x.Type)</span></td>
-              <td class="wrap-cell">@x.Note</td>
+              <th>STT</th>
+              <th>Thời gian</th>
+              <th>Số phiếu</th>
+              <th>Mã hàng</th>
+              <th>Kho / Vị trí</th>
+              <th>Số lượng ±</th>
+              <th>Nghiệp vụ kho</th>
+              <th>Ghi chú</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-    <TablePager Pager="movePager" TotalCount="totalMovements" OnChange="StateHasChanged" />
-  </section>
+          </thead>
+          <tbody>
+            @if (pagedMovements.Count == 0)
+            {
+              <tr><td colspan="8" style="text-align:center;padding:18px;color:#64748b">Chưa có giao dịch kho số lượng phù hợp.</td></tr>
+            }
+            else
+            {
+              @foreach (var (stt, x) in pagedMovements)
+              {
+                <tr>
+                  <td><strong>@stt</strong></td>
+                  <td>@VnDateTimeHelper.FormatDisplay(x.When)</td>
+                  <td>@x.Document</td>
+                  <td>@x.Sku</td>
+                  <td>@x.Warehouse / @x.Location</td>
+                  <td><strong>@x.Delta</strong></td>
+                  <td><span class="chip">@VnLabels.QuantityMovementType(x.Type)</span></td>
+                  <td class="wrap-cell">@x.Note</td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <TablePager Pager="movePager" TotalCount="totalMovements" OnChange="StateHasChanged" />
+    </CustomTab1Content>
+  </SystemLogModal>
 }
 
 @code {
   private string activeTab = "IMEI";
-  private bool canImeiView, canQtyView;
+  private bool canImeiView, canQtyView, canViewLog, showLogModal;
+  private static readonly string[] inventoryLogTables = ["stock_units", "inventory_transactions", "inventory_transaction_lines", "quantity_movements", "warehouses", "warehouse_locations"];
+  private static readonly string[] inventoryAuditEntities = ["STOCK_UNIT", "INVENTORY", "QUANTITY_MOVEMENT", "WAREHOUSE"];
 
   // IMEI state
   private bool showReceive, showMove;
@@ -607,6 +631,7 @@ else if (activeTab == "QUANTITY" && canQtyView)
   {
     canImeiView = await Gate.CanAsync(Permissions.InventoryView);
     canQtyView = await Gate.CanAsync(Permissions.QuantityStockView);
+    canViewLog = await Gate.CanViewSystemLogsAsync();
 
     var relPath = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
     if (relPath.StartsWith("quantity-stock", StringComparison.OrdinalIgnoreCase) && canQtyView)

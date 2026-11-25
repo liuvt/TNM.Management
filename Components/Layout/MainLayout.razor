@@ -97,11 +97,10 @@
                         <NavLink href="/finance"><AppIcon Name="wallet" /> <span>Công nợ & thanh toán</span></NavLink>
                         <NavLink href="/expenses"><AppIcon Name="receipt" /> <span>Quản lý Thu/Chi</span></NavLink>
                     }
-                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsView) || Accounts.HasPermission(nav.User, Permissions.ReportsAuditView))
+                    @if (Accounts.HasPermission(nav.User, Permissions.ReportsView))
                     {
                         <div class="nav-heading">Hoạt động</div>
-                        @if (Accounts.HasPermission(nav.User, Permissions.ReportsView)) { <NavLink href="/reports"><AppIcon Name="chart" /> <span>Báo cáo & nhật ký</span></NavLink> }
-                        @if (Accounts.HasPermission(nav.User, Permissions.ReportsAuditView)) { <NavLink href="/activity"><AppIcon Name="shield" /> <span>Nhật ký hoạt động</span></NavLink> }
+                        <NavLink href="/reports"><AppIcon Name="chart" /> <span>Báo cáo tổng hợp</span></NavLink>
                     }
                     <div class="nav-heading">Thiết lập</div>
                     @if (Accounts.HasPermission(nav.User, Permissions.WarehouseScopeManage)) { <NavLink href="/admin/warehouses"><AppIcon Name="warehouse" /> <span>Phạm vi kho</span></NavLink> }
@@ -125,6 +124,10 @@
             <AuthorizeView Context="header">
                 <Authorized>
                     <div class="right-header">
+                        @if (Accounts.CanViewSystemLogs(header.User))
+                        {
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" title="Xem Lịch sử / Lưu vết toàn hệ thống (Cố định cho Main, Owner, Admin)" @onclick="() => showGlobalLogModal = true">📋 Xem log</button>
+                        }
                         <span class="environment-label"><span></span> Đang hoạt động</span>
                         <div class="header-divider"></div>
                         <div class="user-identity"><span class="avatar">@Initials(header.User.Identity?.Name)</span><div class="user-identity-text"><strong>@header.User.Identity?.Name</strong><small>@PrimaryRole(header.User)</small></div></div>
@@ -141,10 +144,16 @@
         </main>
     </div>
 </div>
+<SystemLogModal IsOpen="showGlobalLogModal"
+                OnClose="() => showGlobalLogModal = false"
+                Title="Nhật ký &amp; Lưu vết toàn hệ thống"
+                ShowImeiLedgerTab="true"
+                ShowAccessLogsTab="true" />
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthStateTask { get; set; }
     private bool mobileMenuOpen;
+    private bool showGlobalLogModal;
     private long availableStockCount;
     private long openOrderCount;
     private int due10Count;

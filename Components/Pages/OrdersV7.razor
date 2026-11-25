@@ -15,6 +15,12 @@
         <p>1. Nhận thông tin từ nhân viên bán hàng → 2. CSKH tạo đơn &amp; điều sản phẩm ở kho, chọn ĐV lắp đặt | Hãng lắp đặt (tick Không/Trừ tồn kho) → 3. ĐV lắp đặt gửi về Số IMEI &amp; thông tin phụ → 4. CSKH bổ sung Ngày kích hoạt IMEI &amp; Hoàn thành đơn (chỉ trừ tồn kho khi đơn thành công).</p>
     </div>
     <div class="button-group">
+        @if(canViewLog)
+        {
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">
+                📋 Xem log
+            </button>
+        }
         <button type="button" class="btn" data-confirm="none" @onclick="OpenCreateModal">
             + Tạo đơn lắp đặt
         </button>
@@ -1005,8 +1011,25 @@
     </div>
 }
 
+@if(canViewLog)
+{
+    <SystemLogModal IsOpen="showLogModal"
+                    OnClose="() => showLogModal = false"
+                    Title="Lịch sử &amp; Lưu vết — Đơn hàng &amp; Điều phối lắp đặt"
+                    ScopedTables="@orderLogTables"
+                    ScopedAuditEntities="@orderAuditEntities"
+                    InitialTable="@logInitialTable"
+                    InitialRecordId="@logInitialRecordId" />
+}
+
 @code {
     private sealed class LineReportInput { public string Imei { get; set; } = ""; public string PlateNo { get; set; } = ""; public string VinNo { get; set; } = ""; }
+    private static readonly string[] orderLogTables = ["v7_orders", "v7_order_lines", "v7_order_events", "v7_stock_effects"];
+    private static readonly string[] orderAuditEntities = ["V7_ORDER", "ORDER", "SALE_ORDER"];
+    private bool canViewLog, showLogModal;
+    private string? logInitialTable;
+    private long? logInitialRecordId;
+    private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
     private readonly PagerState draftPager = new();
     private readonly PagerState orderLinePager = new();
     private readonly PagerState orderPager = new();
@@ -1211,6 +1234,7 @@
         {
             isMainDev = false;
         }
+        canViewLog = await Gate.CanViewSystemLogsAsync();
         customers = Db.Customers();
         warehouses = Ops.AllWarehouses();
         installers = Catalog.Installers();
