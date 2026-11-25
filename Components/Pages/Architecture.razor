@@ -799,15 +799,15 @@
             DetailPermissionKeys: [Permissions.InventoryView, Permissions.InventoryReceive, Permissions.InventoryConsignOut, Permissions.InventoryConsignReturn, Permissions.InventoryTechOut, Permissions.InventoryTechReturn, Permissions.QuantityStockView, Permissions.QuantityMove, Permissions.WarehouseLocationManage],
             Tabs:
             [
-                new("Tab 1: Kho IMEI", "Nhập lô IMEI từ NCC (dán danh sách nhiều IMEI hoặc nhập theo số lượng), Xuất ký gửi đại lý, Giao kỹ thuật đi lắp, Thu hồi về kho, xem Bảng tổng hợp tồn theo SP và tra cứu từng mã IMEI."),
-                new("Tab 2: Kho số lượng", "Theo dõi tồn số lượng theo từng Kho/Vị trí, tạo vị trí lưu kho mới, lập phiếu Nhập/Xuất và Điều chuyển liên kho.")
+                new("Tab 1: Kho IMEI", "Nhập lô thiết bị IMEI từ NCC hoặc Hoàn trả (dán danh sách nhiều IMEI hoặc nhập theo số lượng khi chưa có mã IMEI, tự báo giá & cho phép chỉnh Đơn giá nhập theo lô), Xuất ký gửi đại lý, Giao kỹ thuật đi lắp, Thu hồi về kho và tra cứu từng mã IMEI."),
+                new("Tab 2: Kho số lượng", "Nhập/Xuất các mặt hàng không quản lý IMEI (chọn Nhà cung cấp / Hoàn trả, tự báo giá & cho phép chỉnh Đơn giá nhập / ĐVT theo lô), tạo vị trí lưu kho mới và Điều chuyển liên kho.")
             ],
             Steps:
             [
                 "Mở mục 'Kho' trên menu Kho & Thiết bị (quan sát ngay số Tồn kho khả dụng trên thanh điều hướng).",
-                "Để nhập lô IMEI mới: Chọn tab 'Kho IMEI' → bấm '+ Nhập IMEI' → chọn Sản phẩm, Kho nhận, Nhà cung cấp và dán danh sách mã IMEI → xác nhận nhập kho.",
+                "Để nhập lô IMEI mới: Chọn tab 'Kho IMEI' → bấm '+ Nhập IMEI' → chọn Nhà cung cấp (hoặc Thiết bị hoàn trả), Sản phẩm, Kho nhận, kiểm tra/điều chỉnh Đơn giá nhập và dán danh sách mã IMEI (hoặc nhập Số lượng nếu chưa có IMEI) → xác nhận nhập kho & ghi nhận công nợ NCC.",
                 "Để luân chuyển thiết bị: Bấm 'Điều chuyển IMEI' để xuất ký gửi khách hàng, giao kỹ thuật hoặc thu hồi về kho.",
-                "Để thao tác hàng số lượng: Chuyển sang tab 'Kho số lượng' → sử dụng '+ Nhập/xuất SL' hoặc 'Điều chuyển kho'."
+                "Để nhập/xuất hàng số lượng (19 mặt hàng không IMEI): Chuyển sang tab 'Kho số lượng' → bấm '+ Nhập/xuất SL' → chọn Nhà cung cấp, Sản phẩm, Kho/Vị trí, Số lượng và kiểm tra/điều chỉnh Đơn giá nhập → hệ thống cập nhật tồn kho và tự sinh chứng từ Công nợ NCC bên Kế toán."
             ],
             Notes:
             [

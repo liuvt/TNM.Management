@@ -97,8 +97,8 @@ else if (activeTab == "IMEI" && canImeiView)
         <div class="panel-head"><h2>Nhập kho thiết bị IMEI mới</h2></div>
         <div class="form-grid one">
           <label>Nhà cung cấp
-            <select @bind="supplierId">
-              <option value="0">— Tự động theo bảng giá NCC —</option>
+            <select @bind="supplierId" @bind:after="OnImeiSupplierOrProductChanged">
+              <option value="0">— Tự động theo bảng giá NCC@(string.IsNullOrWhiteSpace(imeiAutoSupplierName) ? "" : $" ({imeiAutoSupplierName})") —</option>
               @foreach (var s in suppliers)
               {
                 <option value="@s.Id">@s.Name</option>
@@ -106,7 +106,7 @@ else if (activeTab == "IMEI" && canImeiView)
             </select>
           </label>
           <label>Sản phẩm có IMEI
-            <select @bind="productId">
+            <select @bind="productId" @bind:after="OnImeiSupplierOrProductChanged">
               @foreach (var p in products.Where(x => x.IsSerialized))
               {
                 <option value="@p.Id">@p.Sku — @p.Name (Tồn hiện tại: @p.StockInHand)</option>
@@ -121,12 +121,20 @@ else if (activeTab == "IMEI" && canImeiView)
               }
             </select>
           </label>
+          <label>Đơn giá nhập / thiết bị (VND)
+            <input type="number" min="0" step="10000" @bind="imeiUnitCost" disabled="@IsSelectedReturnSupplier" />
+          </label>
           <label>Số lượng nhập (nếu chưa có sẵn mã IMEI từng thiết bị)
             <input type="number" min="1" max="500" @bind="receiveQty" />
           </label>
           <label>Danh sách IMEI (mỗi dòng một mã — tùy chọn, nếu để trống sẽ tạo theo Số lượng nhập)
             <textarea @bind="imeis" rows="5" placeholder="359111000000008&#10;359111000000009&#10;(Nếu để trống hệ thống sẽ nhập theo Số lượng nhập ở trên và cập nhật IMEI khi lắp đặt)"></textarea>
           </label>
+        </div>
+        <div class="panel-note" style="margin-top:8px">
+          @(IsSelectedReturnSupplier
+              ? "Nguồn hoàn trả: Hệ thống tăng tồn kho khả dụng, KHÔNG phát sinh công nợ Nhà cung cấp (0 ₫)."
+              : $"Dự kiến ghi nhận Công nợ Nhà cung cấp: {EffectiveImeiInputCount:N0} thiết bị × {imeiUnitCost:N0} ₫ = {(EffectiveImeiInputCount * imeiUnitCost):N0} ₫")
         </div>
         <div class="form-actions">
           <button class="btn" @onclick="Receive">@(IsSelectedReturnSupplier ? "+ Nhập kho thiết bị hoàn trả (Không tính công nợ NCC)" : "+ Nhập kho & Ghi nhận công nợ NCC")</button>
@@ -289,16 +297,28 @@ else if (activeTab == "QUANTITY" && canQtyView)
     @if (canQtyMove)
     {
       <section class="panel edit-panel" hidden="@(!showQtyMove)">
-        <div class="panel-head"><h2>Phiếu nhập / xuất số lượng</h2></div>
+        <div class="panel-head"><h2>Phiếu nhập / xuất kho số lượng</h2></div>
         <div class="form-grid one">
           <label>Hình thức
-            <select @bind="moveKind">
-              <option value="IN">Nhập kho</option>
-              <option value="OUT">Xuất kho</option>
+            <select @bind="moveKind" @bind:after="OnQtySupplierOrProductChanged">
+              <option value="IN">Nhập kho từ Nhà cung cấp / Hoàn trả</option>
+              <option value="OUT">Xuất kho sử dụng / Điều chỉnh giảm</option>
             </select>
           </label>
-          <label>Sản phẩm
-            <select @bind="qtyProductId">
+          @if (moveKind == "IN")
+          {
+            <label>Nhà cung cấp
+              <select @bind="qtySupplierId" @bind:after="OnQtySupplierOrProductChanged">
+                <option value="0">— Tự động theo bảng giá NCC@(string.IsNullOrWhiteSpace(qtyAutoSupplierName) ? "" : $" ({qtyAutoSupplierName})") —</option>
+                @foreach (var s in suppliers)
+                {
+                  <option value="@s.Id">@s.Name</option>
+                }
+              </select>
+            </label>
+          }
+          <label>Sản phẩm quản lý số lượng (không IMEI)
+            <select @bind="qtyProductId" @bind:after="OnQtySupplierOrProductChanged">
               @if (qtyProducts.Count == 0)
               {
                 <option value="0">— Chưa có sản phẩm quản lý số lượng (không IMEI) —</option>
@@ -330,10 +350,28 @@ else if (activeTab == "QUANTITY" && canQtyView)
             </select>
           </label>
           <label>Số lượng<input type="number" min="1" @bind="quantity" /></label>
-          <label>Ghi chú<input @bind="note" placeholder="Lý do / chứng từ" /></label>
+          @if (moveKind == "IN")
+          {
+            <label>Đơn giá nhập / ĐVT (VND)
+              <input type="number" min="0" step="1000" @bind="qtyUnitCost" disabled="@IsSelectedQtyReturnSupplier" />
+            </label>
+          }
+          <label>Ghi chú<input @bind="note" placeholder="Lý do / số chứng từ / ghi chú lô nhập..." /></label>
         </div>
+        @if (moveKind == "IN" && qtyProductId > 0)
+        {
+          <div class="panel-note" style="margin-top:8px">
+            @(IsSelectedQtyReturnSupplier
+                ? "Nguồn hoàn trả: Hệ thống tăng tồn kho số lượng, KHÔNG phát sinh công nợ Nhà cung cấp (0 ₫)."
+                : $"Dự kiến ghi nhận Công nợ Nhà cung cấp: {Math.Max(0, quantity):N0} × {qtyUnitCost:N0} ₫ = {(Math.Max(0, quantity) * qtyUnitCost):N0} ₫")
+          </div>
+        }
         <div class="form-actions">
-          <button class="btn" @onclick="SaveMovement">Ghi phiếu</button>
+          <button class="btn" @onclick="SaveMovement">
+            @(moveKind == "IN"
+                ? (IsSelectedQtyReturnSupplier ? "+ Nhập kho hoàn trả (0 ₫ công nợ)" : "+ Nhập kho & Ghi nhận công nợ NCC")
+                : "Xác nhận Xuất kho")
+          </button>
           <span class="feedback">@qtyMessage</span>
         </div>
       </section>
@@ -550,7 +588,8 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private List<CustomerVm> customers = [];
   private List<ProductStockSummaryVm> summaries = [];
   private List<(long Id, string Name)> warehouses = [], techs = [], suppliers = [];
-  private long productId = 1, warehouseId = 1, stockId = 3, targetId = 1, supplierId = 0, warehouseFilter = 0;
+  private long productId = 1, warehouseId = 1, stockId = 3, targetId = 1, supplierId = 0, warehouseFilter = 0, imeiUnitCost = 0;
+  private string imeiAutoSupplierName = "";
   private int receiveQty = 1;
   private string imeis = "", moveType = "CONSIGN_OUT", receiveMessage = "", moveMessage = "", search = "", statusFilter = "IN_STOCK";
   private bool canReceive, canMove, canLedger, canConsignOut, canConsignReturn, canTechOut, canTechReturn;
@@ -567,7 +606,8 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private List<LocationPick> locations = [];
   private List<QuantityBalance> balances = [];
   private List<QuantityEntry> movements = [];
-  private long qtyProductId, qtyWarehouseId, locationId, fromWarehouse, fromLocation, toWarehouse, toLocation, newLocationWarehouse;
+  private long qtyProductId, qtyWarehouseId, locationId, fromWarehouse, fromLocation, toWarehouse, toLocation, newLocationWarehouse, qtySupplierId = 0, qtyUnitCost = 0;
+  private string qtyAutoSupplierName = "";
   private long quantity = 1, transferQty = 1;
   private string note = "", qtyMessage = "", transferMessage = "", newLocationCode = "", newLocationName = "", locationMessage = "", qtySearch = "", qtyWarehouseFilter = "", moveSearch = "";
 
@@ -641,15 +681,20 @@ else if (activeTab == "QUANTITY" && canQtyView)
     else if (canQtyView)
       activeTab = "QUANTITY";
 
+    if (canImeiView || canQtyView)
+    {
+      suppliers = Db.Suppliers();
+    }
+
     if (canImeiView)
     {
       warehouses = Db.Warehouses();
       techs = Db.Technicians();
-      suppliers = Db.Suppliers();
       customers = Db.Customers();
       ReloadImei();
       if (products.Any(x => x.IsSerialized)) productId = products.First(x => x.IsSerialized).Id;
       if (warehouses.Count > 0) warehouseId = warehouses[0].Id;
+      OnImeiSupplierOrProductChanged();
       canReceive = await Gate.CanAsync(Permissions.InventoryReceive);
       canLedger = await Gate.CanAsync(Permissions.InventoryLedgerView) && await Gate.CanAsync(Permissions.ReportsView);
       canConsignOut = await Gate.CanAsync(Permissions.InventoryConsignOut);
@@ -708,6 +753,39 @@ else if (activeTab == "QUANTITY" && canQtyView)
     fromLocation = locationId;
     toLocation = locations.FirstOrDefault(l => l.WarehouseId == toWarehouse)?.Id ?? 0;
     newLocationWarehouse = qtyWarehouseId;
+    OnQtySupplierOrProductChanged();
+  }
+
+  private void OnImeiSupplierOrProductChanged()
+  {
+    var q = Db.QuoteSupplierProductCost(supplierId > 0 ? supplierId : null, productId);
+    imeiAutoSupplierName = q.ResolvedSupplierName;
+    imeiUnitCost = q.IsReturnSupplier ? 0 : q.UnitCostVnd;
+  }
+
+  private void OnQtySupplierOrProductChanged()
+  {
+    if (moveKind != "IN" || qtyProductId <= 0)
+    {
+      qtyAutoSupplierName = "";
+      qtyUnitCost = 0;
+      return;
+    }
+    var q = Db.QuoteSupplierProductCost(qtySupplierId > 0 ? qtySupplierId : null, qtyProductId);
+    qtyAutoSupplierName = q.ResolvedSupplierName;
+    qtyUnitCost = q.IsReturnSupplier ? 0 : q.UnitCostVnd;
+  }
+
+  private int EffectiveImeiInputCount
+  {
+    get
+    {
+      var lines = (imeis ?? "").Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+      return lines > 0 ? lines : Math.Max(1, receiveQty);
+    }
   }
 
   private long FirstLocation(long warehouse) => locations.FirstOrDefault(l => l.WarehouseId == warehouse)?.Id ?? 0;
@@ -722,19 +800,23 @@ else if (activeTab == "QUANTITY" && canQtyView)
   private bool IsSelectedReturnSupplier =>
     supplierId > 0 && suppliers.Any(s => s.Id == supplierId && s.Name.Contains("hoàn trả", StringComparison.OrdinalIgnoreCase));
 
+  private bool IsSelectedQtyReturnSupplier =>
+    (qtySupplierId > 0 && suppliers.Any(s => s.Id == qtySupplierId && s.Name.Contains("hoàn trả", StringComparison.OrdinalIgnoreCase)))
+    || (note ?? "").Contains("hoàn trả", StringComparison.OrdinalIgnoreCase);
+
   private async Task Receive()
   {
     try
     {
       Db.ActorId = await Gate.RequireAsync(Permissions.InventoryReceive);
       var isReturn = IsSelectedReturnSupplier;
-      var n = Db.Receive(productId, warehouseId, imeis, supplierId > 0 ? supplierId : null, receiveQty);
+      var n = Db.Receive(productId, warehouseId, imeis, supplierId > 0 ? supplierId : null, receiveQty, isReturn ? 0 : imeiUnitCost);
       ReloadImei();
       imeis = "";
       receiveQty = 1;
       receiveMessage = isReturn
         ? $"Đã nhập kho {n} thiết bị hoàn trả - đã kích hoạt (không phát sinh công nợ NCC)."
-        : $"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC.";
+        : $"Đã nhập kho {n} thiết bị & ghi nhận công nợ NCC ({(n * imeiUnitCost):N0} ₫).";
     }
     catch (Exception ex)
     {
@@ -772,13 +854,28 @@ else if (activeTab == "QUANTITY" && canQtyView)
       actor = await Gate.RequireAsync(Permissions.QuantityMove);
       var target = locations.FirstOrDefault(x => x.WarehouseId == qtyWarehouseId && x.Id == locationId)?.Id
         ?? locations.FirstOrDefault(x => x.WarehouseId == qtyWarehouseId)?.Id ?? 0;
-      Ops.MoveQuantity(actor, qtyProductId, qtyWarehouseId, target, quantity, moveKind == "IN", note);
+      var incoming = moveKind == "IN";
+      var isReturn = incoming && IsSelectedQtyReturnSupplier;
+      Ops.MoveQuantity(
+        actor,
+        qtyProductId,
+        qtyWarehouseId,
+        target,
+        quantity,
+        incoming,
+        note,
+        incoming && qtySupplierId > 0 ? qtySupplierId : null,
+        incoming ? (isReturn ? 0 : qtyUnitCost) : null);
       RefreshQty();
-      qtyMessage = "Đã ghi phiếu nhập/xuất.";
+      qtyMessage = incoming
+        ? (isReturn
+            ? $"Đã nhập kho hoàn trả +{quantity:N0} (không phát sinh công nợ NCC)."
+            : $"Đã nhập kho +{quantity:N0} & ghi nhận công nợ NCC ({(quantity * qtyUnitCost):N0} ₫).")
+        : $"Đã xuất kho -{quantity:N0}.";
     }
     catch (Exception e)
     {
-      qtyMessage = e.Message;
+      qtyMessage = "Lỗi: " + e.Message;
     }
   }
 

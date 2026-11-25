@@ -150,28 +150,40 @@ public sealed class V6Ops(IWebHostEnvironment environment)
             ", ("$p", product), ("$w", warehouse), ("$l", location), ("$d", delta), ("$t", type), ("$rt", refType), ("$rid", refId), ("$n", note), ("$u", user));
         Audit(c, user, "QTY_" + type, "PRODUCT", product, $"Kho {warehouse}, vị trí {location}, số lượng {delta}. {note}");
     }
-    public void MoveQuantity(long user, long product, long warehouse, long location, long qty, bool incoming, string note)
+    public void MoveQuantity(long user, long product, long warehouse, long location, long qty, bool incoming, string note, long? supplierId = null, long? unitCostOverride = null)
     {
         if (qty <= 0) throw new InvalidOperationException("Số lượng phải lớn hơn 0.");
+        if (unitCostOverride is < 0) throw new InvalidOperationException("Đơn giá nhập không được âm.");
         Transact(user, c => {
             RecordMovement(c, user, product, warehouse, location, incoming ? qty : -qty, incoming ? "RECEIVE" : "ISSUE", note);
             if (incoming)
             {
                 var isReturnNote = (note ?? "").Contains("hoàn trả", StringComparison.OrdinalIgnoreCase);
-                var unitCost = isReturnNote ? 0 : Scalar(c, @"SELECT COALESCE(
-                    (SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1),
-                    NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
-                    0)", ("$p", product));
-                var supId = isReturnNote ? 0 : Scalar(c, @"SELECT COALESCE(
-                    (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$p AND s.deleted_at IS NULL AND gp.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY gp.effective_from DESC, s.id LIMIT 1),
-                    (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id WHERE s.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY s.id LIMIT 1),
-                    0)", ("$p", product));
-                if (supId > 0 && unitCost * qty > 0)
+                var supId = supplierId is > 0
+                    ? supplierId.Value
+                    : (isReturnNote ? 0 : Scalar(c, @"SELECT COALESCE(
+                        (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id WHERE gp.product_id=$p AND s.deleted_at IS NULL AND gp.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY gp.effective_from DESC, s.id LIMIT 1),
+                        (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id WHERE s.deleted_at IS NULL AND UPPER(COALESCE(sg.code,''))<>'HOANTRA' AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%' AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%' ORDER BY s.id LIMIT 1),
+                        0)", ("$p", product)));
+                var isReturnSup = isReturnNote || (supId > 0 && Scalar(c, @"
+                    SELECT COUNT(*) FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                    WHERE s.id=$sup AND (UPPER(COALESCE(sg.code,''))='HOANTRA' OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%' OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
+                    ("$sup", supId)) > 0);
+                var unitCost = isReturnSup
+                    ? 0
+                    : (unitCostOverride is >= 0
+                        ? unitCostOverride.Value
+                        : Scalar(c, @"SELECT COALESCE(
+                            NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp JOIN suppliers s ON s.group_id=gp.supplier_group_id WHERE s.id=$sup AND gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                            NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp WHERE gp.product_id=$p AND gp.deleted_at IS NULL AND gp.effective_from<=date('now') ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1), 0),
+                            NULLIF((SELECT base_cost_vnd FROM products WHERE id=$p), 0),
+                            0)", ("$sup", supId), ("$p", product)));
+                if (!isReturnSup && supId > 0 && unitCost * qty > 0)
                 {
                     var prodLabel = Read(c, "SELECT sku||' · '||name FROM products WHERE id=$p", r => Text(r, 0), ("$p", product)).FirstOrDefault() ?? $"SP #{product}";
                     var invNo = "NK-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                     var totalCost = unitCost * qty;
-                    var invNote = string.IsNullOrWhiteSpace(note) ? $"Nhập kho số lượng ({qty} × {prodLabel})" : $"Nhập kho số lượng: {prodLabel} ({note})";
+                    var invNote = string.IsNullOrWhiteSpace(note) ? $"Nhập kho số lượng ({qty} × {prodLabel})" : $"Nhập kho số lượng ({qty} × {prodLabel}): {note}";
                     Execute(c, @"INSERT INTO invoices(invoice_no,invoice_type,supplier_id,issued_at,due_at,amount_vnd,notes)
                         VALUES($no,'PURCHASE',$sup,datetime('now','+7 hours'),date('now','+7 hours','+30 days'),$amt,$note)",
                         ("$no", invNo), ("$sup", supId), ("$amt", totalCost), ("$note", invNote));

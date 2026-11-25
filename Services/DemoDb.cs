@@ -889,7 +889,53 @@ public sealed class DemoDb
           r => new StockVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5),S(r,6),L(r,7),r.IsDBNull(8) ? null : L(r,8)));
     }
 
-    public int Receive(long productId, long warehouseId, string multiline, long? supplierId = null, int quantityIfNoImei = 0)
+    public (long ResolvedSupplierId, string ResolvedSupplierName, bool IsReturnSupplier, long UnitCostVnd) QuoteSupplierProductCost(long? supplierId, long productId)
+    {
+        if (productId <= 0) return (0, "", false, 0);
+        using var c = Open();
+        var resolvedSup = supplierId is > 0
+            ? supplierId.Value
+            : N(c, null, @"SELECT COALESCE(
+                (SELECT s.id FROM suppliers s
+                 LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                 JOIN v7_supplier_group_prices gp ON gp.supplier_group_id=s.group_id
+                 WHERE gp.product_id=$id AND s.deleted_at IS NULL AND gp.deleted_at IS NULL
+                   AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
+                   AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                   AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
+                 ORDER BY gp.effective_from DESC,s.id LIMIT 1),
+                (SELECT s.id FROM suppliers s LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+                 WHERE s.deleted_at IS NULL
+                   AND UPPER(COALESCE(sg.code,''))<>'HOANTRA'
+                   AND LOWER(COALESCE(s.name,'')) NOT LIKE '%hoàn trả%'
+                   AND LOWER(COALESCE(sg.name,'')) NOT LIKE '%hoàn trả%'
+                 ORDER BY s.id LIMIT 1),
+                0)", ("$id", productId));
+        var supName = resolvedSup > 0
+            ? (Query(c, "SELECT name FROM suppliers WHERE id=$s", r => S(r, 0), ("$s", resolvedSup)).FirstOrDefault() ?? "")
+            : "";
+        var isReturnSup = resolvedSup > 0 && N(c, null, @"
+            SELECT COUNT(*) FROM suppliers s
+            LEFT JOIN supplier_groups sg ON sg.id=s.group_id
+            WHERE s.id=$sup
+              AND (UPPER(COALESCE(sg.code,''))='HOANTRA'
+                   OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
+                   OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
+            ("$sup", resolvedSup)) > 0;
+        var cost = isReturnSup ? 0 : N(c, null, @"SELECT COALESCE(
+            NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp
+                    JOIN suppliers s ON s.group_id=gp.supplier_group_id
+                    WHERE s.id=$sup AND gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+            NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp
+                    WHERE gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
+                    ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
+            NULLIF((SELECT base_cost_vnd FROM products WHERE id=$id), 0),
+            0)", ("$sup", resolvedSup), ("$id", productId));
+        return (resolvedSup, supName, isReturnSup, cost);
+    }
+
+    public int Receive(long productId, long warehouseId, string multiline, long? supplierId = null, int quantityIfNoImei = 0, long? unitCostOverride = null)
     {
         var codes = (multiline ?? "").Replace("\r","").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
            .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -932,7 +978,11 @@ public sealed class DemoDb
                        OR LOWER(COALESCE(s.name,'')) LIKE '%hoàn trả%'
                        OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
                 ("$sup", resolvedSup)) > 0;
-            var cost = isReturnSup ? 0 : N(c,t,@"SELECT COALESCE(
+            var cost = isReturnSup
+                ? 0
+                : (unitCostOverride is >= 0
+                    ? unitCostOverride.Value
+                    : N(c,t,@"SELECT COALESCE(
                 NULLIF((SELECT gp.unit_cost_vnd FROM v7_supplier_group_prices gp
                         JOIN suppliers s ON s.group_id=gp.supplier_group_id
                         WHERE s.id=$sup AND gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
@@ -941,7 +991,7 @@ public sealed class DemoDb
                         WHERE gp.product_id=$id AND gp.deleted_at IS NULL AND gp.effective_from<=date('now')
                         ORDER BY gp.effective_from DESC,gp.id DESC LIMIT 1), 0),
                 NULLIF((SELECT base_cost_vnd FROM products WHERE id=$id), 0),
-                0)",("$sup",resolvedSup),("$id",productId));
+                0)",("$sup",resolvedSup),("$id",productId)));
             var prodName = QueryTx(c,t,"SELECT sku||' · '||name FROM products WHERE id=$id", r => S(r,0), ("$id",productId)).FirstOrDefault() ?? $"SP #{productId}";
             var code = "NK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
             Exec(c,t,"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,actor_user_id,notes) VALUES($n,'RECEIVE',$w,$actor,$note)",

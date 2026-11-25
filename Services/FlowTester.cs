@@ -253,14 +253,16 @@ public static class FlowTester
             // =========================================================================
             // 4. KHO SỐ LƯỢNG, ĐIỀU CHUYỂN LIÊN KHO & KIỂM KÊ TỒN KHO
             // =========================================================================
-            Step("4. Kho Số lượng", "Nhập kho số lượng trực tiếp -> Kiểm tra tăng tồn sổ cái & sinh Công nợ NCC", () =>
+            Step("4. Kho Số lượng", "Nhập kho số lượng trực tiếp (chọn NCC & đơn giá lô) -> Kiểm tra tăng tồn & Công nợ NCC", () =>
             {
-                ops.MoveQuantity(ownerId, qtyProdId, wh1Id, loc1Id, 50, incoming: true, "Nhập lô thẻ nhớ đợt 1");
+                var quoted = db.QuoteSupplierProductCost(supplierId, qtyProdId);
+                Assert(quoted.UnitCostVnd == 150_000, $"QuoteSupplierProductCost phải trả về 150.000 ₫ (thực tế: {quoted.UnitCostVnd})");
+                ops.MoveQuantity(ownerId, qtyProdId, wh1Id, loc1Id, 50, incoming: true, "Nhập lô thẻ nhớ đợt 1", supplierId, 150_000);
                 var bal = ops.Balances(ownerId).First(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Quantity;
                 Assert(bal == 50, $"Tồn kho sau khi nhập kho số lượng phải bằng 50, thực tế = {bal}");
                 Assert(db.Invoices().Any(i => i.Type == "PURCHASE" && i.Total == 7_500_000),
                     "Sau khi nhập kho số lượng phải tự động sinh hóa đơn Công nợ Nhà cung cấp (PURCHASE) 7.500.000 ₫.");
-                return $"Đã nhập kho số lượng · Tồn kho DX00002 = {bal} · Tự động sinh công nợ NCC 7.500.000 ₫.";
+                return $"Đã nhập kho số lượng gắn NCC #{supplierId} · Tồn kho DX00002 = {bal} · Tự động sinh công nợ NCC 7.500.000 ₫.";
             });
 
             Step("4. Kho Số lượng", "Xuất kho, Điều chuyển liên kho & Chặn xuất âm tồn", () =>
