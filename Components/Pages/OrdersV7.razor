@@ -411,7 +411,7 @@
                     <th>STT</th>
                     <th>Mã đơn</th>
                     <th>Đơn vị (HTX/ĐL) &amp; Khách lắp</th>
-                    <th>Nhân viên bán hàng</th>
+                    <th class="col-detail-only">Nhân viên bán hàng</th>
                     <th>SL &amp; Thời hạn</th>
                     <th class="col-detail-only">Chi tiết mặt hàng &amp; Danh sách IMEI</th>
                     <th>Giá bán</th>
@@ -453,7 +453,7 @@
                             }
                             <small>SĐT: @(string.IsNullOrWhiteSpace(o.CustomerPhone) ? "—" : o.CustomerPhone)</small>
                         </td>
-                        <td>
+                        <td class="col-detail-only">
                             @if(!string.IsNullOrWhiteSpace(o.SaleSource))
                             {
                                 <span class="chip blue-chip">@o.SaleSource</span>
@@ -660,6 +660,10 @@
                         <span>Điều chỉnh &amp; Xử lý đơn hàng: @SelectedOrder.Code</span>
                         <span class="chip @(SelectedOrder.Status == "COMPLETED" ? (SelectedOrder.HasMissingImei ? "orange-chip" : "green-chip") : SelectedOrder.Status == "CANCELLED" ? "orange-chip" : "blue-chip")">@SelectedOrder.StatusDisplay</span>
                         <span class="chip">@SelectedOrder.CustomerB2BDisplay</span>
+                        @if(!string.IsNullOrWhiteSpace(SelectedOrder.SaleSource))
+                        {
+                            <span class="chip blue-chip">NV bán hàng: @SelectedOrder.SaleSource</span>
+                        }
                     </h2>
                     <p>Cập nhật thông tin từ ĐV lắp đặt, điều phối kho / ĐV lắp đặt, nhập Số IMEI &amp; thông tin phụ, chọn Ngày kích hoạt IMEI và xác nhận Hoàn thành đơn (cho phép hoàn thành đơn trừ tồn kho trước, bổ sung IMEI sau).</p>
                 </div>

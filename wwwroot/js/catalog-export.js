@@ -1049,8 +1049,8 @@ window.tnmOpenDateTimePicker = function (inputId) {
 
             const { html, plainText } = sanitizeCellForDetail(td);
             const label = hMeta.label || `Trường ${fields.length + 1}`;
-            const isDetailOnlyCell = !!hMeta.isDetailOnly || td.classList.contains('col-detail-only');
-            const isLong = isDetailOnlyCell
+            const hasSubTable = !!td.querySelector('table');
+            const isLong = hasSubTable
                 || plainText.length > 68
                 || (plainText.match(/\n/g) || []).length >= 2
                 || /(ghi chú|nội dung|diễn giải|chi tiết|địa chỉ|luồng kế toán|mô tả|danh sách|lịch sử|sản phẩm|định mức)/i.test(label);
