@@ -2,15 +2,29 @@
 @page "/devices"
 @inject DemoDb Db
 @inject PermissionGate Gate
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 <PageTitle>Thiết bị · TNM</PageTitle>
-<div class="page-head"><div><div class="eyebrow">KHO &amp; THIẾT BỊ / QUẢN LÝ THIẾT BỊ &amp; GIA HẠN</div><h1>Thiết bị đang hoạt động</h1><p>Theo dõi IMEI, biển số, ngày kích hoạt và thời hạn sử dụng thiết bị.</p></div>
-@if(canViewLog){<div class="button-group"><button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button></div>}
+<div class="page-head">
+    <div>
+        <div class="eyebrow">KHO &amp; THIẾT BỊ / QUẢN LÝ HỒ SƠ PHƯƠNG TIỆN &amp; THIẾT BỊ</div>
+        <h1>Thiết bị</h1>
+        <p>Khai báo hồ sơ xe / thiết bị từ đầu (kể cả trước khi có đơn lắp đặt), theo dõi trạng thái đơn hàng, lịch sử các đợt gia hạn và cảnh báo hết hạn.</p>
+    </div>
+    <div class="button-group">
+        @if(canViewLog)
+        {
+            <button type="button" class="btn secondary" data-confirm="none" @onclick="OpenModuleLog">📋 Xem log</button>
+        }
+        <button type="button" class="btn" data-confirm="none" @onclick='() => Nav.NavigateTo("/sales-orders?create=RENEWAL")'>
+            🔄 Lập Đơn gia hạn
+        </button>
+    </div>
 </div>
 <div class="crud-actionbar">
-    @if(canRenew){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showRenew))">@(showRenew?"Đóng · + Gia hạn":"+ Gia hạn")</button>}
-    @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Cập nhật Thời gian gia hạn & Ngày KH":"Cập nhật Thời gian gia hạn & Ngày kích hoạt")</button>}
-    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showCreateDevice?"":"secondary")" @onclick="()=>ToggleForm(nameof(showCreateDevice))">@(showCreateDevice?"Đóng · + Thêm thiết bị":"+ Thêm thiết bị")</button>}
+    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showCreateDevice?"":"secondary")" @onclick="()=>ToggleForm(nameof(showCreateDevice))">@(showCreateDevice?"Đóng · + Thêm thiết bị":"+ Thêm thiết bị / Khai báo xe")</button>}
+    @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Sửa thông tin thiết bị":"Sửa thông tin thiết bị")</button>}
+    <button type="button" class="btn secondary" data-confirm="none" @onclick='() => Nav.NavigateTo("/sales-orders?create=INSTALL")'>+ Tạo đơn lắp đặt mới</button>
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
 </div>
 
@@ -18,12 +32,18 @@
 <div class="panel edit-panel" hidden="@(!showCreateDevice)">
     <div class="panel-head">
         <div>
-            <h2>+ Thêm thiết bị mới (Nhập tay &amp; Chọn từ danh mục có sẵn)</h2>
-            <p>Chọn <strong>Đại lý / Khách hàng</strong>, <strong>Sản phẩm thiết bị</strong>, <strong>Nhân viên bán hàng</strong> hoặc <strong>Khách hàng / Chủ xe</strong> có sẵn trong hệ thống và nhập thông tin kích hoạt thiết bị.</p>
+            <h2>+ Khai báo Xe / Thiết bị (Hỗ trợ tạo sẵn trước khi có Đơn lắp đặt)</h2>
+            <p>Chọn <strong>HTX / Đại lý / Khách lẻ</strong> từ danh mục Khách hàng, nhập <strong>Biển số | Số khung | Chủ xe</strong>. Nếu xe chưa đi lắp đặt, chọn chế độ <strong>Khai báo sẵn chờ lắp đặt</strong> (chưa cần mã IMEI).</p>
         </div>
     </div>
     <div class="form-grid">
-        <label>Đại lý / Hợp tác xã / Khách hàng *
+        <label>Chế độ khai báo *
+            <select @bind="createDeviceMode">
+                <option value="PRE_DECLARE">🆕 Khai báo sẵn xe chờ lắp đặt (Chưa gắn IMEI — Tạo đơn lắp sau)</option>
+                <option value="ACTIVATED">✅ Thiết bị đã lắp đặt / Đang hoạt động (Đã có mã IMEI)</option>
+            </select>
+        </label>
+        <label>Thuộc HTX / Đại lý / Khách lẻ (Chọn từ Khách hàng) *
             <select @bind="createCustomerId" @bind:after="OnCreateCustomerChanged">
                 @foreach(var cu in customers)
                 {
@@ -31,44 +51,13 @@
                 }
             </select>
         </label>
-        <label>Sản phẩm / Dòng thiết bị *
-            <select @bind="createProductId" @bind:after="OnCreateProductChanged">
-                @foreach(var pr in hardwareProducts)
-                {
-                    <option value="@pr.Id">@pr.Sku — @pr.Name @(pr.StockInHand > 0 ? $"[Tồn kho: {pr.StockInHand:N0}]" : "")</option>
-                }
-            </select>
+        <label>Biển số xe @(createDeviceMode == "PRE_DECLARE" ? "*" : "")
+            <input @bind="createPlate" placeholder="VD: 51H-123.45..." />
         </label>
-        <label>Tên / Nhãn thiết bị hiển thị *
-            <select @bind="createDeviceTypeLabel">
-                @foreach(var lbl in AvailableDeviceTypeLabels)
-                {
-                    <option value="@lbl">@lbl</option>
-                }
-            </select>
+        <label>Số khung (VIN)
+            <input @bind="createVin" placeholder="Nhập số khung phương tiện (nếu có)..." />
         </label>
-        <label>Chọn nhanh IMEI từ Tồn kho khả dụng (tùy chọn)
-            <select @bind="pickedStockImei" @bind:after="OnPickStockImei">
-                <option value="">— Nhập tay mã IMEI bên cạnh @(availStockImeis.Count > 0 ? $"(hoặc chọn trong {availStockImeis.Count} IMEI tồn kho)" : "(không có IMEI tồn kho SP này)") —</option>
-                @foreach(var st in availStockImeis)
-                {
-                    <option value="@st.Imei">@st.Imei (@st.WarehouseName)</option>
-                }
-            </select>
-        </label>
-        <label>Số IMEI thiết bị *
-            <input @bind="createImei" list="create-avail-imeis" placeholder="Nhập mã IMEI thiết bị (VD: 0958C6245X)..." />
-            <datalist id="create-avail-imeis">
-                @foreach(var st in availStockImeis)
-                {
-                    <option value="@st.Imei">@st.WarehouseName</option>
-                }
-            </datalist>
-        </label>
-        <label>Biển số xe / Số khung
-            <input @bind="createPlate" placeholder="VD: 51H-123.45 hoặc số khung..." />
-        </label>
-        <label>Chọn nhanh Khách hàng / Chủ xe có sẵn (thuộc Đại lý)
+        <label>Chọn nhanh Khách hàng / Chủ xe có sẵn (thuộc HTX / Đại lý)
             <select @bind="pickedAgencyOwnerKey" @bind:after="OnPickAgencyOwner">
                 <option value="">— Nhập chủ xe mới hoặc chọn từ danh sách có sẵn (@agencyOwners.Count) —</option>
                 @foreach(var ow in agencyOwners)
@@ -89,6 +78,22 @@
         <label>Số điện thoại khách hàng / Chủ xe
             <input @bind="createOwnerPhone" placeholder="VD: 0909123456..." />
         </label>
+        <label>Sản phẩm / Dòng thiết bị @(createDeviceMode == "PRE_DECLARE" ? "(Dự kiến lắp)" : "*")
+            <select @bind="createProductId" @bind:after="OnCreateProductChanged">
+                @foreach(var pr in hardwareProducts)
+                {
+                    <option value="@pr.Id">@pr.Sku — @pr.Name @(pr.StockInHand > 0 ? $"[Tồn kho: {pr.StockInHand:N0}]" : "")</option>
+                }
+            </select>
+        </label>
+        <label>Tên / Nhãn thiết bị hiển thị *
+            <select @bind="createDeviceTypeLabel">
+                @foreach(var lbl in AvailableDeviceTypeLabels)
+                {
+                    <option value="@lbl">@lbl</option>
+                }
+            </select>
+        </label>
         <label>Nhân viên bán hàng phụ trách
             <select @bind="createSellerId">
                 <option value="0">— Chưa gán / Theo mặc định Đại lý —</option>
@@ -97,6 +102,26 @@
                     <option value="@sl.Id">@sl.Code — @sl.Name @(string.IsNullOrWhiteSpace(sl.Department) ? "" : $"({sl.Department})")</option>
                 }
             </select>
+        </label>
+        @if(createDeviceMode != "PRE_DECLARE")
+        {
+        <label>Chọn nhanh IMEI từ Tồn kho khả dụng (tùy chọn)
+            <select @bind="pickedStockImei" @bind:after="OnPickStockImei">
+                <option value="">— Nhập tay mã IMEI bên cạnh @(availStockImeis.Count > 0 ? $"(hoặc chọn trong {availStockImeis.Count} IMEI tồn kho)" : "(không có IMEI tồn kho SP này)") —</option>
+                @foreach(var st in availStockImeis)
+                {
+                    <option value="@st.Imei">@st.Imei (@st.WarehouseName)</option>
+                }
+            </select>
+        </label>
+        <label>Số IMEI thiết bị *
+            <input @bind="createImei" list="create-avail-imeis" placeholder="Nhập mã IMEI thiết bị (VD: 0958C6245X)..." />
+            <datalist id="create-avail-imeis">
+                @foreach(var st in availStockImeis)
+                {
+                    <option value="@st.Imei">@st.WarehouseName</option>
+                }
+            </datalist>
         </label>
         <label>Ngày kích hoạt *
             <input type="date" @bind="createActivatedDate" @bind:after="OnCreateActivatedOrDurationChanged" />
@@ -118,13 +143,14 @@
                 <option value="DISABLED">Tạm khóa thiết bị</option>
             </select>
         </label>
-        <label>Giá gia hạn áp dụng theo Nhóm KH (12 tháng)
+        }
+        <label>Giá gia hạn chuẩn 12 tháng (theo Nhóm KH)
             <input readonly value="@($"{createPreviewRenewalVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
         </label>
     </div>
     <div class="form-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button type="button" class="btn" data-confirm="add" data-confirm-title="Xác nhận Thêm thiết bị mới" data-confirm-msg="@($"Bạn có chắc chắn muốn thêm thiết bị IMEI {(string.IsNullOrWhiteSpace(createImei) ? "—" : createImei.Trim())} ({createDeviceTypeLabel}) vào danh sách quản lý không?")" @onclick="SaveNewManualDevice">
-            + Lưu thêm thiết bị
+        <button type="button" class="btn" data-confirm="add" data-confirm-title="Xác nhận Lưu hồ sơ Thiết bị / Xe" data-confirm-msg="@(createDeviceMode == "PRE_DECLARE" ? $"Bạn có chắc chắn muốn khai báo sẵn xe {(string.IsNullOrWhiteSpace(createPlate) ? createOwnerName : createPlate)} chờ lên Đơn lắp đặt không?" : $"Bạn có chắc chắn muốn thêm thiết bị IMEI {(string.IsNullOrWhiteSpace(createImei) ? "—" : createImei.Trim())} ({createDeviceTypeLabel}) vào danh sách quản lý không?")" @onclick="SaveNewManualDevice">
+            @(createDeviceMode == "PRE_DECLARE" ? "+ Lưu khai báo xe (Chờ tạo Đơn lắp đặt)" : "+ Lưu thêm thiết bị")
         </button>
         @if (!string.IsNullOrWhiteSpace(createMessage))
         {
@@ -133,108 +159,6 @@
     </div>
 </div>
 }
-
-@if(canRenew){
-    var selectedRenewDevice = devices.FirstOrDefault(x => x.ActivationId == activationId);
-    var selectedRenewDeviceName = selectedRenewDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedRenewDevice.DeviceTypeLabel) ? selectedRenewDevice.Sku : selectedRenewDevice.DeviceTypeLabel);
-    var selectedRenewTargetCust = customers.FirstOrDefault(c => c.Id == renewCustomerId);
-    var isChangingCustomerOnRenew = canTransferOnRenew && selectedRenewDevice is not null && renewCustomerId > 0 && renewCustomerId != selectedRenewDevice.CustomerId;
-    <div class="panel edit-panel" hidden="@(!showRenew)">
-        <div class="panel-head">
-            <div>
-                <h2>Gia hạn thiết bị</h2>
-                <p>Chọn thiết bị IMEI và nhân viên bán hàng phụ trách gia hạn để thống kê cuối kỳ và tính hoa hồng.@(canTransferOnRenew ? " Có thể chọn chuyển thiết bị sang Đại lý / HTX / Khách hàng khác ngay trong kỳ gia hạn mới." : "")</p>
-            </div>
-        </div>
-<div class="form-grid">
-<label>Thiết bị / biển số *
-    <select @bind="activationId" @bind:after="OnRenewDeviceSelected">
-        @foreach(var x in devices)
-        {
-            var devLabel = string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel;
-            var lockHint = IsLocked(x) ? " · [Đang khóa — Tự mở khóa khi GH]" : "";
-            <option value="@x.ActivationId">@x.Imei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hết hạn: @x.ExpiresAt@lockHint</option>
-        }
-    </select>
-</label>
-<label>Tên thiết bị (Mã sản phẩm)
-    <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDeviceName} ({selectedRenewDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
-</label>
-@if(canTransferOnRenew)
-{
-<label>Đại lý / HTX / Khách hàng nhận gia hạn (Chuyển đơn vị nếu đổi) *
-    <select @bind="renewCustomerId" @bind:after="OnRenewCustomerChanged">
-        @foreach(var cu in customers)
-        {
-            <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName @(string.IsNullOrWhiteSpace(cu.Group) || cu.Group == "-" ? "" : $"[{cu.Group}]")</option>
-        }
-    </select>
-</label>
-}
-else
-{
-<label>Đại lý / HTX / Khách hàng hiện tại
-    <input readonly value="@(selectedRenewDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedRenewDevice.AgencyName) ? selectedRenewDevice.Customer : selectedRenewDevice.AgencyName))" style="background:#f1f5f9" />
-</label>
-}
-<label>Giá gia hạn áp dụng (12 tháng)
-    <input readonly value="@(selectedRenewDevice is null ? "—" : $"{renewPreviewPriceVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
-</label>
-@if(canTransferOnRenew)
-{
-<label>Biển số xe (cập nhật nếu sang tên / đổi biển)
-    <input @bind="renewPlate" placeholder="VD: 51H-123.45..." />
-</label>
-<label>Tên khách hàng / Chủ xe sử dụng
-    <input @bind="renewOwnerName" placeholder="Tên chủ xe / khách sử dụng..." />
-</label>
-<label>SĐT khách hàng / Chủ xe
-    <input @bind="renewOwnerPhone" placeholder="VD: 0909123456..." />
-</label>
-}
-<label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
-    <select @bind="renewSellerId">
-        <option value="0">— Chọn nhân viên bán hàng phụ trách gia hạn —</option>
-        @foreach(var sl in sellerChoices)
-        {
-            <option value="@sl.Id">@sl.Code — @sl.Name @(string.IsNullOrWhiteSpace(sl.Department) ? "" : $"({sl.Department})") [HH gia hạn: @sl.RenewalCommissionVnd.ToString("N0") ₫]</option>
-        }
-    </select>
-</label>
-<label>Nguồn gia hạn
-    <select @bind="source">
-        <option value="TNM">Trường Nhật Minh</option>
-        <option value="NCC">Nhà cung cấp</option>
-        <option value="HTX">Hợp tác xã / Đại lý</option>
-        <option value="B2C">Khách lẻ trực tiếp</option>
-    </select>
-</label>
-<label>Thanh toán
-    <select @bind="method">
-        <option value="DEBT">Ghi công nợ</option>
-        <option value="CASH">Thanh toán ngay</option>
-    </select>
-</label>
-</div>
-@if(isChangingCustomerOnRenew && selectedRenewDevice is not null)
-{
-    <div class="panel-note" style="margin-top:10px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a;font-weight:600">
-        🔄 Chuyển đơn vị &amp; Gia hạn mới: Thiết bị <strong>@selectedRenewDevice.Imei</strong> sẽ chuyển từ <strong>[@selectedRenewDevice.Customer]</strong> sang <strong>[@(selectedRenewTargetCust?.Name ?? "Đơn vị mới")]</strong>, áp dụng mức giá nhóm KH mới (<strong>@renewPreviewPriceVnd.ToString("N0") ₫</strong>) và ghi nhận hóa đơn gia hạn mới cho đơn vị mới (giữ nguyên toàn bộ công nợ &amp; lịch sử gia hạn cũ tại [@selectedRenewDevice.Customer]).
-    </div>
-}
-<div class="form-actions">
-    <button class="btn"
-            data-confirm="add"
-            data-confirm-title="@(isChangingCustomerOnRenew ? "Xác nhận Chuyển đơn vị & Gia hạn 12 tháng" : "Xác nhận Gia hạn thiết bị 12 tháng")"
-            data-confirm-msg="@(isChangingCustomerOnRenew && selectedRenewDevice is not null
-                ? $"Bạn có chắc chắn muốn chuyển thiết bị {selectedRenewDevice.Imei} ({selectedRenewDeviceName}) từ [{selectedRenewDevice.Customer}] sang [{(selectedRenewTargetCust?.Name ?? "Đơn vị mới")}] và gia hạn 12 tháng với mức giá {renewPreviewPriceVnd:N0} ₫ không?"
-                : $"Bạn có chắc chắn muốn gia hạn 12 tháng cho thiết bị {(selectedRenewDevice is null ? "" : $"{selectedRenewDevice.Imei} ({selectedRenewDeviceName})")} ({renewPreviewPriceVnd:N0} ₫) và đồng bộ doanh thu sang Kế toán không?")"
-            @onclick="Renew">
-        @(isChangingCustomerOnRenew ? "🔄 Chuyển đơn vị & + Gia hạn 12 tháng" : "+ Gia hạn 12 tháng")
-    </button>
-    <span class="feedback">@message</span>
-</div>
-</div>}
 
 @if(canRenew || canUpdateDevice){
     var selectedEditDevice = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
@@ -245,10 +169,10 @@ else
 <div class="form-grid">
 <label>Chọn thiết bị IMEI
     <select @bind="editActivationId" @bind:after="OnEditDeviceSelected">
-        @foreach(var x in devices)
+        @foreach(var x in devices.Where(d => !d.IsPreDeclared))
         {
             var devLabel = string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel;
-            <option value="@x.ActivationId">@x.Imei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hạn: @x.ExpiresAt</option>
+            <option value="@x.ActivationId">@x.DisplayImei — [@devLabel] · @x.Customer @(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") · Hạn: @x.ExpiresAt</option>
         }
     </select>
 </label>
@@ -332,20 +256,22 @@ else
 @{
     var searchedDevices = devices.Where(MatchSearch).ToList();
     var countAll = searchedDevices.Count;
-    var countActive = searchedDevices.Count(x => !IsLocked(x) && DaysToExpiry(x) >= 0);
-    var countDue10 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !IsLocked(x) && d >= 0 && d <= 10; });
-    var countDue30 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !IsLocked(x) && d >= 0 && d <= 30; });
-    var countDue60 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !IsLocked(x) && d >= 0 && d <= 60; });
-    var countOverdue = searchedDevices.Count(x => DaysToExpiry(x) < 0);
+    var countPreDeclared = searchedDevices.Count(x => x.IsPreDeclared);
+    var countActive = searchedDevices.Count(x => !x.IsPreDeclared && !IsLocked(x) && DaysToExpiry(x) >= 0);
+    var countDue10 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !x.IsPreDeclared && !IsLocked(x) && d >= 0 && d <= 10; });
+    var countDue30 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !x.IsPreDeclared && !IsLocked(x) && d >= 0 && d <= 30; });
+    var countDue60 = searchedDevices.Count(x => { var d = DaysToExpiry(x); return !x.IsPreDeclared && !IsLocked(x) && d >= 0 && d <= 60; });
+    var countOverdue = searchedDevices.Count(x => !x.IsPreDeclared && DaysToExpiry(x) < 0);
     var countLocked = searchedDevices.Count(IsLocked);
     var pagedDevices = devicePager.Slice(searchedDevices.Where(MatchFilter), out var totalDevices);
 }
 
-<section class="panel"><div class="panel-head"><div><h2>Danh sách kích hoạt</h2><p>Đặt hạn thực tế sau cùng, không ghi đè lịch sử gia hạn.</p></div>
+<section class="panel"><div class="panel-head"><div><h2>Danh sách Thiết bị &amp; Phương tiện</h2><p>Theo dõi hồ sơ xe, liên kết Đơn lắp đặt, số lần &amp; mốc thời gian Đơn gia hạn và cảnh báo hết hạn.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-<input class="search-input" @bind="search" @bind:event="oninput" @bind:after="() => devicePager.Reset()" placeholder="Tìm IMEI, biển số, KH, NV bán hàng..." />
+<input class="search-input" @bind="search" @bind:event="oninput" @bind:after="() => devicePager.Reset()" placeholder="Tìm Biển số, Số khung, IMEI, HTX/KH, Chủ xe..." />
 <div class="tabs">
 <button class="@(filter=="ALL"?"selected":"")" @onclick='() => SetFilter("ALL")'>Tất cả (@countAll)</button>
+@if(countPreDeclared > 0 || filter == "PRE_DECLARE"){<button class="@(filter=="PRE_DECLARE"?"selected":"")" @onclick='() => SetFilter("PRE_DECLARE")'>Chờ lắp (@countPreDeclared)</button>}
 @if(canActive){<button class="@(filter=="ACTIVE"?"selected":"")" @onclick='() => SetFilter("ACTIVE")'>Còn hạn (@countActive)</button>}
 @if(canDue10){<button class="@(filter=="DUE10"?"selected":"")" @onclick='() => SetFilter("DUE10")'>D+10 (@countDue10)</button>}
 @if(canDue30){<button class="@(filter=="DUE30"?"selected":"")" @onclick='() => SetFilter("DUE30")'>D+30 (@countDue30)</button>}
@@ -369,13 +295,20 @@ else
 
 <div class="device-summary-bar">
     <button type="button" class="device-summary-item total @(filter == "ALL" ? "active" : "")" @onclick='() => SetFilter("ALL")'>
-        <span>Tổng số thiết bị:</span>
+        <span>Tổng số thiết bị / xe:</span>
         <strong>@countAll</strong>
         @if (!string.IsNullOrWhiteSpace(search))
         {
             <small>/ @devices.Count</small>
         }
     </button>
+    @if (countPreDeclared > 0)
+    {
+        <button type="button" class="device-summary-item @(filter == "PRE_DECLARE" ? "active" : "")" @onclick='() => SetFilter("PRE_DECLARE")'>
+            <span>🆕 Mới khai báo (Chờ lắp):</span>
+            <strong class="text-blue">@countPreDeclared</strong>
+        </button>
+    }
     @if (canActive)
     {
         <button type="button" class="device-summary-item @(filter == "ACTIVE" ? "active" : "")" @onclick='() => SetFilter("ACTIVE")'>
@@ -407,7 +340,7 @@ else
     @if (canOverdue)
     {
         <button type="button" class="device-summary-item muted @(filter == "OVERDUE" ? "active" : "")" title="Thiết bị đã quá hạn (đã loại bỏ khỏi danh sách cảnh báo ≤ 10 ngày)" @onclick='() => SetFilter("OVERDUE")'>
-            <span>Đã hết hạn (Loại bỏ cảnh báo):</span>
+            <span>Đã hết hạn (Cần lập Đơn gia hạn):</span>
             <strong class="text-orange">@countOverdue</strong>
         </button>
     }
@@ -416,34 +349,64 @@ else
         <strong>@countLocked</strong>
     </button>
     <div class="device-summary-item showing">
-        <span>Đang hiển thị trên bảng:</span>
-        <strong>@totalDevices thiết bị</strong>
+        <span>Đang hiển thị:</span>
+        <strong>@totalDevices xe</strong>
     </div>
 </div>
 
-<div class="table-wrap"><table><thead><tr><th>STT</th><th>BIỂN SỐ / SỐ KHUNG</th><th>SỐ IMEI</th><th>TÊN THIẾT BỊ</th><th>TÊN ĐẠI LÝ</th><th>KHÁCH HÀNG &amp; SĐT</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>GIA HẠN GẦN NHẤT / SỐ LẦN</th><th>GIÁ GIA HẠN</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
+<div class="table-wrap"><table><thead><tr><th>STT</th><th>BIỂN SỐ / SỐ KHUNG</th><th>SỐ IMEI &amp; ĐƠN LẮP</th><th>TÊN THIẾT BỊ</th><th>THUỘC HTX / KHÁCH HÀNG</th><th>CHỦ XE &amp; SĐT</th><th>NGÀY KÍCH HOẠT</th><th>NGÀY HẾT HẠN</th><th>LỊCH SỬ &amp; ĐƠN GIA HẠN</th><th>GIÁ GIA HẠN (12T)</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
 @foreach(var (stt, x) in pagedDevices){
     var d = DaysToExpiry(x);
     var locked = IsLocked(x);
-    <tr @key="x.ActivationId" class="@(!locked && d >= 0 && d <= 10 ? "row-due10-warn" : "")">
+    <tr @key="x.ActivationId" class="@(!x.IsPreDeclared && !locked && d >= 0 && d <= 10 ? "row-due10-warn" : "")">
         <td><strong>@stt</strong></td>
-        <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</strong></div></td>
-        <td><strong>@x.Imei</strong></td>
+        <td class="wrap-cell">
+            <div><strong>@(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)</strong></div>
+            @if(!string.IsNullOrWhiteSpace(x.VinNo) && !string.Equals(x.VinNo, x.Imei, StringComparison.OrdinalIgnoreCase) && !string.Equals(x.VinNo, x.OwnerName, StringComparison.OrdinalIgnoreCase))
+            {
+                <small style="color:#64748b">SK: @x.VinNo</small>
+            }
+        </td>
+        <td>
+            @if(x.IsPreDeclared)
+            {
+                <span class="chip blue-chip">🆕 Chưa gắn IMEI</span>
+                <div><small style="color:#0369a1;font-weight:600">Chờ tạo Đơn lắp đặt</small></div>
+            }
+            else
+            {
+                <strong>@x.DisplayImei</strong>
+                <div>
+                    @if(x.HasInstallOrder)
+                    {
+                        <small style="color:#15803d;font-weight:600">Đơn lắp: @x.OrderCode</small>
+                    }
+                    else
+                    {
+                        <small style="color:#64748b">Chưa gắn đơn lắp gốc</small>
+                    }
+                </div>
+            }
+        </td>
         <td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel)</span><div><small style="color:#64748b">@x.Sku</small></div></td>
         <td class="wrap-cell"><div><strong>@(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)</strong></div>@if(!string.IsNullOrWhiteSpace(x.SellerName)){<small style="color:#64748b">NV: @x.SellerName</small>}</td>
         <td class="wrap-cell">
             <div>@(string.IsNullOrWhiteSpace(x.OwnerName) ? (string.IsNullOrWhiteSpace(x.ContactName) ? "—" : x.ContactName) : x.OwnerName)</div>
             @if(!string.IsNullOrWhiteSpace(x.OwnerPhone)){<small>📞 @x.OwnerPhone</small>}
         </td>
-        <td><strong>@x.ActivatedAt</strong></td>
-        <td><strong>@x.ExpiresAt</strong></td>
+        <td><strong>@(x.IsPreDeclared || string.IsNullOrWhiteSpace(x.ActivatedAt) ? "—" : x.ActivatedAt)</strong></td>
+        <td><strong>@(x.IsPreDeclared || string.IsNullOrWhiteSpace(x.ExpiresAt) ? "—" : x.ExpiresAt)</strong></td>
         <td>
-            <div>@(string.IsNullOrWhiteSpace(x.LastRenewedAt) ? "—" : x.LastRenewedAt)</div>
-            <small style="color:#64748b">Số lần GH: <strong>@x.RenewalCount</strong></small>
+            <div>@(string.IsNullOrWhiteSpace(x.LastRenewedAt) ? "Chưa gia hạn" : $"Mốc GH: {x.LastRenewedAt}")</div>
+            <small style="color:#64748b">Số lần GH: <strong>@x.RenewalCount</strong>@(string.IsNullOrWhiteSpace(x.LastRenewalOrderCode) ? "" : $" · {x.LastRenewalOrderCode}")</small>
         </td>
         <td><strong style="color:#0284c7">@x.RenewalPriceVnd.ToString("N0") ₫</strong></td>
         <td>
-            @if (locked)
+            @if (x.IsPreDeclared)
+            {
+                <span class="chip blue-chip">🆕 Chờ lắp đặt</span>
+            }
+            else if (locked)
             {
                 <span class="chip orange-chip">🔒 Khoá</span>
                 <div><small style="color:#64748b">@(d < 0 ? $"Quá hạn {Math.Abs(d)} ngày" : $"Còn {d} ngày")</small></div>
@@ -469,43 +432,128 @@ else
             }
         </td>
         <td>
-            @if(canRenew || canUpdateDevice || canSoftDeleteDevice || isMainRole || canViewRowLog)
-            {
-                <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenDeviceDetailModal(x)">👁 Chi tiết</button>
+                @if(x.IsPreDeclared)
+                {
+                    <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=INSTALL&deviceId={x.ActivationId}")'>+ Tạo đơn lắp</button>
+                }
+                else
+                {
                     @if(locked && (canRenew || canUpdateDevice))
                     {
                         <button type="button" class="btn btn-sm" style="background:#15803d;border-color:#15803d" data-confirm="none" @onclick="() => ToggleDeviceLock(x)">🔓 Mở khóa</button>
                     }
                     @if(canRenew)
                     {
-                        <button type="button" class="btn btn-sm" @onclick="() => OpenRenewFor(x)">+ Gia hạn</button>
+                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=RENEWAL&deviceId={x.ActivationId}")'>+ Đơn gia hạn</button>
                     }
-                    @if(canRenew || canUpdateDevice)
-                    {
-                        <button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa hạn / TT</button>
-                    }
-                    @if(canSoftDeleteDevice || isMainRole)
-                    {
-                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5"
-                            data-confirm="delete"
-                            data-confirm-title="@(isMainRole ? "Xác nhận xóa vĩnh viễn thiết bị & toàn bộ luồng liên quan" : "Xác nhận xóa thiết bị & loại bỏ công nợ liên quan")"
-                            data-confirm-msg="@(isMainRole
-                                ? $"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)}) cùng toàn bộ lịch sử gia hạn, đơn hàng và chứng từ kế toán công nợ liên quan phía sau khỏi hệ thống không?"
-                                : $"Bạn có chắc chắn muốn xóa thiết bị IMEI {x.Imei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận vào Lưu vết hệ thống.")"
-                            @onclick="() => DeleteDevice(x)">Xóa</button>
-                    }
-                    @if(canViewRowLog)
-                    {
-                        <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenDeviceRecordLog(x.ActivationId)">Xem log</button>
-                    }
-                </div>
-            }
+                }
+                @if(!x.IsPreDeclared && (canRenew || canUpdateDevice))
+                {
+                    <button type="button" class="btn secondary btn-sm" @onclick="() => OpenEditFor(x)">Sửa TT</button>
+                }
+                @if(canSoftDeleteDevice || isMainRole)
+                {
+                    <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fca5a5"
+                        data-confirm="delete"
+                        data-confirm-title="@(isMainRole ? "Xác nhận xóa vĩnh viễn thiết bị & toàn bộ luồng liên quan" : "Xác nhận xóa thiết bị & loại bỏ công nợ liên quan")"
+                        data-confirm-msg="@(isMainRole
+                            ? $"Bạn có chắc chắn muốn xóa vĩnh viễn thiết bị {x.DisplayImei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "—" : x.Plate)}) cùng toàn bộ lịch sử gia hạn, đơn hàng và chứng từ kế toán công nợ liên quan phía sau khỏi hệ thống không?"
+                            : $"Bạn có chắc chắn muốn xóa thiết bị {x.DisplayImei} ({(string.IsNullOrWhiteSpace(x.Plate) ? "Chưa có biển số" : x.Plate)} · Đại lý/KH: {(string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName)}) không? Các đợt gia hạn và chứng từ kế toán công nợ liên quan phía sau (chưa khóa sổ) sẽ tự động bị loại bỏ và ghi nhận vào Lưu vết hệ thống.")"
+                        @onclick="() => DeleteDevice(x)">Xóa</button>
+                }
+                @if(canViewRowLog)
+                {
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenDeviceRecordLog(x.ActivationId)">Xem log</button>
+                }
+            </div>
         </td>
     </tr>
 }
 </tbody></table></div>
 <TablePager Pager="devicePager" TotalCount="totalDevices" OnChange="StateHasChanged" />
 </section>
+
+@if(detailDevice is not null)
+{
+    var dDev = detailDevice;
+    var dRens = detailDeviceRenewals;
+    <div class="so-modal-overlay" @onclick="() => detailDevice = null">
+        <div class="so-modal-dialog" style="max-width:900px" @onclick:stopPropagation="true">
+            <div class="so-modal-header">
+                <div>
+                    <div class="eyebrow">CHI TIẾT HỒ SƠ PHƯƠNG TIỆN &amp; LỊCH SỬ ĐƠN GIA HẠN</div>
+                    <h2>@(string.IsNullOrWhiteSpace(dDev.Plate) ? dDev.DisplayImei : $"{dDev.Plate} · {dDev.DisplayImei}")</h2>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    @if(dDev.IsPreDeclared)
+                    {
+                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=INSTALL&deviceId={dDev.ActivationId}")'>+ Tạo Đơn lắp đặt cho xe này</button>
+                    }
+                    else if(canRenew)
+                    {
+                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=RENEWAL&deviceId={dDev.ActivationId}")'>+ Tạo Đơn gia hạn cho xe này</button>
+                    }
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => detailDevice = null">✕ Đóng</button>
+                </div>
+            </div>
+            <div class="so-modal-body">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:14px">
+                    <div><small style="color:#64748b">Biển số xe</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.Plate) ? "—" : dDev.Plate)</strong></div></div>
+                    <div><small style="color:#64748b">Số khung / Thông tin phụ</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.VinNo) ? "—" : dDev.VinNo)</strong></div></div>
+                    <div><small style="color:#64748b">Thuộc HTX / Khách hàng</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.AgencyName) ? dDev.Customer : dDev.AgencyName)</strong></div></div>
+                    <div><small style="color:#64748b">Chủ xe &amp; SĐT</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.OwnerName) ? "—" : dDev.OwnerName) @(string.IsNullOrWhiteSpace(dDev.OwnerPhone) ? "" : $"· {dDev.OwnerPhone}")</strong></div></div>
+                    <div><small style="color:#64748b">Dòng thiết bị &amp; Số IMEI</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.DeviceTypeLabel) ? dDev.Sku : dDev.DeviceTypeLabel) (@dDev.DisplayImei)</strong></div></div>
+                    <div><small style="color:#64748b">Liên kết Đơn lắp đặt</small><div><strong>@(dDev.IsPreDeclared ? "🆕 Chưa tạo đơn lắp đặt" : dDev.HasInstallOrder ? $"✅ Đã có đơn lắp ({dDev.OrderCode})" : "Hồ sơ có sẵn (Chưa gắn đơn lắp)")</strong></div></div>
+                    <div><small style="color:#64748b">Ngày kích hoạt → Ngày hết hạn</small><div><strong>@(dDev.IsPreDeclared ? "Chờ kích hoạt" : $"{dDev.ActivatedAt} → {dDev.ExpiresAt}")</strong></div></div>
+                    <div><small style="color:#64748b">Giá gia hạn chuẩn 12T (Nhóm KH)</small><div><strong style="color:#15803d">@dDev.RenewalPriceVnd.ToString("N0") ₫</strong></div></div>
+                </div>
+
+                <h3 style="font-size:0.96rem;margin:0 0 8px 0">Lịch sử các lần Gia hạn &amp; Mốc thời gian (Map theo Đơn gia hạn: @dRens.Count lần)</h3>
+                @if(dRens.Count == 0)
+                {
+                    <div class="panel-note">Thiết bị này chưa phát sinh Đơn gia hạn nào.</div>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Lần</th>
+                                    <th>Mã Đơn gia hạn</th>
+                                    <th>Ngày gia hạn</th>
+                                    <th>Gói hạn</th>
+                                    <th>Hạn cũ → Mốc hạn mới</th>
+                                    <th>Số tiền</th>
+                                    <th>NV bán hàng</th>
+                                    <th>Hóa đơn KT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for(int idx = 0; idx < dRens.Count; idx++)
+                                {
+                                    var r = dRens[idx];
+                                    <tr>
+                                        <td><strong>#@(dRens.Count - idx)</strong></td>
+                                        <td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(r.OrderCode) ? $"GH#{r.Id}" : r.OrderCode)</span></td>
+                                        <td>@r.StartDate</td>
+                                        <td>@(r.DurationMonths == 12 ? "12 tháng (1 năm)" : $"{r.DurationMonths} tháng")</td>
+                                        <td><strong>@r.PreviousExpiry → @r.EndDate</strong></td>
+                                        <td><strong>@r.Price.ToString("N0") ₫</strong></td>
+                                        <td>@r.SellerName</td>
+                                        <td>@(string.IsNullOrWhiteSpace(r.InvoiceNo) ? "—" : r.InvoiceNo)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
 @if(canViewLog)
 {
     <SystemLogModal IsOpen="showLogModal"
@@ -757,12 +805,11 @@ else
     </SystemLogModal>
 }
 @code {
- private bool showRenew, showEditAct, showCreateDevice;
+ private bool showEditAct, showCreateDevice;
  private readonly PagerState devicePager = new();
  private readonly PagerState renewalPager = new();
  private readonly PagerState deletedDevicePager = new();
  private void ToggleForm(string form){
-  showRenew = form=="showRenew" && !showRenew;
   showEditAct = form=="showEditAct" && !showEditAct;
   showCreateDevice = form=="showCreateDevice" && !showCreateDevice;
  }
@@ -773,22 +820,26 @@ else
  private List<SellerChoiceVm> sellerChoices=[];
  private List<CustomerVm> customers=[];
  private List<ProductVm> hardwareProducts=[];
+ private List<long> _dummy=[];
  private List<(long Id, string Imei, string WarehouseName)> availStockImeis=[];
  private List<(string Key, string Name, string Phone)> agencyOwners=[];
 
- // State thêm thiết bị mới (nhập tay & chọn từ data)
+ private DeviceVm? detailDevice;
+ private List<RenewalVm> detailDeviceRenewals = [];
+
+ // State thêm thiết bị mới (Khai báo xe chờ lắp hoặc Đã kích hoạt IMEI)
  private long createCustomerId, createProductId, createSellerId, createPreviewRenewalVnd;
  private int createDurationMonths = 12;
  private DateTime createActivatedDate = DateTime.Today;
  private DateTime createExpiresDate = DateTime.Today.AddYears(1);
- private string createDeviceTypeLabel = "XANHGPS", createImei = "", pickedStockImei = "", createPlate = "", pickedAgencyOwnerKey = "", createOwnerName = "", createOwnerPhone = "", createDeviceStatus = "ACTIVE", createMessage = "";
+ private string createDeviceMode = "PRE_DECLARE", createDeviceTypeLabel = "XANHGPS", createImei = "", pickedStockImei = "", createPlate = "", createVin = "", pickedAgencyOwnerKey = "", createOwnerName = "", createOwnerPhone = "", createDeviceStatus = "ACTIVE", createMessage = "";
 
- private long activationId=1, editActivationId=1, renewSellerId, editDeviceSellerId, currentActorId;
- private long renewCustomerId, renewPreviewPriceVnd, editCustomerId, editPreviewRenewalVnd;
+ private long editActivationId=1, editDeviceSellerId, currentActorId;
+ private long editCustomerId, editPreviewRenewalVnd;
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
- private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editOwnerName="",editOwnerPhone="",renewPlate="",renewOwnerName="",renewOwnerPhone="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
+ private string editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editOwnerName="",editOwnerPhone="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
  private bool canRenew,canUpdateDevice,canFinanceLock,canViewLog,canViewRowLog,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,canTransferMethod1,canTransferOnRenew,isMainRole,showLogModal;
  private string? logInitialTable;
  private long? logInitialRecordId;
@@ -796,6 +847,11 @@ else
  private static readonly string[] deviceAuditEntities = ["ACTIVATION", "RENEWAL", "DEVICE", "STOCK_UNIT"];
  private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
  private void OpenDeviceRecordLog(long actId) { if (!canViewRowLog) return; logInitialTable = "activations"; logInitialRecordId = actId; showLogModal = true; }
+ private void OpenDeviceDetailModal(DeviceVm x)
+ {
+  detailDevice = x;
+  detailDeviceRenewals = Db.Renewals().Where(r => r.ActivationId == x.ActivationId).ToList();
+ }
 
  private IEnumerable<string> AvailableDeviceTypeLabels =>
   new[] { "XANHGPS", "NASAGPS", "TDCGPS", "mGPS", "AICAM", "CAM4CH", "TG2000" }
@@ -816,44 +872,49 @@ else
 
  private IEnumerable<RenewalVm> FilteredRenewals => renewals.Where(r =>
   (string.IsNullOrWhiteSpace(historySellerFilter) || r.SellerName.Contains(historySellerFilter, StringComparison.OrdinalIgnoreCase)) &&
-  (string.IsNullOrWhiteSpace(historySearch) || ($"{r.Imei} {r.DeviceName} {r.ProductSku} {r.CustomerName} {r.PlateNo} {r.SellerName} {r.Source} {r.StartDate} {r.EndDate}").Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase)));
+  (string.IsNullOrWhiteSpace(historySearch) || ($"{r.Imei} {r.OrderCode} {r.DeviceName} {r.ProductSku} {r.CustomerName} {r.PlateNo} {r.SellerName} {r.Source} {r.StartDate} {r.EndDate}").Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase)));
 
  private async Task ExportDevicesExcel()
  {
   var list = FilteredDevicesList;
   var headers = new[]
   {
-   "STT", "Biển số xe/Số khung", "Số IMEI Thiết bị", "Tên Thiết bị", "Mã sản phẩm",
-   "Tên Đại lý", "Tên Khách hàng", "SĐT Khách hàng", "Nhân viên bán hàng",
+   "STT", "Biển số xe", "Số khung / TT phụ", "Số IMEI Thiết bị", "Tên Thiết bị", "Mã sản phẩm",
+   "Đơn lắp đặt", "Tên Đại lý / HTX", "Tên Chủ xe", "SĐT Chủ xe", "Nhân viên bán hàng",
    "Trạng thái thiết bị", "Ngày kích hoạt", "Ngày hết hạn", "Số ngày còn hạn",
-   "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn", "Giá gia hạn (VND)"
+   "Đơn gia hạn gần nhất", "Ngày gia hạn gần nhất", "Số lần gia hạn", "Giá gia hạn 12T (VND)"
   };
   var rows = list.Select((x, idx) =>
   {
    var d = DaysToExpiry(x);
    var locked = IsLocked(x);
-   var stText = locked ? "Khoá" : d < 0 ? $"Hết hạn ({Math.Abs(d)} ngày)" : $"Hoạt động (còn {d} ngày)";
+   var stText = x.IsPreDeclared
+    ? "Mới khai báo (Chờ lắp đặt)"
+    : locked ? "Khoá" : d < 0 ? $"Hết hạn ({Math.Abs(d)} ngày)" : $"Hoạt động (còn {d} ngày)";
    return new object?[]
    {
     idx + 1,
     x.Plate,
-    x.Imei,
+    x.VinNo,
+    x.DisplayImei,
     string.IsNullOrWhiteSpace(x.DeviceTypeLabel) ? x.Sku : x.DeviceTypeLabel,
     x.Sku,
+    x.IsPreDeclared ? "Chưa có đơn lắp" : (string.IsNullOrWhiteSpace(x.OrderCode) ? "Hồ sơ có sẵn" : x.OrderCode),
     string.IsNullOrWhiteSpace(x.AgencyName) ? x.Customer : x.AgencyName,
     string.IsNullOrWhiteSpace(x.OwnerName) ? x.ContactName : x.OwnerName,
     x.OwnerPhone,
     x.SellerName,
     stText,
-    x.ActivatedAt,
-    x.ExpiresAt,
-    d == -9999 ? 0 : d,
+    x.IsPreDeclared ? "—" : x.ActivatedAt,
+    x.IsPreDeclared ? "—" : x.ExpiresAt,
+    x.IsPreDeclared || d == -9999 ? 0 : d,
+    x.LastRenewalOrderCode,
     x.LastRenewedAt,
     x.RenewalCount,
     x.RenewalPriceVnd
    };
   });
-  await ExcelExporter.DownloadAsync(JS, $"thiet-bi-kich-hoat-{filter.ToLowerInvariant()}", "Thiết bị kích hoạt", headers, rows);
+  await ExcelExporter.DownloadAsync(JS, $"thiet-bi-phuong-tien-{filter.ToLowerInvariant()}", "Thiết bị & Phương tiện", headers, rows);
  }
 
  private async Task ExportRenewalsExcel()
@@ -861,13 +922,14 @@ else
   var list = FilteredRenewals.ToList();
   var headers = new[]
   {
-   "STT", "Số IMEI", "Tên thiết bị", "Mã sản phẩm", "Khách hàng / Đại lý", "Biển số xe",
+   "STT", "Mã Đơn gia hạn", "Số IMEI", "Tên thiết bị", "Mã sản phẩm", "Khách hàng / Đại lý", "Biển số xe",
    "Nhân viên bán hàng gia hạn", "Nguồn gia hạn", "Ngày gia hạn", "Hạn cũ", "Hạn mới",
    "Số tiền gia hạn (VND)", "Hình thức thanh toán", "Trạng thái Kế toán"
   };
   var rows = list.Select((x, idx) => new object?[]
   {
    idx + 1,
+   string.IsNullOrWhiteSpace(x.OrderCode) ? $"GH#{x.Id}" : x.OrderCode,
    x.Imei,
    string.IsNullOrWhiteSpace(x.DeviceName) ? x.ProductSku : x.DeviceName,
    x.ProductSku,
@@ -938,11 +1000,16 @@ else
    availStockImeis = Db.AvailableStockImeis(createProductId);
    RefreshCreatePreviewPrice();
   }
-  if(devices.Count > 0)
+  var firstEditable = devices.FirstOrDefault(x => !x.IsPreDeclared);
+  if(firstEditable is not null)
   {
-   if(!devices.Any(x => x.ActivationId == activationId)) activationId = devices[0].ActivationId;
-   OnRenewDeviceSelected();
-   if(!devices.Any(x => x.ActivationId == editActivationId)) { editActivationId = devices[0].ActivationId; OnEditDeviceSelected(); }
+   if(!devices.Any(x => !x.IsPreDeclared && x.ActivationId == editActivationId)) { editActivationId = firstEditable.ActivationId; OnEditDeviceSelected(); }
+  }
+  if(detailDevice is not null)
+  {
+   detailDevice = devices.FirstOrDefault(x => x.ActivationId == detailDevice.ActivationId);
+   if(detailDevice is not null)
+    detailDeviceRenewals = Db.Renewals().Where(r => r.ActivationId == detailDevice.ActivationId).ToList();
   }
   if(canViewLog){renewals=Db.Renewals();deletedDevices=Db.DeletedDevices();}
  }
@@ -1013,7 +1080,10 @@ else
   {
    createMessage = "";
    Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
-   var normImei = (createImei ?? "").Trim();
+   var isPre = createDeviceMode == "PRE_DECLARE";
+   var normImei = isPre ? "" : (createImei ?? "").Trim();
+   if (isPre && string.IsNullOrWhiteSpace(createPlate) && string.IsNullOrWhiteSpace(createVin) && string.IsNullOrWhiteSpace(createOwnerName))
+    throw new InvalidOperationException("Vui lòng nhập ít nhất Biển số xe, Số khung hoặc Tên chủ xe khi khai báo xe chờ lắp đặt.");
    Db.CreateManualDeviceActivation(
     createCustomerId,
     createProductId,
@@ -1025,12 +1095,23 @@ else
     createExpiresDate.ToString("yyyy-MM-dd"),
     createSellerId > 0 ? createSellerId : null,
     createDeviceTypeLabel,
-    createDeviceStatus);
+    isPre ? "PENDING_INSTALL" : createDeviceStatus,
+    createVin);
+   var savedPlate = createPlate;
    createImei = "";
    pickedStockImei = "";
    createPlate = "";
+   createVin = "";
    Reload();
-   createMessage = $"Đã thêm thành công thiết bị IMEI {normImei.ToUpperInvariant()} ({createDeviceTypeLabel}) · Hạn: {createActivatedDate:yyyy-MM-dd} → {createExpiresDate:yyyy-MM-dd}.";
+   if (isPre)
+   {
+    filter = "PRE_DECLARE";
+    createMessage = $"Đã khai báo sẵn hồ sơ xe {(string.IsNullOrWhiteSpace(savedPlate) ? "mới" : savedPlate)} chờ lên Đơn lắp đặt. Bạn có thể bấm '+ Tạo đơn lắp' ngay trên danh sách.";
+   }
+   else
+   {
+    createMessage = $"Đã thêm thành công thiết bị IMEI {normImei.ToUpperInvariant()} ({createDeviceTypeLabel}) · Hạn: {createActivatedDate:yyyy-MM-dd} → {createExpiresDate:yyyy-MM-dd}.";
+   }
   }
   catch (Exception ex)
   {
@@ -1063,39 +1144,6 @@ else
   {
    deletedHistoryMessage = "Lỗi xóa thiết bị: " + ex.Message;
   }
- }
- private void OnRenewDeviceSelected(){
-  var d = devices.FirstOrDefault(x => x.ActivationId == activationId);
-  if (d is not null)
-  {
-   renewCustomerId = d.CustomerId;
-   renewPreviewPriceVnd = d.RenewalPriceVnd;
-   renewPlate = d.Plate ?? "";
-   renewOwnerName = !string.IsNullOrWhiteSpace(d.OwnerName) ? d.OwnerName : (d.ContactName ?? "");
-   renewOwnerPhone = d.OwnerPhone ?? "";
-   if (d.SellerId is > 0)
-    renewSellerId = d.SellerId.Value;
-   else if (renewSellerId <= 0 && sellerChoices.Count > 0)
-    renewSellerId = sellerChoices[0].Id;
-  }
- }
- private void OnRenewCustomerChanged(){
-  var d = devices.FirstOrDefault(x => x.ActivationId == activationId);
-  if (d is null) return;
-  var effCust = renewCustomerId > 0 ? renewCustomerId : d.CustomerId;
-  renewPreviewPriceVnd = Db.PreviewRenewalPrice(effCust, d.ProductId);
-  if (effCust != d.CustomerId)
-  {
-   var targetCust = customers.FirstOrDefault(c => c.Id == effCust);
-   if (targetCust?.SellerId is > 0) renewSellerId = targetCust.SellerId.Value;
-  }
- }
- private void OpenRenewFor(DeviceVm d){
-  activationId = d.ActivationId;
-  OnRenewDeviceSelected();
-  showRenew = true;
-  showEditAct = false;
-  showCreateDevice = false;
  }
  private void OnEditDeviceSelected(){
   var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
@@ -1132,7 +1180,6 @@ else
   editActivationId = d.ActivationId;
   OnEditDeviceSelected();
   showEditAct = true;
-  showRenew = false;
   showCreateDevice = false;
  }
  private void StartEditRenewal(RenewalVm r){
@@ -1204,7 +1251,7 @@ else
   }catch(Exception ex){historyMessage="Lỗi: "+ex.Message;}
  }
  private int DaysToExpiry(DeviceVm x) => DateTime.TryParse(x.ExpiresAt, out var dt) ? (dt.Date - DateTime.Today).Days : -9999;
- private static bool IsLocked(DeviceVm x) => string.Equals(x.Status, "DISABLED", StringComparison.OrdinalIgnoreCase);
+ private static bool IsLocked(DeviceVm x) => !x.IsPreDeclared && string.Equals(x.Status, "DISABLED", StringComparison.OrdinalIgnoreCase);
  private void SetFilter(string nextFilter)
  {
   filter = nextFilter;
@@ -1213,7 +1260,7 @@ else
  private bool MatchSearch(DeviceVm x)
  {
   if (string.IsNullOrWhiteSpace(search)) return true;
-  return (x.Imei + " " + x.Sku + " " + x.DeviceTypeLabel + " " + x.Customer + " " + x.AgencyName + " " + x.OwnerName + " " + x.OwnerPhone + " " + x.Plate + " " + x.ContactName + " " + x.VinNo + " " + x.SellerName).Contains(search, StringComparison.OrdinalIgnoreCase);
+  return (x.DisplayImei + " " + x.Sku + " " + x.DeviceTypeLabel + " " + x.Customer + " " + x.AgencyName + " " + x.OwnerName + " " + x.OwnerPhone + " " + x.Plate + " " + x.ContactName + " " + x.VinNo + " " + x.SellerName + " " + x.OrderCode + " " + x.LastRenewalOrderCode).Contains(search, StringComparison.OrdinalIgnoreCase);
  }
  private bool MatchFilter(DeviceVm x)
  {
@@ -1221,49 +1268,15 @@ else
   var locked = IsLocked(x);
   return filter switch {
    "ALL" => true,
-   "ACTIVE" => canActive && !locked && days >= 0,
-   "DUE10" => canDue10 && !locked && days >= 0 && days <= 10,
-   "DUE30" => canDue30 && !locked && days >= 0 && days <= 30,
-   "DUE60" => canDue60 && !locked && days >= 0 && days <= 60,
-   "OVERDUE" => canOverdue && days < 0,
+   "PRE_DECLARE" => x.IsPreDeclared,
+   "ACTIVE" => canActive && !x.IsPreDeclared && !locked && days >= 0,
+   "DUE10" => canDue10 && !x.IsPreDeclared && !locked && days >= 0 && days <= 10,
+   "DUE30" => canDue30 && !x.IsPreDeclared && !locked && days >= 0 && days <= 30,
+   "DUE60" => canDue60 && !x.IsPreDeclared && !locked && days >= 0 && days <= 60,
+   "OVERDUE" => canOverdue && !x.IsPreDeclared && days < 0,
    "LOCKED" => locked,
    _ => true
   };
- }
- private async Task Renew(){
-  try{
-   var actor = await Gate.RequireAsync(Permissions.DevicesRenew);
-   Db.ActorId = actor;
-   var currentDev = devices.FirstOrDefault(x => x.ActivationId == activationId);
-   var wasLocked = currentDev is not null && IsLocked(currentDev);
-   var pickedSeller = sellerChoices.FirstOrDefault(s => s.Id == renewSellerId);
-   long? targetCust = (canTransferOnRenew && renewCustomerId > 0) ? renewCustomerId : null;
-   var oldCustName = currentDev?.Customer ?? "";
-   var nextCustName = customers.FirstOrDefault(c => c.Id == renewCustomerId)?.Name ?? oldCustName;
-   var transferred = canTransferOnRenew && currentDev is not null && renewCustomerId > 0 && renewCustomerId != currentDev.CustomerId;
-   Db.Renew(
-    activationId,
-    source,
-    method,
-    pickedSeller?.Id,
-    pickedSeller?.Name,
-    targetCustomerId: targetCust,
-    newPlateNo: canTransferOnRenew ? renewPlate : null,
-    newOwnerName: canTransferOnRenew ? renewOwnerName : null,
-    newOwnerPhone: canTransferOnRenew ? renewOwnerPhone : null,
-    actorId: actor);
-   Reload();
-   if (transferred)
-   {
-    message = $"Đã chuyển thiết bị từ [{oldCustName}] sang [{nextCustName}], gia hạn 12 tháng theo giá nhóm KH mới và ghi nhận công nợ cho [{nextCustName}] · NV bán hàng: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
-   }
-   else
-   {
-    message = wasLocked
-     ? $"Đã tự động mở khóa thiết bị, gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}."
-     : $"Đã gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
-   }
-  }catch(Exception ex){message="Lỗi: "+ex.Message;}
  }
  private async Task ToggleDeviceLock(DeviceVm x){
   try{
@@ -1272,8 +1285,8 @@ else
    Db.SetDeviceLock(x.ActivationId, nextLock);
    Reload();
    listMessage = nextLock
-    ? $"Đã tạm khóa thiết bị {x.Imei} {(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") }."
-    : $"Đã mở khóa thiết bị {x.Imei} {(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") } — có thể thực hiện gia hạn ngay.";
+    ? $"Đã tạm khóa thiết bị {x.DisplayImei} {(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") }."
+    : $"Đã mở khóa thiết bị {x.DisplayImei} {(string.IsNullOrWhiteSpace(x.Plate) ? "" : $"({x.Plate})") } — có thể thực hiện gia hạn ngay.";
   }catch(Exception ex){listMessage="Lỗi: "+ex.Message;}
  }
  private async Task UnlockAllDevices(){

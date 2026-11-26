@@ -55,10 +55,10 @@
                         <NavLink href="/sales-orders" class="nav-item-with-note">
                             <AppIcon Name="file" />
                             <span class="nav-item-body">
-                                <span class="nav-item-title">Đơn hàng &amp; lắp đặt</span>
-                                <small class="nav-item-subnote @(openOrderCount > 0 ? "is-order-active" : "")">Đang xử lý / chờ lắp: <strong>@openOrderCount.ToString("N0")</strong></small>
+                                <span class="nav-item-title">Đơn hàng</span>
+                                <small class="nav-item-subnote @(openOrderCount > 0 ? "is-order-active" : "")">Đang xử lý: <strong>@openOrderCount.ToString("N0")</strong></small>
                             </span>
-                            <span class="nav-count-badge @(openOrderCount > 0 ? "badge-blue" : "")" title="@($"Đơn hàng đang xử lý / chờ lắp đặt: {openOrderCount:N0} đơn")">@openOrderCount.ToString("N0")</span>
+                            <span class="nav-count-badge @(openOrderCount > 0 ? "badge-blue" : "")" title="@($"Đơn hàng đang xử lý: {openOrderCount:N0} đơn")">@openOrderCount.ToString("N0")</span>
                         </NavLink>
                     }
                     <div class="nav-heading">Kho & thiết bị</div>
@@ -83,7 +83,7 @@
                         <NavLink href="/devices" class="nav-item-with-note">
                             <AppIcon Name="device" />
                             <span class="nav-item-body">
-                                <span class="nav-item-title">Thiết bị &amp; gia hạn</span>
+                                <span class="nav-item-title">Thiết bị</span>
                                 <small class="nav-item-subnote @(due10Count > 0 ? "is-due10-alert" : "")">Hết hạn ≤ 10 ngày: <strong>@due10Count.ToString("N0")</strong></small>
                             </span>
                             <span class="nav-count-badge @(due10Count > 0 ? "badge-red" : "")" title="@($"Cảnh báo gia hạn: Có {due10Count:N0} thiết bị còn hạn từ 10 ngày trở xuống (đã loại bỏ thiết bị hết hạn)")">@due10Count.ToString("N0")</span>

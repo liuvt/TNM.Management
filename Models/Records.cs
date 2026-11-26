@@ -14,7 +14,12 @@ public record StockVm(long Id, string Imei, string Sku, string Product, string S
 public record ProductStockSummaryVm(long ProductId, string Sku, string ProductName, bool IsSerialized, string Kind, long InStockQty, long ConsignedOrTechQty, long InstalledQty);
 public record DeviceVm(long ActivationId, string Imei, string Sku, string Customer, string Plate,
     string ActivatedAt, string ExpiresAt, long CustomerId, long ProductId, string VinNo = "", string OrderCode = "", string ContactName = "", long? SellerId = null, string SellerName = "",
-    string DeviceTypeLabel = "", string AgencyName = "", string OwnerName = "", string OwnerPhone = "", string Status = "ACTIVE", string LastRenewedAt = "", long RenewalCount = 0, long RenewalPriceVnd = 0);
+    string DeviceTypeLabel = "", string AgencyName = "", string OwnerName = "", string OwnerPhone = "", string Status = "ACTIVE", string LastRenewedAt = "", long RenewalCount = 0, long RenewalPriceVnd = 0,
+    bool IsPreDeclared = false, string LastRenewalOrderCode = "", long? InstallOrderId = null)
+{
+    public bool HasInstallOrder => !string.IsNullOrWhiteSpace(OrderCode) || InstallOrderId is > 0;
+    public string DisplayImei => IsPreDeclared || Imei.StartsWith("CHO-LAP-", StringComparison.OrdinalIgnoreCase) ? "Chưa gắn IMEI" : Imei;
+}
 public record DeletedDeviceVm(
     long ActivationId,
     string Imei,
@@ -245,7 +250,7 @@ public record AuditVm(long Id, string At, string Actor, string Action, string En
 public record RenewalVm(long Id, string Imei, string Source, string StartDate, string EndDate, long Price, string PaymentMethod,
     long? SellerId = null, string SellerName = "", string CustomerName = "", string PlateNo = "",
     long ActivationId = 0, string PreviousExpiry = "", bool IsLocked = false, string LockedAt = "", string InvoiceNo = "", long? InvoiceId = null,
-    string DeviceName = "", string ProductSku = "");
+    string DeviceName = "", string ProductSku = "", string OrderCode = "", long? OrderId = null, int DurationMonths = 12);
 public record SellerChoiceVm(long Id, string Code, string Name, string Phone, string Department, long OrderCommissionVnd, long RenewalCommissionVnd)
 {
     public string DisplayLabel => $"{Code} — {Name}";

@@ -756,34 +756,33 @@
         ["sales-orders"] = new(
             Key: "sales-orders",
             Category: "2. KINH DOANH",
-            Title: "Đơn hàng & Điều phối lắp đặt (SO)",
+            Title: "Đơn hàng (1/ Lắp đặt · 2/ Thương mại · 3/ Gia hạn)",
             RouteLabel: "/sales-orders",
             PrimaryHref: "/sales-orders",
-            TabBadge: "Hộp thoại Tạo & Xử lý SO",
-            Actor: "CSKH / Điều phối kho / Kỹ thuật / Quản lý",
-            Summary: "Tạo đơn qua Hộp thoại (hỗ trợ dán nhanh tin nhắn NV bán hàng), tùy chọn Không tính công lắp / Không trừ kho, nhập IMEI và đồng bộ kế toán tự động.",
-            Purpose: "Quản lý trọn vẹn vòng đời đơn lắp đặt nhiều sản phẩm: Tiếp nhận → Duyệt & Điều phối kho / ĐV lắp đặt → Báo số IMEI & Biển số → Kích hoạt & Hoàn thành đơn (cho phép hoàn thành trừ kho trước, bổ sung IMEI sau; và hỗ trợ điều chỉnh đồng bộ khi chưa chốt số).",
+            TabBadge: "3 Loại Đơn hàng",
+            Actor: "CSKH / Nhân viên bán hàng / Điều phối kho / Kế toán",
+            Summary: "Trung tâm tạo lập & xử lý 100% đơn hàng phát sinh doanh thu gồm: (1) Đơn lắp đặt, (2) Đơn bán thương mại (không công lắp) và (3) Đơn gia hạn thiết bị.",
+            Purpose: "Quy tụ toàn bộ nghiệp vụ bán mới lắp đặt, bán thương mại và gia hạn thiết bị về một trụ cột Đơn hàng thống nhất; tự động nội suy đơn giá theo Nhóm giá con & Thời hạn gói cước, cho phép chỉnh linh hoạt đơn giá thực tế và đồng bộ tức thì sang Thiết bị & Kế toán.",
             RequiredAnyPermissions: [Permissions.OrdersView],
             DetailPermissionKeys: [Permissions.OrdersView, Permissions.OrdersCreate, Permissions.OrdersUpdate, Permissions.OrdersActivate, Permissions.OrdersCancel],
             Tabs:
             [
-                new("Hộp thoại + Tạo đơn lắp đặt & 📋 Dán nhanh tin nhắn", "Tự động bóc tách tin nhắn của NV bán hàng thành thông tin khách/địa chỉ/lịch lắp; chọn nhiều dòng sản phẩm, chọn ĐV lắp đặt hoặc Hãng lắp đặt, tích tùy chọn 'Không tính công lắp (Giá chưa lắp)' hoặc 'Không trừ tồn kho'."),
-                new("Bảng Danh sách Đơn hàng tinh gọn & Huy hiệu Menu", "Thanh menu trái luôn hiển thị số đơn đang xử lý/chờ lắp. Bảng chính ẩn các cột phụ (như Nhân viên bán hàng, bảng dòng IMEI chi tiết) để gọn thoáng — chỉ hiển thị đầy đủ khi mở mục Chi tiết."),
-                new("Hộp thoại Điều chỉnh & Xử lý đơn hàng", "Thực hiện điều phối kho/kỹ thuật, nhập hoặc chọn IMEI tồn kho & biển số xe, chọn ngày kích hoạt và bấm Hoàn thành đơn (hoặc bổ sung IMEI cho đơn hoàn thành thiếu IMEI).")
+                new("1/ Đơn lắp đặt (Mã SO7-...)", "Truy vấn ngược sang Thiết bị để chọn xe khai báo sẵn chờ lắp đặt; điều phối Kho & ĐV lắp đặt | Hãng lắp đặt; tự tính chuẩn Giá Tổng khi chọn gói 1–3 năm và cho phép chỉnh đơn giá bán từng dòng."),
+                new("2/ Đơn bán thương mại (Mã TM7-...)", "Tách riêng cho trường hợp bán sỉ hoặc Nhà cung cấp tự đi lắp: tự động khóa Giá bán thương mại & 0 ₫ công kỹ thuật, hỗ trợ Hoàn thành ngay 1 bước hoặc Lưu chờ xuất."),
+                new("3/ Đơn gia hạn (Mã GH7-...)", "Truy vấn ngược về Thiết bị lọc xe quá hạn / sắp hết hạn hoặc xe thiếu đơn lắp đến hạn; chọn 1 hoặc nhiều xe của HTX để lập 1 Đơn gia hạn gộp (gói 1T / 3T / 6T / 12T / 24T hoặc đánh mốc ngày hết hạn mới), hỗ trợ chuyển HTX/Khách hàng (Kế toán/Admin/Owner).")
             ],
             Steps:
             [
-                "Bước 1 (Tạo đơn): Bấm '+ Tạo đơn lắp đặt' (hoặc '📋 Dán nhanh tin nhắn NV bán hàng') ở góc phải → chọn Khách hàng/HTX, Kho điều hàng, ĐV lắp đặt | Hãng lắp đặt, kiểm tra tùy chọn 'Không tính công lắp' nếu bán giao thiết bị không lắp → thêm các dòng sản phẩm và tạo đơn (lúc này CHƯA trừ tồn kho).",
-                "Bước 2 (Điều phối & Nhập IMEI): Bấm '⚙ Điều chỉnh / Xử lý' hoặc 'Nhập IMEI' trên dòng đơn → cập nhật kho/kỹ thuật, điền Số IMEI & Biển số xe do kỹ thuật báo về.",
-                "Bước 3 (Hoàn thành & Kích hoạt): Chọn '📅 Ngày kích hoạt IMEI' và bấm Hoàn thành đơn. Hệ thống trừ tồn kho (trừ khi Hãng lắp không trừ kho), kích hoạt thiết bị sang '/devices' và tự động sinh Hóa đơn phải thu KH (SALE) + Công nợ kỹ thuật (SERVICE, nếu có tính công lắp).",
-                "Bước 4 (Bổ sung IMEI hoặc Điều chỉnh trước khi chốt số): Đơn hoàn thành chưa đủ IMEI có thể mở lại để nhập bổ sung IMEI mà không trừ kho lần 2. Khi đơn hoàn thành chưa bị Kế toán chốt số, quyền Main có thể điều chỉnh lại chế độ công lắp / đơn giá / thông tin và hệ thống tự động cập nhật đồng bộ toàn bộ Hóa đơn công nợ, Hoa hồng & Thiết bị phía sau."
+                "Bước 1: Mở mục 'Đơn hàng' (/sales-orders) → bấm '+ Tạo đơn hàng' và chọn 1 trong 3 loại đơn: (1) Đơn lắp đặt, (2) Đơn bán thương mại hoặc (3) Đơn gia hạn.",
+                "Bước 2 (Với Đơn lắp đặt / Thương mại): Chọn Khách hàng/HTX (hoặc chọn xe khai báo sẵn), kiểm tra đơn giá tự động theo Nhóm giá con (có thể điều chỉnh linh hoạt), chọn Kho / Nguồn xuất và lưu đơn (hoặc hoàn thành ngay với Đơn thương mại).",
+                "Bước 3 (Với Đơn gia hạn): Tích chọn 1 hoặc nhiều xe cần gia hạn → chọn gói 1T/3T/12T hoặc đánh mốc ngày hết hạn mới → kiểm tra/chỉnh đơn giá từng xe → bấm Hoàn thành Đơn gia hạn để cập nhật hạn sang '/devices' và sinh 1 Hóa đơn công nợ gọn tại '/finance'."
             ],
             Notes:
             [
-                "Cột 'Nhân viên bán hàng' và 'Chi tiết mặt hàng & Danh sách IMEI' được ẩn trên bảng danh sách ngoài để tối ưu không gian; bạn xem đầy đủ trong hộp thoại Chi tiết đơn hoặc nhấp đúp vào dòng đơn hàng.",
-                "Chỉ khi loại đơn vị lắp đặt là 'Hãng lắp đặt' mới được phép bật 'Không trừ tồn kho'."
+                "Bảng danh sách Đơn hàng có sẵn 4 tab lọc nhanh: Tất cả đơn · 1/ Đơn lắp đặt · 2/ Đơn bán thương mại · 3/ Đơn gia hạn.",
+                "Chỉ khi nguồn xuất / lắp đặt là 'Nhà cung cấp / Hãng lắp đặt' mới được phép bật 'Không trừ tồn kho'."
             ],
-            DataFlow: "Cập nhật v7_orders, v7_order_lines, v7_order_events, v7_stock_effects → Đồng bộ sang stock_units, quantity_movements, activations (/devices) và invoices SALE / SERVICE (/finance)."),
+            DataFlow: "Cập nhật v7_orders (INSTALL / COMMERCIAL / RENEWAL), v7_order_lines, renewals → Đồng bộ sang stock_units, activations (/devices) và invoices SALE / SERVICE / RENEWAL (/finance)."),
 
         ["inventory"] = new(
             Key: "inventory",
@@ -876,34 +875,33 @@
         ["devices"] = new(
             Key: "devices",
             Category: "3. KHO & THIẾT BỊ",
-            Title: "Thiết bị & gia hạn (Cảnh báo hạn ≤ 10 ngày)",
+            Title: "Thiết bị — Hồ sơ Xe, Mốc Gia hạn & Cảnh báo hạn",
             RouteLabel: "/devices",
             PrimaryHref: "/devices",
-            TabBadge: "Quản lý hạn & Gia hạn",
+            TabBadge: "Hồ sơ Xe & Cảnh báo ≤ 10 ngày",
             Actor: "CSKH / Nhân viên bán hàng / Kế toán",
-            Summary: "Theo dõi thiết bị đang hoạt động, cảnh báo trực tiếp số thiết bị còn hạn ≤ 10 ngày trên menu trái, thêm thiết bị và gia hạn thuê bao.",
-            Purpose: "Giúp CSKH nắm bắt ngay các thiết bị sắp hết hạn (≤ 10 / 30 / 60 ngày) hoặc quá hạn để chăm sóc tái tục kịp thời, đồng thời đồng bộ tự động công nợ gia hạn và hoa hồng NV bán hàng.",
+            Summary: "Khai báo hồ sơ xe / thiết bị từ đầu (kể cả trước khi có Đơn lắp đặt), theo dõi liên kết Đơn lắp đặt, số lần & mốc Đơn gia hạn và cảnh báo hạn ≤ 10 ngày.",
+            Purpose: "Tách bạch rõ quản lý tài sản phương tiện (Thiết bị) với quản lý doanh thu (Đơn hàng): cho phép tạo sẵn hồ sơ xe chờ lắp đặt, đối chiếu lịch sử các lần gia hạn map theo mã Đơn gia hạn (GH7-...) và giữ nguyên bộ cảnh báo hết hạn trực quan.",
             RequiredAnyPermissions: [Permissions.DevicesView],
             DetailPermissionKeys: [Permissions.DevicesView, Permissions.DevicesActiveView, Permissions.DevicesDue10View, Permissions.DevicesDue30View, Permissions.DevicesDue60View, Permissions.DevicesOverdueView, Permissions.DevicesRenew, Permissions.DevicesUpdate],
             Tabs:
             [
-                new("Biểu mẫu + Gia hạn, Sửa hạn/TT & + Thêm thiết bị", "Cho phép gia hạn 12 tháng gắn NV bán hàng (hỗ trợ chuyển sang HTX/Khách hàng khác ngay khi gia hạn dành cho Kế toán, Admin & Chủ sở hữu), cập nhật ngày kích hoạt/ngày hết hạn/biển số (hỗ trợ chuyển đơn vị quản lý xe kèm đồng bộ lại hóa đơn công nợ Kế toán theo giá nhóm KH mới dành riêng cho Chủ sở hữu), hoặc thêm thiết bị mới."),
-                new("Bảng Thiết bị đang hoạt động & Bộ lọc cảnh báo hạn", "Lọc nhanh: Đang hoạt động, Đến hạn ≤ 10 ngày (đồng bộ với huy hiệu đỏ trên menu trái), ≤ 30 ngày, ≤ 60 ngày, Quá hạn, Đã khóa."),
-                new("Hộp thoại 📋 Xem log (Dành cho Main / Owner / Admin)", "Tích hợp gọn Lưu vết thiết bị đã xóa mềm, Lịch sử các lần gia hạn (hỗ trợ sửa/xóa/chốt số KT) và Lưu vết thay đổi dữ liệu ngay trong hộp thoại.")
+                new("Khai báo Xe / Thiết bị từ đầu (+ Thêm thiết bị / Khai báo xe)", "Hỗ trợ 2 chế độ: (1) Khai báo sẵn xe chờ lắp đặt (nhập Biển số, Số khung, chọn HTX/Khách lẻ — chưa cần IMEI) và (2) Thiết bị đã lắp đặt có sẵn IMEI."),
+                new("Chi tiết Thiết bị & Lịch sử Mốc Đơn gia hạn", "Hiển thị rõ xe đã có Đơn lắp đặt hay chưa, số lần gia hạn & mốc hạn cũ → hạn mới map trực tiếp với mã Đơn gia hạn (GH7-...), kèm nút 1 chạm chuyển sang lập Đơn lắp đặt hoặc Đơn gia hạn."),
+                new("Sửa thông tin thiết bị & Hộp thoại 📋 Xem log", "Chỉnh sửa thông tin xe/hạn trước khi chốt số; riêng Chủ sở hữu (Owner) & Main được đổi HTX/Khách hàng kèm đồng bộ ngược Hóa đơn công nợ bên Kế toán.")
             ],
             Steps:
             [
-                "Quan sát huy hiệu 'Hết hạn ≤ 10 ngày' trên menu trái và mở mục 'Thiết bị & gia hạn' (/devices).",
-                "Sử dụng bộ lọc hạn (≤ 10 ngày, ≤ 30 ngày, Quá hạn...) hoặc tìm theo Biển số / IMEI / Đại lý.",
-                "Bấm '+ Gia hạn' trên dòng thiết bị → chọn Nhân viên bán hàng phụ trách gia hạn và hình thức thanh toán (Công nợ / Tiền mặt). Với Kế toán, Admin và Chủ sở hữu: có thể chọn chuyển sang HTX/Khách hàng khác ngay trên biểu mẫu để áp giá nhóm KH mới và ghi công nợ đợt gia hạn mới cho đơn vị mới (giữ nguyên công nợ lịch sử của đơn vị cũ).",
-                "Khi cần chỉnh sửa biển số, chủ xe hoặc thời hạn (trước khi Kế toán chốt số), bấm 'Sửa hạn / TT'. Riêng quyền Chủ sở hữu được phép đổi Đại lý / HTX / Khách hàng tại đây để hệ thống tự động cập nhật lại hóa đơn công nợ bên Kế toán (/finance) theo biểu giá nhóm KH tương ứng và lưu vết lịch sử."
+                "Mở mục 'Thiết bị' (/devices) để tra cứu hồ sơ phương tiện, lọc nhanh Chờ lắp / Còn hạn / D+10 / D+30 / D+60 / Quá hạn / Khoá.",
+                "Để khai báo xe mới trước khi đi lắp: bấm '+ Thêm thiết bị / Khai báo xe' → chọn chế độ 'Khai báo sẵn xe chờ lắp đặt', chọn HTX/Khách hàng, nhập Biển số / Số khung → Lưu, sau đó bấm '+ Tạo đơn lắp' để chuyển thẳng sang Đơn hàng.",
+                "Để gia hạn thiết bị: bấm '+ Đơn gia hạn' trên dòng xe (hoặc nút '🔄 Lập Đơn gia hạn' đầu trang) để mở thẳng luồng 3/ Đơn gia hạn tại '/sales-orders'."
             ],
             Notes:
             [
-                "Bộ đếm cảnh báo trên menu trái chỉ đếm các thiết bị đang hoạt động còn hạn từ 0 đến 10 ngày (đã loại trừ thiết bị hết hạn và thiết bị tạm khóa) để CSKH tập trung nhắc hạn chính xác.",
+                "Bộ đếm cảnh báo trên menu trái chỉ đếm các thiết bị đang hoạt động còn hạn từ 0 đến 10 ngày (loại trừ xe mới khai báo chờ lắp, xe quá hạn và xe tạm khóa).",
                 "Lịch sử gia hạn và Lưu vết thiết bị xóa mềm được mở gọn qua nút '📋 Xem log' (chỉ hiển thị cho Main, Owner, Admin)."
             ],
-            DataFlow: "Cập nhật activations & renewals → Tự động sinh Hóa đơn Gia hạn (RENEWAL) + Phiếu Thu (nếu thu tiền mặt ngay) và cộng hoa hồng gia hạn cho NV bán hàng tại (/finance)."),
+            DataFlow: "Liên kết 2 chiều giữa activations ↔ v7_orders (Đơn lắp đặt SO7-... & Đơn gia hạn GH7-...) ↔ renewals ↔ invoices (/finance)."),
 
         ["warranties"] = new(
             Key: "warranties",
@@ -1152,60 +1150,58 @@
         ["mod-03"] = new(
             Key: "mod-03",
             Category: "PHÂN HỆ CỐT LÕI 03",
-            Title: "03. Đơn hàng & Điều phối lắp đặt đa chế độ (SO)",
+            Title: "03. Trung tâm Đơn hàng 3 Chế độ (Lắp đặt · Thương mại · Gia hạn)",
             RouteLabel: "/sales-orders",
             PrimaryHref: "/sales-orders",
-            TabBadge: "Điều phối & Kích hoạt",
-            Actor: "CSKH / Điều phối / Kỹ thuật / Quản lý",
-            Summary: "Tạo đơn qua Hộp thoại, chọn Giá có lắp / Không tính công lắp, ĐV lắp / Hãng lắp, hoàn thành đơn linh hoạt và đồng bộ ngược khi điều chỉnh trước chốt số.",
-            Purpose: "Kết nối mượt mà giữa Kinh doanh – CSKH – Kho – Kỹ thuật – Kế toán trên một luồng đơn hàng duy nhất, đảm bảo chỉ trừ tồn kho khi hoàn thành và hạch toán chính xác theo chế độ lắp đặt.",
+            TabBadge: "3 Loại Đơn hàng",
+            Actor: "CSKH / Nhân viên bán hàng / Điều phối / Kế toán",
+            Summary: "Quy tụ 100% đơn hàng tạo doanh thu gồm: 1/ Đơn lắp đặt (SO7), 2/ Đơn bán thương mại (TM7) và 3/ Đơn gia hạn (GH7), đồng bộ chuẩn Nhóm giá con & Giá tổng theo thời hạn.",
+            Purpose: "Kết nối mượt mà giữa Kinh doanh – CSKH – Kho – Kỹ thuật – Kế toán trên một luồng Đơn hàng duy nhất, loại bỏ rủi ro nhầm công lắp và cho phép gia hạn gộp nhiều xe 1T/3T/12T hoặc chốt mốc ngày.",
             RequiredAnyPermissions: [Permissions.OrdersView],
             DetailPermissionKeys: [Permissions.OrdersView, Permissions.OrdersCreate, Permissions.OrdersUpdate, Permissions.OrdersActivate, Permissions.OrdersCancel],
             Tabs:
             [
-                new("Tạo đơn & Chế độ giá linh hoạt", "Hỗ trợ dán nhanh tin nhắn NV bán hàng, tự động chuyển đổi giữa Giá bán có lắp và Giá bán chưa lắp (khi tích Không tính công lắp)."),
-                new("Hoàn thành linh hoạt & Đồng bộ luồng sau", "Cho phép hoàn thành trừ kho trước khi đủ IMEI (bổ sung IMEI sau), và cho phép quyền Main điều chỉnh đơn hoàn thành chưa chốt số kéo theo cập nhật toàn bộ Công nợ / Thiết bị.")
+                new("3 Loại Đơn & Đơn giá linh hoạt", "Tự động báo giá theo Nhóm giá con & Thời hạn gói cước, đồng thời mở ô cho phép chỉnh linh hoạt đơn giá thực tế trên cả 3 loại đơn."),
+                new("Truy vấn ngược Thiết bị & Đồng bộ Kế toán", "Tự động rà soát xe khai báo sẵn chưa có đơn lắp và xe đến hạn cần lập Đơn gia hạn; hoàn thành đơn đồng bộ thẳng sang Thiết bị & Hóa đơn công nợ.")
             ],
             Steps:
             [
-                "Tạo đơn mới qua nút '+ Tạo đơn lắp đặt' hoặc '📋 Dán nhanh tin nhắn NV bán hàng'.",
-                "Mở hộp thoại xử lý trên dòng đơn để điều phối kho, ĐV lắp đặt, điền IMEI & biển số xe và bấm Hoàn thành đơn.",
-                "Nhấp đúp dòng đơn hoặc bấm Xem chi tiết để kiểm tra đầy đủ Nhân viên bán hàng và danh sách dòng sản phẩm/IMEI."
+                "Bấm '+ Tạo đơn hàng' → chọn 1/ Đơn lắp đặt, 2/ Đơn bán thương mại hoặc 3/ Đơn gia hạn.",
+                "Kiểm tra đơn giá tự động theo Nhóm KH, điều phối Kho/ĐV lắp (hoặc chọn danh sách xe gia hạn) và hoàn thành đơn."
             ],
             Notes:
             [
-                "Cột 'Nhân viên bán hàng' được ẩn khỏi bảng ngoài để giao diện tinh gọn và chỉ hiển thị trong mục Chi tiết."
+                "Cột 'Nhân viên bán hàng' được ẩn khỏi bảng ngoài để giao diện tinh gọn và hiển thị đầy đủ trong mục Chi tiết."
             ],
-            DataFlow: "Khi hoàn thành: trừ tồn kho + kích hoạt thiết bị tại (/devices) + sinh Hóa đơn phải thu (SALE) & Công kỹ thuật (SERVICE) tại (/finance)."),
+            DataFlow: "Khi hoàn thành: cập nhật tồn kho + cập nhật Thiết bị (/devices) + sinh Hóa đơn SALE / SERVICE / RENEWAL tại (/finance)."),
 
         ["mod-04"] = new(
             Key: "mod-04",
             Category: "PHÂN HỆ CỐT LÕI 04",
-            Title: "04. Quản lý Vòng đời Thiết bị & Tái tục Gia hạn",
+            Title: "04. Quản lý Hồ sơ Thiết bị & Cảnh báo Gia hạn",
             RouteLabel: "/devices",
             PrimaryHref: "/devices",
-            TabBadge: "Cảnh báo ≤ 10 ngày",
+            TabBadge: "Hồ sơ Xe & Cảnh báo ≤ 10 ngày",
             Actor: "CSKH / Nhân viên bán hàng / Kế toán",
-            Summary: "Theo dõi hạn thuê bao thiết bị theo thời gian thực, cảnh báo ≤ 10 ngày ngay trên thanh điều hướng, gia hạn 12 tháng gắn hoa hồng NV bán hàng.",
-            Purpose: "Không bỏ sót bất kỳ thiết bị nào sắp đến hạn gia hạn, đồng thời tự động đồng bộ hạn thiết bị với chứng từ công nợ gia hạn và hoa hồng nhân viên bán hàng.",
+            Summary: "Khai báo sẵn hồ sơ xe trước cả khi có Đơn lắp đặt, đối chiếu lịch sử mốc Đơn gia hạn (GH7-...) và cảnh báo hạn ≤ 10 ngày trực tiếp trên thanh điều hướng.",
+            Purpose: "Quản lý trọn vẹn vòng đời từng biển số / số khung / IMEI thiết bị từ lúc mới khai báo chờ lắp cho đến các chu kỳ gia hạn tiếp theo.",
             RequiredAnyPermissions: [Permissions.DevicesView],
             DetailPermissionKeys: [Permissions.DevicesView, Permissions.DevicesActiveView, Permissions.DevicesDue10View, Permissions.DevicesDue30View, Permissions.DevicesDue60View, Permissions.DevicesOverdueView, Permissions.DevicesRenew, Permissions.DevicesUpdate],
             Tabs:
             [
-                new("Cảnh báo hạn đa mốc (≤ 10 / 30 / 60 ngày & Quá hạn)", "Huy hiệu đỏ trên menu trái hiển thị chính xác số thiết bị còn hạn ≤ 10 ngày cần ưu tiên liên hệ."),
-                new("Gia hạn & Lưu vết kiểm soát trong Hộp thoại Xem log", "Gia hạn nhanh bằng Công nợ hoặc Tiền mặt; Lịch sử các lần gia hạn và Lưu vết thiết bị xóa mềm được quản lý gọn trong hộp thoại '📋 Xem log' (Main/Owner/Admin).")
+                new("Hồ sơ Xe chờ lắp & Đang hoạt động", "Cho phép khai báo sẵn xe (Biển số, Số khung, HTX/Khách lẻ) trước khi có Đơn lắp đặt và theo dõi cảnh báo hạn ≤ 10 / 30 / 60 ngày & Quá hạn."),
+                new("Map Lịch sử Đơn gia hạn & Lưu vết Xem log", "Chi tiết từng xe hiển thị số lần gia hạn & mốc hạn cũ → mới gắn với mã Đơn gia hạn (GH7-...).")
             ],
             Steps:
             [
-                "Lọc danh sách thiết bị 'Đến hạn ≤ 10 ngày' hoặc '≤ 30 ngày' tại '/devices'.",
-                "Bấm '+ Gia hạn' trên dòng thiết bị → chọn Nhân viên bán hàng phụ trách và hình thức thanh toán → Lưu gia hạn.",
-                "Có thể thêm mới thiết bị trực tiếp bằng nút '+ Thêm thiết bị' khi tiếp nhận xe ngoài luồng đơn hàng."
+                "Khai báo sẵn hồ sơ xe hoặc tra cứu danh sách xe sắp hết hạn tại '/devices'.",
+                "Bấm '+ Tạo đơn lắp' (với xe chờ lắp) hoặc '+ Đơn gia hạn' (với xe đến hạn) để chuyển sang lập đơn tại '/sales-orders'."
             ],
             Notes:
             [
                 "Khi xóa mềm thiết bị chưa khóa sổ, các đợt gia hạn và chứng từ kế toán liên quan phía sau tự động được dọn sạch đồng bộ và ghi vào Lưu vết hệ thống."
             ],
-            DataFlow: "Đồng bộ 2 chiều giữa activations, renewals với Hóa đơn RENEWAL, Sổ quỹ và Hoa hồng NV bán hàng tại (/finance)."),
+            DataFlow: "Đồng bộ 2 chiều giữa activations, renewals, v7_orders với Hóa đơn RENEWAL, Sổ quỹ và Hoa hồng NV bán hàng tại (/finance)."),
 
         ["mod-05"] = new(
             Key: "mod-05",

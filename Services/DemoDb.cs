@@ -134,12 +134,16 @@ public sealed class DemoDb
             Exec(c, null, "ALTER TABLE customers ADD COLUMN sub_group_id INTEGER REFERENCES customer_groups(id)");
 
         var renCols = Query(c, "PRAGMA table_info(renewals)", r => S(r, 1));
+        if (!renCols.Any(x => string.Equals(x, "v7_order_id", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN v7_order_id INTEGER REFERENCES v7_orders(id)");
         if (!renCols.Any(x => string.Equals(x, "customer_id", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE renewals ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
         if (!renCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE renewals ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
         if (!renCols.Any(x => string.Equals(x, "seller_name", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE renewals ADD COLUMN seller_name TEXT NOT NULL DEFAULT ''");
+        if (!renCols.Any(x => string.Equals(x, "duration_months", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE renewals ADD COLUMN duration_months INTEGER NOT NULL DEFAULT 12");
         if (!renCols.Any(x => string.Equals(x, "is_locked", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE renewals ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0");
         if (!renCols.Any(x => string.Equals(x, "locked_at", StringComparison.OrdinalIgnoreCase)))
@@ -327,6 +331,8 @@ public sealed class DemoDb
         var actCols = Query(c, "PRAGMA table_info(activations)", r => S(r, 1));
         if (!actCols.Any(x => string.Equals(x, "seller_id", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE activations ADD COLUMN seller_id INTEGER REFERENCES v7_sellers(id)");
+        if (!actCols.Any(x => string.Equals(x, "is_pre_declared", StringComparison.OrdinalIgnoreCase)))
+            Exec(c, null, "ALTER TABLE activations ADD COLUMN is_pre_declared INTEGER NOT NULL DEFAULT 0");
         if (!actCols.Any(x => string.Equals(x, "device_type_label", StringComparison.OrdinalIgnoreCase)))
             Exec(c, null, "ALTER TABLE activations ADD COLUMN device_type_label TEXT NOT NULL DEFAULT ''");
         if (!actCols.Any(x => string.Equals(x, "agency_name", StringComparison.OrdinalIgnoreCase)))
@@ -407,6 +413,119 @@ public sealed class DemoDb
             UnlockImportedLockedDevices(c, null);
             // Đồng bộ lại các đợt gia hạn chưa chốt số bị áp nhầm giá Khách lẻ/Doanh nghiệp (960k) về đúng giá Nhóm con HTX (740k / 540k)
             ReconcileUnlockedSubgroupRenewals(c, null);
+            // Chuẩn hóa Bảng giá Khách hàng, Nhóm giá con HTX (HTX Lâm Minh -> Nhóm giá 3, dọn nhóm thừa NHOM-07, gom đủ 3 cột giá trên dòng thiết bị)
+            NormalizeCustomerGroupsAndDevicePrices(c, null);
+        }
+    }
+
+    private void NormalizeCustomerGroupsAndDevicePrices(SqliteConnection c, SqliteTransaction? t)
+    {
+        var cgCols = QueryAny(c, t, "PRAGMA table_info(customer_groups)", r => S(r, 1));
+        var gpCols = QueryAny(c, t, "PRAGMA table_info(v7_group_prices)", r => S(r, 1));
+        if (!cgCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)) ||
+            !gpCols.Any(x => string.Equals(x, "deleted_at", StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var prevActor = ActorId;
+        var devId = N(c, t, "SELECT COALESCE((SELECT id FROM app_users WHERE LOWER(username)='vanlt_it' LIMIT 1), 0)");
+        try
+        {
+            if (devId > 0) ActorId = devId;
+
+            // 1. Dọn nhóm thừa "Gía 1" (NHOM-07) nếu không có khách hàng và không có bảng giá
+            var junkGroupId = N(c, t, @"SELECT COALESCE((
+                SELECT cg.id FROM customer_groups cg
+                WHERE UPPER(COALESCE(cg.code,''))='NHOM-07'
+                  AND cg.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM customers cu WHERE (cu.group_id=cg.id OR cu.sub_group_id=cg.id) AND cu.deleted_at IS NULL)
+                  AND NOT EXISTS (SELECT 1 FROM v7_group_prices gp WHERE gp.group_id=cg.id AND gp.deleted_at IS NULL)
+                LIMIT 1), 0)");
+            if (junkGroupId > 0)
+            {
+                var nowIso = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+                Exec(c, t, "UPDATE customer_groups SET deleted_at=$now WHERE id=$id", ("$now", nowIso), ("$id", junkGroupId));
+            }
+
+            // 2. Chuyển HTX Lâm Minh (KH00021) sang đúng Nhóm Đại lý / HTX + Nhóm giá 3 (DL-NHOM-3)
+            var agencyGroupId = N(c, t, "SELECT COALESCE((SELECT id FROM customer_groups WHERE UPPER(code)='AGENCY' AND deleted_at IS NULL LIMIT 1), 0)");
+            var subGroup1Id = N(c, t, "SELECT COALESCE((SELECT id FROM customer_groups WHERE UPPER(code)='DL-NHOM-1' AND deleted_at IS NULL LIMIT 1), 0)");
+            var subGroup3Id = N(c, t, "SELECT COALESCE((SELECT id FROM customer_groups WHERE UPPER(code)='DL-NHOM-3' AND deleted_at IS NULL LIMIT 1), 0)");
+            var retailGroupId = N(c, t, "SELECT COALESCE((SELECT id FROM customer_groups WHERE UPPER(code)='RETAIL' AND deleted_at IS NULL LIMIT 1), 0)");
+            var b2bGroupId = N(c, t, "SELECT COALESCE((SELECT id FROM customer_groups WHERE UPPER(code)='B2B' AND deleted_at IS NULL LIMIT 1), 0)");
+
+            if (agencyGroupId > 0 && subGroup3Id > 0 && retailGroupId > 0)
+            {
+                Exec(c, t, @"UPDATE customers
+                    SET group_id = $agency, sub_group_id = $sub3
+                    WHERE (UPPER(code)='KH00021' OR LOWER(name) LIKE '%htx lâm minh%')
+                      AND group_id = $retail AND sub_group_id IS NULL AND deleted_at IS NULL",
+                    ("$agency", agencyGroupId), ("$sub3", subGroup3Id), ("$retail", retailGroupId));
+            }
+
+            // 3. Gom đủ 3 mức giá (Thương mại · Có lắp · Gia hạn 12T) lên trực tiếp dòng Thiết bị cho từng Nhóm KH & Nhóm giá con HTX
+            void EnsureGroupDevicePrice(long grpId, string sku, long stdPrice, long instPrice, long renPrice)
+            {
+                if (grpId <= 0) return;
+                var prodId = N(c, t, "SELECT COALESCE((SELECT id FROM products WHERE UPPER(sku)=UPPER($s) AND deleted_at IS NULL LIMIT 1), 0)", ("$s", sku));
+                if (prodId <= 0) return;
+
+                var existingId = N(c, t, "SELECT COALESCE((SELECT id FROM v7_group_prices WHERE group_id=$g AND product_id=$p AND deleted_at IS NULL ORDER BY effective_from DESC, id DESC LIMIT 1), 0)",
+                    ("$g", grpId), ("$p", prodId));
+                if (existingId == 0)
+                {
+                    Exec(c, t, @"INSERT INTO v7_group_prices(group_id,product_id,standard_price_vnd,installed_price_vnd,renewal_price_vnd,effective_from)
+                        VALUES($g,$p,$std,$inst,$ren,'2025-01-01')",
+                        ("$g", grpId), ("$p", prodId), ("$std", stdPrice), ("$inst", instPrice), ("$ren", renPrice));
+                }
+            }
+
+            // Bổ sung SP000001 (Định vị Xanh GPS) đầy đủ 3 cột cho Nhóm cha Đại lý/HTX, Nhóm giá 1 (740k) và Nhóm giá 3 (960k)
+            EnsureGroupDevicePrice(agencyGroupId, "SP000001", 750_000, 900_000, 540_000);
+            EnsureGroupDevicePrice(subGroup1Id, "SP000001", 750_000, 900_000, 740_000);
+            EnsureGroupDevicePrice(subGroup3Id, "SP000001", 750_000, 900_000, 960_000);
+
+            // Chuẩn hóa SP000019 (Nasa GPS 4G nano) ở nhóm Đại lý/HTX: nếu Giá có lắp đang bằng Giá thương mại (620k) -> nâng Giá có lắp = 700k (khớp DX00002)
+            if (agencyGroupId > 0)
+            {
+                Exec(c, t, @"UPDATE v7_group_prices
+                    SET installed_price_vnd = 700000
+                    WHERE group_id = $g
+                      AND product_id IN (SELECT id FROM products WHERE UPPER(sku)='SP000019' AND deleted_at IS NULL)
+                      AND standard_price_vnd = 620000 AND installed_price_vnd = 620000 AND deleted_at IS NULL",
+                    ("$g", agencyGroupId));
+            }
+
+            // Chuẩn hóa Thẻ lái xe ở nhóm Doanh nghiệp (B2B): điền Giá thương mại = 100k khi đang = 0 mà Giá lắp = 100k
+            if (b2bGroupId > 0)
+            {
+                Exec(c, t, @"UPDATE v7_group_prices
+                    SET standard_price_vnd = installed_price_vnd
+                    WHERE group_id = $g
+                      AND product_id IN (SELECT id FROM products WHERE UPPER(sku) IN ('SP000034','SP000061') AND deleted_at IS NULL)
+                      AND standard_price_vnd = 0 AND installed_price_vnd > 0 AND deleted_at IS NULL",
+                    ("$g", b2bGroupId));
+            }
+
+            // Chuẩn hóa MGPS Biển trắng (SP000006) nhóm Khách lẻ (RETAIL): khớp Giá gia hạn 800.000 ₫ với DX00021 & giá gốc sản phẩm
+            if (retailGroupId > 0)
+            {
+                Exec(c, t, @"UPDATE v7_group_prices
+                    SET renewal_price_vnd = 800000
+                    WHERE group_id = $g
+                      AND product_id IN (SELECT id FROM products WHERE UPPER(sku)='SP000006' AND deleted_at IS NULL)
+                      AND renewal_price_vnd = 960000 AND deleted_at IS NULL",
+                    ("$g", retailGroupId));
+            }
+
+            // Đảm bảo Cam AI 4CH (CAM4CH) có giá bán/gia hạn khai báo gốc chuẩn khi chưa khai báo riêng từng nhóm
+            Exec(c, t, @"UPDATE products
+                SET standard_price_vnd = CASE WHEN COALESCE(standard_price_vnd,0)=0 THEN 5600000 ELSE standard_price_vnd END,
+                    renewal_fee_vnd = CASE WHEN COALESCE(renewal_fee_vnd,0)=0 THEN 1980000 ELSE renewal_fee_vnd END
+                WHERE UPPER(sku)='CAM4CH' AND deleted_at IS NULL AND (COALESCE(standard_price_vnd,0)=0 OR COALESCE(renewal_fee_vnd,0)=0)");
+        }
+        finally
+        {
+            ActorId = prevActor;
         }
     }
 
@@ -466,7 +585,7 @@ public sealed class DemoDb
     {
         var lockedImportedCount = N(c, t, @"
             SELECT COUNT(*) FROM activations
-            WHERE status='DISABLED' AND deleted_at IS NULL
+            WHERE status='DISABLED' AND COALESCE(is_pre_declared,0)=0 AND deleted_at IS NULL
               AND NOT EXISTS (SELECT 1 FROM audit_logs al WHERE al.action='LOCK_DEVICE' AND al.entity_id=activations.id)");
         if (lockedImportedCount <= 0)
             return;
@@ -481,6 +600,7 @@ public sealed class DemoDb
                 SET status = 'ACTIVE',
                     updated_at = datetime('now')
                 WHERE status = 'DISABLED'
+                  AND COALESCE(is_pre_declared,0) = 0
                   AND deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM audit_logs al WHERE al.action='LOCK_DEVICE' AND al.entity_id=activations.id)");
         }
@@ -781,8 +901,8 @@ public sealed class DemoDb
           K("SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL"),
           K("SELECT COUNT(*) FROM stock_units WHERE status='IN_STOCK' AND deleted_at IS NULL"),
           K("SELECT COUNT(*) FROM stock_units WHERE status='CONSIGNED' AND deleted_at IS NULL"),
-          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at)>=date('now')"),
-          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND deleted_at IS NULL AND date(expires_at) BETWEEN date('now') AND date('now','+30 days')"),
+          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND COALESCE(is_pre_declared,0)=0 AND deleted_at IS NULL AND date(expires_at)>=date('now')"),
+          K("SELECT COUNT(*) FROM activations WHERE status='ACTIVE' AND COALESCE(is_pre_declared,0)=0 AND deleted_at IS NULL AND date(expires_at) BETWEEN date('now') AND date('now','+30 days')"),
           K("SELECT COUNT(*) FROM v7_orders WHERE status IN ('PENDING','APPROVED','DISPATCHED','REPORTED') AND deleted_at IS NULL"),
           K("SELECT COALESCE(SUM(CASE WHEN i.status='PAID' THEN 0 ELSE i.amount_vnd-COALESCE(i.offset_vnd,0)-COALESCE(p.paid,0) END),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(allocated_vnd) paid FROM payment_allocations WHERE deleted_at IS NULL GROUP BY invoice_id) p ON p.invoice_id=i.id WHERE i.deleted_at IS NULL AND i.status!='VOID' AND i.invoice_type IN ('SALE','RENEWAL')"),
           K("SELECT COALESCE(SUM(amount_vnd),0) FROM invoices WHERE deleted_at IS NULL AND invoice_type IN ('SALE','RENEWAL') AND status!='VOID'"),
@@ -1212,7 +1332,7 @@ public sealed class DemoDb
           JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
-          WHERE a.deleted_at IS NULL AND COALESCE(a.status,'ACTIVE')='ACTIVE'",
+          WHERE a.deleted_at IS NULL AND COALESCE(a.is_pre_declared,0)=0 AND COALESCE(a.status,'ACTIVE')='ACTIVE'",
           r => S(r, 0));
         var count = 0;
         foreach (var exp in dates)
@@ -1258,21 +1378,25 @@ public sealed class DemoDb
           COALESCE(a.owner_phone,''),
           COALESCE(a.status,'ACTIVE'),
           COALESCE(NULLIF(a.last_renewed_at,''), (SELECT MAX(r2.renewed_at) FROM renewals r2 WHERE r2.activation_id=a.id AND r2.deleted_at IS NULL), ''),
-          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL))
+          MAX(COALESCE(a.renewal_count,0), (SELECT COUNT(*) FROM renewals r3 WHERE r3.activation_id=a.id AND r3.deleted_at IS NULL)),
+          COALESCE(a.is_pre_declared, 0),
+          COALESCE((SELECT ro.code FROM renewals r4 JOIN v7_orders ro ON ro.id=r4.v7_order_id WHERE r4.activation_id=a.id AND r4.deleted_at IS NULL AND ro.deleted_at IS NULL ORDER BY r4.id DESC LIMIT 1), ''),
+          a.v7_order_id
           FROM activations a JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
           JOIN customers c ON c.id=a.customer_id
-          LEFT JOIN v7_orders o ON o.id=a.v7_order_id
+          LEFT JOIN v7_orders o ON o.id=a.v7_order_id AND o.deleted_at IS NULL
           LEFT JOIN v7_sellers sl ON sl.id=COALESCE(a.seller_id, o.seller_record_id, c.seller_id)
           WHERE a.deleted_at IS NULL
-          ORDER BY a.expires_at",
+          ORDER BY CASE WHEN COALESCE(a.is_pre_declared,0)=1 THEN 0 ELSE 1 END, a.expires_at",
           r => (
               ActId: L(r,0), Imei: S(r,1), Sku: S(r,2), CustName: S(r,3), Plate: S(r,4),
               ActAt: S(r,5), ExpAt: S(r,6), CustId: L(r,7), ProdId: L(r,8),
               Vin: S(r,9), OrdCode: S(r,10), Contact: S(r,11),
               SellerId: r.IsDBNull(12) ? (long?)null : L(r,12), SellerName: S(r,13),
               DevLabel: S(r,14), Agency: S(r,15), Owner: S(r,16), Phone: S(r,17),
-              Status: S(r,18), LastRen: S(r,19), RenCnt: L(r,20)));
+              Status: S(r,18), LastRen: S(r,19), RenCnt: L(r,20),
+              PreDec: L(r,21) == 1, LastRenOrd: S(r,22), OrdId: r.IsDBNull(23) ? (long?)null : L(r,23)));
 
         var result = new List<DeviceVm>(rawRows.Count);
         foreach (var x in rawRows)
@@ -1281,7 +1405,7 @@ public sealed class DemoDb
                 x.ActId, x.Imei, x.Sku, x.CustName, x.Plate, x.ActAt, x.ExpAt, x.CustId, x.ProdId,
                 x.Vin, x.OrdCode, x.Contact, x.SellerId, x.SellerName,
                 x.DevLabel, x.Agency, x.Owner, x.Phone, x.Status, x.LastRen, x.RenCnt,
-                LookupRenewal(x.CustId, x.ProdId)));
+                LookupRenewal(x.CustId, x.ProdId), x.PreDec, x.LastRenOrd, x.OrdId));
         }
         return result;
     }
@@ -1713,12 +1837,12 @@ public sealed class DemoDb
     {
         var unlocked = Tx((c, t) =>
         {
-            var cnt = (int)N(c, t, "SELECT COUNT(*) FROM activations WHERE status='DISABLED' AND deleted_at IS NULL");
+            var cnt = (int)N(c, t, "SELECT COUNT(*) FROM activations WHERE status='DISABLED' AND COALESCE(is_pre_declared,0)=0 AND deleted_at IS NULL");
             if (cnt > 0)
             {
                 Exec(c, t, @"UPDATE activations
                     SET status='ACTIVE', updated_at=datetime('now'), updated_by=$actor
-                    WHERE status='DISABLED' AND deleted_at IS NULL",
+                    WHERE status='DISABLED' AND COALESCE(is_pre_declared,0)=0 AND deleted_at IS NULL",
                     ("$actor", ActorId > 0 ? ActorId : null));
                 Log(c, t, "UNLOCK_ALL_DEVICES", "ACTIVATION", 0, $"Mở khóa đồng loạt {cnt} thiết bị để cho phép gia hạn");
             }
@@ -1757,6 +1881,20 @@ public sealed class DemoDb
         return GroupPriceResolver.ResolveRenewalPrice(c, null, customerId, productId);
     }
 
+    public long PreviewRenewalPriceForDuration(long customerId, long productId, int durationMonths = 12, DateTime? baseExpiry = null, DateTime? customTargetExpiry = null)
+    {
+        if (customerId <= 0 || productId <= 0) return 0;
+        using var c = Open();
+        return GroupPriceResolver.ResolveRenewalPriceForDuration(c, null, customerId, productId, durationMonths, baseExpiry, customTargetExpiry);
+    }
+
+    public long PreviewOrderUnitPrice(long customerId, long productId, string priceMode = "INSTALLED", long durationMonths = 12)
+    {
+        if (customerId <= 0 || productId <= 0) return 0;
+        using var c = Open();
+        return GroupPriceResolver.ResolveOrderUnitPriceForDuration(c, null, customerId, productId, priceMode, durationMonths);
+    }
+
     public List<(long Id, string Imei, string WarehouseName)> AvailableStockImeis(long productId = 0)
     {
         using var c = Open();
@@ -1772,7 +1910,7 @@ public sealed class DemoDb
     public long CreateManualDeviceActivation(
         long customerId,
         long productId,
-        string imei,
+        string? imei,
         string? plateNo,
         string? ownerName,
         string? ownerPhone,
@@ -1780,28 +1918,42 @@ public sealed class DemoDb
         string expiresAt,
         long? sellerId,
         string? deviceTypeLabel,
-        string? status)
+        string? status,
+        string? vinNo = null)
     {
         var normImei = (imei ?? "").Trim().Replace(",", "").Replace(" ", "").ToUpperInvariant();
-        if (string.IsNullOrWhiteSpace(normImei) || normImei.Length > 64)
-            throw new InvalidOperationException("Vui lòng nhập Số IMEI thiết bị hợp lệ (tối đa 64 ký tự).");
+        var rawStatusUpper = (status ?? "").Trim().ToUpperInvariant();
+        var isPreDeclared = string.IsNullOrWhiteSpace(normImei) || rawStatusUpper == "PENDING_INSTALL";
+
+        if (!isPreDeclared && normImei.Length > 64)
+            throw new InvalidOperationException("Số IMEI thiết bị tối đa 64 ký tự.");
         if (customerId <= 0)
-            throw new InvalidOperationException("Vui lòng chọn Đại lý / Khách hàng từ danh mục.");
+            throw new InvalidOperationException("Vui lòng chọn Đại lý / HTX / Khách hàng từ danh mục.");
         if (productId <= 0)
             throw new InvalidOperationException("Vui lòng chọn Sản phẩm / Dòng thiết bị từ danh mục.");
 
-        string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
-        if (!DateTime.TryParseExact((activatedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var actDate))
-            throw new InvalidOperationException("Ngày kích hoạt không hợp lệ.");
-        if (!DateTime.TryParseExact((expiresAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var expDate))
-            throw new InvalidOperationException("Ngày hết hạn không hợp lệ.");
-
-        var actStr = actDate.ToString("yyyy-MM-dd");
-        var expStr = expDate.ToString("yyyy-MM-dd");
         var cleanPlate = (plateNo ?? "").Trim();
+        var cleanVin = (vinNo ?? "").Trim();
         var cleanOwner = (ownerName ?? "").Trim();
         var cleanPhone = (ownerPhone ?? "").Trim();
-        var dbStatus = (status ?? "").Trim().ToUpperInvariant() is "DISABLED" or "LOCKED" or "KHOÁ" or "KHÓA" ? "DISABLED" : "ACTIVE";
+
+        if (isPreDeclared && string.IsNullOrWhiteSpace(cleanPlate) && string.IsNullOrWhiteSpace(cleanVin) && string.IsNullOrWhiteSpace(cleanOwner))
+            throw new InvalidOperationException("Khi khai báo xe trước khi có mã IMEI / Đơn lắp đặt, vui lòng nhập ít nhất Biển số xe, Số khung hoặc Tên chủ xe.");
+
+        string actStr = "";
+        string expStr = "";
+        string dbStatus = "DISABLED";
+        if (!isPreDeclared)
+        {
+            string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
+            if (!DateTime.TryParseExact((activatedAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var actDate))
+                throw new InvalidOperationException("Ngày kích hoạt không hợp lệ.");
+            if (!DateTime.TryParseExact((expiresAt ?? "").Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var expDate))
+                throw new InvalidOperationException("Ngày hết hạn không hợp lệ.");
+            actStr = actDate.ToString("yyyy-MM-dd");
+            expStr = expDate.ToString("yyyy-MM-dd");
+            dbStatus = rawStatusUpper is "DISABLED" or "LOCKED" or "KHOÁ" or "KHÓA" ? "DISABLED" : "ACTIVE";
+        }
 
         var createdId = Tx((c, t) =>
         {
@@ -1815,12 +1967,15 @@ public sealed class DemoDb
             if (prod.Id == 0)
                 throw new InvalidOperationException("Không tìm thấy Sản phẩm thiết bị đã chọn.");
 
-            var dupAct = N(c, t, @"SELECT COUNT(*) FROM activations a
-                JOIN stock_units u ON u.id=a.stock_unit_id
-                WHERE LOWER(TRIM(u.imei))=LOWER($imei) AND a.deleted_at IS NULL",
-                ("$imei", normImei));
-            if (dupAct > 0)
-                throw new InvalidOperationException($"Mã IMEI '{normImei}' đã tồn tại trong danh sách thiết bị đang hoạt động.");
+            if (!isPreDeclared)
+            {
+                var dupAct = N(c, t, @"SELECT COUNT(*) FROM activations a
+                    JOIN stock_units u ON u.id=a.stock_unit_id
+                    WHERE LOWER(TRIM(u.imei))=LOWER($imei) AND a.deleted_at IS NULL",
+                    ("$imei", normImei));
+                if (dupAct > 0)
+                    throw new InvalidOperationException($"Mã IMEI '{normImei}' đã tồn tại trong danh sách thiết bị đang hoạt động.");
+            }
 
             var resolvedLabel = (deviceTypeLabel ?? "").Trim();
             if (string.IsNullOrWhiteSpace(resolvedLabel))
@@ -1836,62 +1991,76 @@ public sealed class DemoDb
                 };
             }
 
-            // Giải phóng các bản ghi stock_units đã xóa mềm mang cùng IMEI (nếu có) để tránh xung đột UNIQUE(imei)
-            Exec(c, t, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE LOWER(TRIM(imei))=LOWER($imei) AND deleted_at IS NOT NULL",
-                ("$imei", normImei));
-
-            var existingUnit = QueryTx(c, t, @"SELECT u.id, u.product_id, u.status, COALESCE(u.warehouse_id, 0), p.sku
-                FROM stock_units u JOIN products p ON p.id=u.product_id
-                WHERE LOWER(TRIM(u.imei))=LOWER($imei) AND u.deleted_at IS NULL
-                ORDER BY u.id DESC LIMIT 1",
-                r => (Id: L(r, 0), ProdId: L(r, 1), Status: S(r, 2), WhId: L(r, 3), Sku: S(r, 4)),
-                ("$imei", normImei)).FirstOrDefault();
-
             long unitId;
-            if (existingUnit.Id > 0)
+            if (isPreDeclared)
             {
-                if (existingUnit.ProdId != prod.Id)
-                {
-                    var hasTxLines = N(c, t, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE stock_unit_id=$s AND deleted_at IS NULL", ("$s", existingUnit.Id)) > 0;
-                    if (hasTxLines)
-                        throw new InvalidOperationException($"IMEI '{normImei}' đang nằm trong kho thuộc mã sản phẩm '{existingUnit.Sku}'. Vui lòng chọn đúng sản phẩm '{existingUnit.Sku}'.");
-                    Exec(c, t, "UPDATE stock_units SET product_id=$p WHERE id=$id", ("$p", prod.Id), ("$id", existingUnit.Id));
-                }
-
-                if (existingUnit.Status == "IN_STOCK" && existingUnit.WhId > 0)
-                {
-                    var txCode = "XK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
-                    Exec(c, t, @"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,customer_id,actor_user_id,notes)
-                        VALUES($code,'SALE_OUT',$w,$c,$actor,'Xuất kích hoạt thiết bị thủ công')",
-                        ("$code", txCode), ("$w", existingUnit.WhId), ("$c", cust.Id), ("$actor", ActorId > 0 ? ActorId : null));
-                    var txId = N(c, t, "SELECT last_insert_rowid()");
-                    Exec(c, t, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
-                        ("$t", txId), ("$s", existingUnit.Id), ("$p", prod.Id), ("$cost", prod.Cost));
-                }
-
-                Exec(c, t, @"UPDATE stock_units
-                    SET imei=$imei, status='INSTALLED', warehouse_id=NULL, employee_id=NULL, customer_id=$c, updated_at=datetime('now')
-                    WHERE id=$id",
-                    ("$imei", normImei), ("$c", cust.Id), ("$id", existingUnit.Id));
-                unitId = existingUnit.Id;
+                var placeholderImei = "CHO-LAP-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
+                Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at)
+                    VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'))",
+                    ("$p", prod.Id), ("$imei", placeholderImei), ("$c", cust.Id));
+                unitId = N(c, t, "SELECT last_insert_rowid()");
+                normImei = placeholderImei;
             }
             else
             {
-                Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at)
-                    VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'))",
-                    ("$p", prod.Id), ("$imei", normImei), ("$c", cust.Id));
-                unitId = N(c, t, "SELECT last_insert_rowid()");
+                // Giải phóng các bản ghi stock_units đã xóa mềm mang cùng IMEI (nếu có) để tránh xung đột UNIQUE(imei)
+                Exec(c, t, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE LOWER(TRIM(imei))=LOWER($imei) AND deleted_at IS NOT NULL",
+                    ("$imei", normImei));
+
+                var existingUnit = QueryTx(c, t, @"SELECT u.id, u.product_id, u.status, COALESCE(u.warehouse_id, 0), p.sku
+                    FROM stock_units u JOIN products p ON p.id=u.product_id
+                    WHERE LOWER(TRIM(u.imei))=LOWER($imei) AND u.deleted_at IS NULL
+                    ORDER BY u.id DESC LIMIT 1",
+                    r => (Id: L(r, 0), ProdId: L(r, 1), Status: S(r, 2), WhId: L(r, 3), Sku: S(r, 4)),
+                    ("$imei", normImei)).FirstOrDefault();
+
+                if (existingUnit.Id > 0)
+                {
+                    if (existingUnit.ProdId != prod.Id)
+                    {
+                        var hasTxLines = N(c, t, "SELECT COUNT(*) FROM inventory_transaction_lines WHERE stock_unit_id=$s AND deleted_at IS NULL", ("$s", existingUnit.Id)) > 0;
+                        if (hasTxLines)
+                            throw new InvalidOperationException($"IMEI '{normImei}' đang nằm trong kho thuộc mã sản phẩm '{existingUnit.Sku}'. Vui lòng chọn đúng sản phẩm '{existingUnit.Sku}'.");
+                        Exec(c, t, "UPDATE stock_units SET product_id=$p WHERE id=$id", ("$p", prod.Id), ("$id", existingUnit.Id));
+                    }
+
+                    if (existingUnit.Status == "IN_STOCK" && existingUnit.WhId > 0)
+                    {
+                        var txCode = "XK-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
+                        Exec(c, t, @"INSERT INTO inventory_transactions(code,movement_type,warehouse_id,customer_id,actor_user_id,notes)
+                            VALUES($code,'SALE_OUT',$w,$c,$actor,'Xuất kích hoạt thiết bị thủ công')",
+                            ("$code", txCode), ("$w", existingUnit.WhId), ("$c", cust.Id), ("$actor", ActorId > 0 ? ActorId : null));
+                        var txId = N(c, t, "SELECT last_insert_rowid()");
+                        Exec(c, t, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
+                            ("$t", txId), ("$s", existingUnit.Id), ("$p", prod.Id), ("$cost", prod.Cost));
+                    }
+
+                    Exec(c, t, @"UPDATE stock_units
+                        SET imei=$imei, status='INSTALLED', warehouse_id=NULL, employee_id=NULL, customer_id=$c, updated_at=datetime('now')
+                        WHERE id=$id",
+                        ("$imei", normImei), ("$c", cust.Id), ("$id", existingUnit.Id));
+                    unitId = existingUnit.Id;
+                }
+                else
+                {
+                    Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at)
+                        VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'))",
+                        ("$p", prod.Id), ("$imei", normImei), ("$c", cust.Id));
+                    unitId = N(c, t, "SELECT last_insert_rowid()");
+                }
             }
 
-            var vin = !string.IsNullOrWhiteSpace(cleanOwner) && !string.Equals(cleanOwner, cleanPlate, StringComparison.OrdinalIgnoreCase)
-                ? (string.IsNullOrWhiteSpace(cleanPhone) ? cleanOwner : $"{cleanOwner} · {cleanPhone}")
-                : normImei;
+            var vin = !string.IsNullOrWhiteSpace(cleanVin)
+                ? cleanVin
+                : (!string.IsNullOrWhiteSpace(cleanOwner) && !string.Equals(cleanOwner, cleanPlate, StringComparison.OrdinalIgnoreCase)
+                    ? (string.IsNullOrWhiteSpace(cleanPhone) ? cleanOwner : $"{cleanOwner} · {cleanPhone}")
+                    : (isPreDeclared ? "" : normImei));
 
             long? resolvedManualSeller = sellerId is > 0 ? sellerId.Value : null;
-            Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,seller_id,plate_no,vin_no,activated_at,expires_at,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
-                VALUES($u,$c,$p,$seller,$plate,$vin,$act,$exp,$st,$dtype,$agency,$owner,$phone,'',0,datetime('now'),datetime('now'))",
+            Exec(c, t, @"INSERT INTO activations(stock_unit_id,customer_id,product_id,seller_id,plate_no,vin_no,activated_at,expires_at,is_pre_declared,status,device_type_label,agency_name,owner_name,owner_phone,last_renewed_at,renewal_count,created_at,updated_at)
+                VALUES($u,$c,$p,$seller,$plate,$vin,$act,$exp,$pre,$st,$dtype,$agency,$owner,$phone,'',0,datetime('now'),datetime('now'))",
                 ("$u", unitId), ("$c", cust.Id), ("$p", prod.Id), ("$seller", resolvedManualSeller), ("$plate", cleanPlate), ("$vin", vin),
-                ("$act", actStr), ("$exp", expStr), ("$st", dbStatus),
+                ("$act", actStr), ("$exp", expStr), ("$pre", isPreDeclared ? 1 : 0), ("$st", dbStatus),
                 ("$dtype", resolvedLabel), ("$agency", cust.Name), ("$owner", cleanOwner), ("$phone", cleanPhone));
             var actId = N(c, t, "SELECT last_insert_rowid()");
 
@@ -1905,7 +2074,10 @@ public sealed class DemoDb
                 }
             }
 
-            Log(c, t, "CREATE_DEVICE", "ACTIVATION", actId, $"Thêm thiết bị thủ công IMEI {normImei} ({resolvedLabel}) · Đại lý/KH: {cust.Name} · Hạn: {actStr} -> {expStr}");
+            Log(c, t, "CREATE_DEVICE", "ACTIVATION", actId,
+                isPreDeclared
+                    ? $"Khai báo sẵn hồ sơ xe chờ lắp ({cleanPlate}) · ĐV/KH: {cust.Name} · Dòng TB dự kiến: {resolvedLabel}"
+                    : $"Thêm thiết bị IMEI {normImei} ({resolvedLabel}) · Đại lý/KH: {cust.Name} · Hạn: {actStr} -> {expStr}");
             return actId;
         });
 
@@ -2396,11 +2568,15 @@ public sealed class DemoDb
           COALESCE(inv.invoice_no, ''),
           inv.id,
           COALESCE(NULLIF(a.device_type_label,''), CASE WHEN p.sku='SP000001' THEN 'XANHGPS' WHEN p.sku='DX00002' THEN 'NASA-4G-21000' WHEN p.sku='DX00003' THEN 'TG2000' ELSE p.name END, ''),
-          COALESCE(p.sku, '')
+          COALESCE(p.sku, ''),
+          COALESCE(ro.code, ''),
+          r.v7_order_id,
+          COALESCE(r.duration_months, 12)
           FROM renewals r
           JOIN activations a ON a.id=r.activation_id
           JOIN stock_units u ON u.id=a.stock_unit_id
           JOIN products p ON p.id=a.product_id
+          LEFT JOIN v7_orders ro ON ro.id=r.v7_order_id AND ro.deleted_at IS NULL
           LEFT JOIN invoices inv ON inv.id=(SELECT i2.id FROM invoices i2 WHERE i2.renewal_id=r.id AND i2.deleted_at IS NULL AND i2.status<>'VOID' ORDER BY i2.id DESC LIMIT 1)
           LEFT JOIN customers c ON c.id=COALESCE(r.customer_id, inv.customer_id, a.customer_id)
           LEFT JOIN v7_sellers sl ON sl.id=r.seller_id
@@ -2410,7 +2586,7 @@ public sealed class DemoDb
               L(r,0), S(r,1), S(r,2), S(r,3), S(r,4), L(r,5), S(r,6),
               r.IsDBNull(7) ? null : L(r,7), S(r,8), S(r,9), S(r,10),
               L(r,11), S(r,12), L(r,13) == 1, S(r,14), S(r,15), r.IsDBNull(16) ? null : L(r,16),
-              S(r,17), S(r,18)));
+              S(r,17), S(r,18), S(r,19), r.IsDBNull(20) ? null : L(r,20), (int)L(r,21)));
     }
 
     public void Renew(
@@ -2510,11 +2686,30 @@ public sealed class DemoDb
                 var renIssuedStr = $"{renStr} {VnDateTimeHelper.NowVn:HH:mm:ss}";
                 var nextStr = next.ToString("yyyy-MM-dd");
                 var effPlate = newPlateNo is not null ? newPlateNo.Trim() : device.PlateNo;
+                var ordSellerActor = effActor > 0 ? effActor : N(c, t, "SELECT COALESCE((SELECT id FROM app_users ORDER BY id LIMIT 1), 1)");
+                var estRenCost = GroupPriceResolver.ResolveRenewalCostForDuration(c, t, effCustomerId, device.ProductId, 12, old.Date > renDate ? old.Date : renDate, next, renDate);
 
-                Exec(c,t,@"INSERT INTO renewals(activation_id,customer_id,seller_id,seller_name,source_type,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
-                   VALUES($a,$cust,$seller,$sellerName,$s,$renAt,$old,$next,$price,$pay)",
-                   ("$a",activationId),("$cust",effCustomerId),("$seller",resolvedSellerId),("$sellerName",resolvedSellerName),("$s",source),("$renAt",renStr),("$old",device.Expires),("$next",nextStr),("$price",price),("$pay",paymentMethod));
+                Exec(c, t, @"INSERT INTO v7_orders(code,order_kind,customer_id,seller_id,seller_record_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,source,status,installer,installer_fee_vnd,no_install_fee,sale_source,duration_months,deduct_stock,collect_on_delivery,plate_no,imei,notes,activated_at)
+                    VALUES(lower(hex(randomblob(16))),'RENEWAL',$c,$actor,$sellerRec,$p,1,$price,$cost,'INTERNAL','PENDING','Gia hạn dịch vụ',0,1,$src,12,0,$cod,$plate,$imei,$notes,$act)",
+                    ("$c", effCustomerId), ("$actor", ordSellerActor), ("$sellerRec", resolvedSellerId), ("$p", device.ProductId),
+                    ("$price", price), ("$cost", estRenCost), ("$src", resolvedSellerName),
+                    ("$cod", paymentMethod == "CASH" ? 1 : 0), ("$plate", effPlate), ("$imei", device.Imei),
+                    ("$notes", $"Đơn gia hạn ({source}): {device.Expires} → {nextStr}"), ("$act", renStr));
+                var renOrderId = N(c, t, "SELECT last_insert_rowid()");
+                var renOrderCode = $"GH7-{renOrderId:000000}";
+                Exec(c, t, "UPDATE v7_orders SET code=$code WHERE id=$id", ("$code", renOrderCode), ("$id", renOrderId));
+
+                Exec(c,t,@"INSERT INTO renewals(activation_id,v7_order_id,customer_id,seller_id,seller_name,source_type,duration_months,renewed_at,previous_expiry,new_expiry,amount_vnd,payment_method)
+                   VALUES($a,$ord,$cust,$seller,$sellerName,$s,12,$renAt,$old,$next,$price,$pay)",
+                   ("$a",activationId),("$ord",renOrderId),("$cust",effCustomerId),("$seller",resolvedSellerId),("$sellerName",resolvedSellerName),("$s",source),("$renAt",renStr),("$old",device.Expires),("$next",nextStr),("$price",price),("$pay",paymentMethod));
                 var renewalId = N(c,t,"SELECT last_insert_rowid()");
+
+                Exec(c, t, @"INSERT INTO v7_order_lines(order_id,product_id,quantity,unit_price_vnd,unit_cost_snapshot_vnd,installer_fee_vnd,imei,plate_no,stock_unit_id,activation_id,renewal_id,prev_expiry,new_expiry)
+                    VALUES($o,$p,1,$price,$cost,0,$imei,$plate,$sid,$aid,$rid,$prev,$next)",
+                    ("$o", renOrderId), ("$p", device.ProductId), ("$price", price), ("$cost", estRenCost),
+                    ("$imei", device.Imei), ("$plate", effPlate), ("$sid", device.StockUnitId), ("$aid", activationId), ("$rid", renewalId),
+                    ("$prev", device.Expires), ("$next", nextStr));
+                Exec(c, t, "UPDATE v7_orders SET status='COMPLETED', completed_at=CURRENT_TIMESTAMP WHERE id=$id", ("$id", renOrderId));
 
                 Exec(c,t,@"UPDATE activations
                    SET customer_id=$cust,
@@ -2549,10 +2744,10 @@ public sealed class DemoDb
                 var invoiceNo = "GH-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
                 var plateSegment = !string.IsNullOrWhiteSpace(effPlate) ? $" · Biển số: {effPlate}" : "";
                 var sellerSegment = !string.IsNullOrWhiteSpace(resolvedSellerName) ? $" · NV bán hàng: {resolvedSellerName}" : "";
-                var sellerNote = $"Gia hạn 12 tháng · Thiết bị: {device.DeviceName} (IMEI: {device.Imei}{plateSegment}){sellerSegment}";
-                Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,renewal_id,issued_at,due_at,amount_vnd,notes)
-                   VALUES($no,'RENEWAL',$c,$r,$renIssued,date($renAt,'+30 days'),$price,$notes)",
-                   ("$no",invoiceNo),("$c",effCustomerId),("$r",renewalId),("$renIssued",renIssuedStr),("$renAt",renStr),("$price",price),("$notes",sellerNote));
+                var sellerNote = $"Đơn gia hạn {renOrderCode} · Thiết bị: {device.DeviceName} (IMEI: {device.Imei}{plateSegment}){sellerSegment}";
+                Exec(c,t,@"INSERT INTO invoices(invoice_no,invoice_type,customer_id,v7_order_id,renewal_id,issued_at,due_at,amount_vnd,notes)
+                   VALUES($no,'RENEWAL',$c,$ord,$r,$renIssued,date($renAt,'+30 days'),$price,$notes)",
+                   ("$no",invoiceNo),("$c",effCustomerId),("$ord",renOrderId),("$r",renewalId),("$renIssued",renIssuedStr),("$renAt",renStr),("$price",price),("$notes",sellerNote));
                 var invoiceId = N(c,t,"SELECT last_insert_rowid()");
                 Exec(c,t,"INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$desc,$p,1,$price)",
                    ("$i",invoiceId),("$desc",sellerNote),("$p",device.ProductId),("$price",price));
@@ -2728,21 +2923,23 @@ public sealed class DemoDb
         Tx((c, t) =>
         {
             var isMainDev = IsMainDeveloper(c, t, effActor);
-            var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.previous_expiry, r.new_expiry, r.amount_vnd, r.seller_name, r.is_locked
+            var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.previous_expiry, r.new_expiry, r.amount_vnd, r.seller_name, r.is_locked, COALESCE(r.v7_order_id,0)
                 FROM renewals r WHERE r.id=$id AND r.deleted_at IS NULL",
-                r => (Id: L(r, 0), ActId: L(r, 1), PrevExp: S(r, 2), NewExp: S(r, 3), Amt: L(r, 4), Seller: S(r, 5), IsLocked: L(r, 6) == 1),
+                r => (Id: L(r, 0), ActId: L(r, 1), PrevExp: S(r, 2), NewExp: S(r, 3), Amt: L(r, 4), Seller: S(r, 5), IsLocked: L(r, 6) == 1, RenOrdId: L(r, 7)),
                 ("$id", renewalId)).SingleOrDefault();
             if (cur.Id == 0)
                 throw new InvalidOperationException("Không tìm thấy lịch sử gia hạn hoặc bản ghi đã bị xóa.");
 
-            var lockedInvCount = N(c, t, "SELECT COUNT(*) FROM invoices WHERE renewal_id=$id AND deleted_at IS NULL AND is_locked=1", ("$id", renewalId));
+            var lockedInvCount = N(c, t, "SELECT COUNT(*) FROM invoices WHERE (renewal_id=$id OR ($ord>0 AND v7_order_id=$ord)) AND deleted_at IS NULL AND is_locked=1", ("$id", renewalId), ("$ord", cur.RenOrdId));
             if (!isMainDev && (cur.IsLocked || lockedInvCount > 0))
                 throw new InvalidOperationException("Đợt gia hạn này đã được Kế toán chốt số / khóa số, không thể xóa.");
 
             if (isMainDev)
             {
                 // Xóa cứng (Hard Delete) cho Role Main (ẩn): xóa toàn bộ chứng từ kế toán gắn với đợt gia hạn và bản ghi gia hạn
-                var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r", r => L(r, 0), ("$r", renewalId));
+                if (cur.RenOrdId > 0)
+                    Exec(c, t, "UPDATE v7_order_lines SET renewal_id=NULL WHERE renewal_id=$id", ("$id", renewalId));
+                var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r OR ($ord>0 AND v7_order_id=$ord AND (SELECT COUNT(*) FROM renewals r2 WHERE r2.v7_order_id=$ord)=1)", r => L(r, 0), ("$r", renewalId), ("$ord", cur.RenOrdId));
                 foreach (var invId in invIds)
                 {
                     var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i", r => L(r, 0), ("$i", invId));
@@ -2756,25 +2953,38 @@ public sealed class DemoDb
                     Exec(c, t, "DELETE FROM invoices WHERE id=$i", ("$i", invId));
                 }
                 Exec(c, t, "DELETE FROM renewals WHERE id=$id", ("$id", renewalId));
+                if (cur.RenOrdId > 0 && N(c, t, "SELECT COUNT(*) FROM renewals WHERE v7_order_id=$ord", ("$ord", cur.RenOrdId)) == 0)
+                {
+                    Exec(c, t, "UPDATE v7_orders SET status='CANCELLED' WHERE id=$ord AND status='COMPLETED'", ("$ord", cur.RenOrdId));
+                    Exec(c, t, "DELETE FROM v7_order_events WHERE order_id=$ord", ("$ord", cur.RenOrdId));
+                    Exec(c, t, "DELETE FROM v7_order_lines WHERE order_id=$ord", ("$ord", cur.RenOrdId));
+                    Exec(c, t, "DELETE FROM v7_orders WHERE id=$ord", ("$ord", cur.RenOrdId));
+                }
             }
             else
             {
+                var nowDelIso = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
                 // 1. Xóa mềm đợt gia hạn cho các Role khác
-                Exec(c, t, "UPDATE renewals SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$id", ("$id", renewalId));
+                Exec(c, t, "UPDATE renewals SET deleted_at=$now WHERE id=$id", ("$now", nowDelIso), ("$id", renewalId));
 
-                // 2. Xóa mềm chứng từ kế toán (invoices, invoice_lines, payment_allocations, payments) gắn với đợt gia hạn này
-                var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL", r => L(r, 0), ("$r", renewalId));
+                // 2. Xóa mềm chứng từ kế toán & đơn gia hạn nếu đơn chỉ có 1 xe này
+                var invIds = QueryTx(c, t, "SELECT id FROM invoices WHERE (renewal_id=$r OR ($ord>0 AND v7_order_id=$ord AND (SELECT COUNT(*) FROM renewals r2 WHERE r2.v7_order_id=$ord AND r2.deleted_at IS NULL)=0)) AND deleted_at IS NULL", r => L(r, 0), ("$r", renewalId), ("$ord", cur.RenOrdId));
                 foreach (var invId in invIds)
                 {
                     var payIds = QueryTx(c, t, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", r => L(r, 0), ("$i", invId));
-                    Exec(c, t, "UPDATE payment_allocations SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
+                    Exec(c, t, "UPDATE payment_allocations SET deleted_at=$now WHERE invoice_id=$i AND deleted_at IS NULL", ("$now", nowDelIso), ("$i", invId));
                     foreach (var pid in payIds)
                     {
                         if (N(c, t, "SELECT COUNT(*) FROM payment_allocations WHERE payment_id=$p AND deleted_at IS NULL", ("$p", pid)) == 0)
-                            Exec(c, t, "UPDATE payments SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$p AND deleted_at IS NULL", ("$p", pid));
+                            Exec(c, t, "UPDATE payments SET deleted_at=$now WHERE id=$p AND deleted_at IS NULL", ("$now", nowDelIso), ("$p", pid));
                     }
-                    Exec(c, t, "UPDATE invoice_lines SET deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", invId));
-                    Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$i", ("$i", invId));
+                    Exec(c, t, "UPDATE invoice_lines SET deleted_at=$now WHERE invoice_id=$i AND deleted_at IS NULL", ("$now", nowDelIso), ("$i", invId));
+                    Exec(c, t, "UPDATE invoices SET status='VOID', deleted_at=$now WHERE id=$i", ("$now", nowDelIso), ("$i", invId));
+                }
+                if (cur.RenOrdId > 0 && N(c, t, "SELECT COUNT(*) FROM renewals WHERE v7_order_id=$ord AND deleted_at IS NULL", ("$ord", cur.RenOrdId)) == 0)
+                {
+                    Exec(c, t, "UPDATE v7_order_lines SET deleted_at=$now WHERE order_id=$ord AND deleted_at IS NULL", ("$now", nowDelIso), ("$ord", cur.RenOrdId));
+                    Exec(c, t, "UPDATE v7_orders SET status='CANCELLED', deleted_at=$now WHERE id=$ord", ("$now", nowDelIso), ("$ord", cur.RenOrdId));
                 }
             }
 
@@ -2916,7 +3126,7 @@ public sealed class DemoDb
         var sellers = QueryTx(c, t, @"
             SELECT s.id, s.code, s.full_name, COALESCE(s.order_commission_vnd,0), COALESCE(s.renewal_commission_vnd,0),
                    (SELECT COALESCE(SUM(o.quantity),0) FROM v7_orders o LEFT JOIN customers cu ON cu.id=o.customer_id
-                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED'
+                    WHERE o.deleted_at IS NULL AND o.status='COMPLETED' AND COALESCE(o.order_kind,'INSTALL')<>'RENEWAL'
                       AND (COALESCE(o.seller_record_id, cu.seller_id)=s.id OR (o.seller_record_id IS NULL AND (o.sale_source LIKE '%'||s.code||'%' OR o.sale_source LIKE '%'||s.full_name||'%'))))
                    + (SELECT COALESCE(SUM(il.quantity),0) FROM invoices i JOIN invoice_lines il ON il.invoice_id=i.id JOIN products p ON p.id=il.product_id JOIN customers cu ON cu.id=i.customer_id
                       WHERE i.deleted_at IS NULL AND il.deleted_at IS NULL AND i.invoice_type='SALE' AND i.v7_order_id IS NULL AND i.invoice_no NOT LIKE 'HD-KH%' AND p.is_serialized=1 AND i.status<>'VOID' AND cu.seller_id=s.id) AS dev_qty,
@@ -3659,13 +3869,13 @@ public sealed class DemoDb
                 purchaseCreated++;
             }
 
-            // 2A. Đối soát đơn hàng đã hoàn thành (v7_orders COMPLETED) nhưng chưa có chứng từ SALE / SERVICE
+            // 2A. Đối soát đơn hàng lắp đặt / thương mại đã hoàn thành (v7_orders COMPLETED, loại trừ RENEWAL) nhưng chưa có chứng từ SALE / SERVICE
             var completedOrders = QueryTx(c, t, @"
                 SELECT o.id, o.code, o.customer_id, o.unit_price_vnd, COALESCE(o.installer_fee_vnd,0), COALESCE(o.installer,''),
                        COALESCE(NULLIF(substr(o.completed_at,1,10),''), NULLIF(substr(o.created_at,1,10),''), date('now')),
                        COALESCE(o.no_install_fee,0)
                 FROM v7_orders o
-                WHERE o.status='COMPLETED' AND o.deleted_at IS NULL",
+                WHERE o.status='COMPLETED' AND o.deleted_at IS NULL AND COALESCE(o.order_kind,'INSTALL')<>'RENEWAL'",
                 r => (Id: L(r, 0), Code: S(r, 1), CustId: L(r, 2), TotalPrice: L(r, 3), Fee: L(r, 4), Installer: S(r, 5), IssuedDate: S(r, 6), NoInst: L(r, 7) == 1));
 
             foreach (var ord in completedOrders)
@@ -3723,7 +3933,8 @@ public sealed class DemoDb
                 WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL AND r.amount_vnd > 0
                   AND NOT EXISTS (
                       SELECT 1 FROM invoices i
-                      WHERE i.renewal_id=r.id AND i.invoice_type='RENEWAL' AND i.deleted_at IS NULL AND i.status<>'VOID'
+                      WHERE (i.renewal_id=r.id OR (r.v7_order_id IS NOT NULL AND i.v7_order_id=r.v7_order_id))
+                        AND i.invoice_type='RENEWAL' AND i.deleted_at IS NULL AND i.status<>'VOID'
                   )",
                 r => (Id: L(r, 0), CustId: L(r, 1), ProdId: L(r, 2), Price: L(r, 3), PayMethod: S(r, 4), SellerName: S(r, 5), Imei: S(r, 6), PlateNo: S(r, 7), DeviceName: S(r, 8), RenewedDate: S(r, 9)));
 
@@ -3811,10 +4022,15 @@ public sealed class DemoDb
                      0
                    ),
                    COALESCE(o.installer_fee_vnd, 0),
-                   CASE WHEN o.source='PARTNER' THEN '[Hãng] ' || COALESCE(NULLIF(o.installer,''),'Hãng lắp') ELSE COALESCE(NULLIF(o.installer,''),'ĐV lắp nội bộ') END,
+                   CASE
+                     WHEN COALESCE(o.order_kind,'INSTALL')='RENEWAL' THEN 'Đơn gia hạn dịch vụ'
+                     WHEN COALESCE(o.order_kind,'INSTALL')='COMMERCIAL' THEN 'Đơn thương mại (Không lắp)'
+                     WHEN o.source='PARTNER' THEN '[Hãng] ' || COALESCE(NULLIF(o.installer,''),'Hãng lắp')
+                     ELSE COALESCE(NULLIF(o.installer,''),'ĐV lắp nội bộ')
+                   END,
                    COALESCE(o.deduct_stock, 1),
-                   COALESCE((SELECT i.invoice_no FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), '—'),
-                   COALESCE((SELECT i.status FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type='SALE' AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), 'OPEN'),
+                   COALESCE((SELECT i.invoice_no FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type IN ('SALE','RENEWAL') AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), '—'),
+                   COALESCE((SELECT i.status FROM invoices i WHERE i.v7_order_id=o.id AND i.invoice_type IN ('SALE','RENEWAL') AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 1), 'OPEN'),
                    o.status,
                    COALESCE(p.sku,''),
                    COALESCE(p.name,'')
@@ -3923,7 +4139,7 @@ public sealed class DemoDb
         const string invTs = "CASE WHEN length(trim(COALESCE(i.issued_at,'')))>10 THEN replace(substr(trim(i.issued_at),1,19),'T',' ') WHEN i.created_at IS NOT NULL AND substr(datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(i.issued_at) THEN datetime(replace(substr(i.created_at,1,19),'T',' '),'+7 hours') ELSE trim(COALESCE(i.issued_at,''))||' 00:00:00' END";
         const string renTs = "CASE WHEN length(trim(COALESCE(r.renewed_at,'')))>10 THEN replace(substr(trim(r.renewed_at),1,19),'T',' ') WHEN r.created_at IS NOT NULL AND substr(datetime(replace(substr(r.created_at,1,19),'T',' '),'+7 hours'),1,10)=trim(r.renewed_at) THEN datetime(replace(substr(r.created_at,1,19),'T',' '),'+7 hours') ELSE trim(COALESCE(r.renewed_at,''))||' 00:00:00' END";
 
-        var ordRangeCond = $"AND ($from IS NULL OR ({ordTs}) >= $from) AND ($to IS NULL OR ({ordTs}) <= $to)";
+        var ordRangeCond = $"AND COALESCE(o.order_kind,'INSTALL')<>'RENEWAL' AND ($from IS NULL OR ({ordTs}) >= $from) AND ($to IS NULL OR ({ordTs}) <= $to)";
         var invRangeCond = $"AND ($from IS NULL OR ({invTs}) >= $from) AND ($to IS NULL OR ({invTs}) <= $to)";
         var renRangeCond = $"AND ($from IS NULL OR ({renTs}) >= $from) AND ($to IS NULL OR ({renTs}) <= $to)";
 

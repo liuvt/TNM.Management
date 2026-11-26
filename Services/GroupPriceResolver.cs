@@ -152,6 +152,157 @@ public static class GroupPriceResolver
         return new ResolvedPrice(basePrice, discount, finalPrice, matchedGroup, campId, campName, tier);
     }
 
+    public static long RoundToThousand(decimal raw)
+    {
+        if (raw <= 0m) return 0;
+        return (long)(Math.Round(raw / 1000m, MidpointRounding.AwayFromZero) * 1000m);
+    }
+
+    public static decimal ComputeEffectiveRenewalMonths(int durationMonths, DateTime? baseExpiry, DateTime? customTargetExpiry)
+    {
+        if (customTargetExpiry.HasValue && baseExpiry.HasValue)
+        {
+            var start = baseExpiry.Value.Date;
+            var end = customTargetExpiry.Value.Date;
+            if (end <= start) return 1m;
+            var exactMonths = (end.Year - start.Year) * 12 + (end.Month - start.Month);
+            if (exactMonths > 0 && (end.Day == start.Day || (start.Day > 28 && end.Day == DateTime.DaysInMonth(end.Year, end.Month))))
+                return exactMonths;
+            var days = (decimal)(end - start).TotalDays;
+            return Math.Max(0.5m, days / 30.4375m);
+        }
+        return durationMonths > 0 ? durationMonths : 12m;
+    }
+
+    /// <summary>
+    /// Tính chuẩn đơn giá bán theo thời hạn cho Đơn lắp đặt (hỗ trợ gói nhiều năm 24T/36T hoặc 6T) và Đơn thương mại (STANDARD).
+    /// </summary>
+    public static long ResolveOrderUnitPriceForDuration(
+        SqliteConnection c,
+        SqliteTransaction? tx,
+        long customerId,
+        long productId,
+        string priceMode = "INSTALLED",
+        long durationMonths = 12,
+        DateTime? atVn = null)
+    {
+        var baseQuote = ResolveOrderPrice(c, tx, customerId, productId, priceMode, atVn);
+        if (priceMode == "STANDARD" || durationMonths <= 0 || durationMonths == 12)
+            return baseQuote.FinalPriceVnd;
+
+        var isSubDevice = Scalar(c, tx, "SELECT CASE WHEN is_serialized=1 OR renewal_fee_vnd>0 THEN 1 ELSE 0 END FROM products WHERE id=$p", ("$p", productId)) == 1;
+        if (!isSubDevice)
+            return baseQuote.FinalPriceVnd;
+
+        var annualRenewal = ResolveRenewalPrice(c, tx, customerId, productId, atVn);
+        if (annualRenewal <= 0)
+            return baseQuote.FinalPriceVnd;
+
+        if (durationMonths > 12)
+        {
+            var extraMonths = durationMonths - 12;
+            var extraFee = RoundToThousand(annualRenewal * extraMonths / 12m);
+            return baseQuote.FinalPriceVnd + extraFee;
+        }
+        else // Ví dụ gói 6 tháng khi lắp đặt: lấy giá thương mại + tỷ lệ phí thuê bao (hoặc giảm trừ nửa năm phí gia hạn)
+        {
+            var stdQuote = ResolveOrderPrice(c, tx, customerId, productId, "STANDARD", atVn).FinalPriceVnd;
+            var reducedFee = RoundToThousand(annualRenewal * (12 - durationMonths) / 12m);
+            var candidate = baseQuote.FinalPriceVnd - reducedFee;
+            return Math.Max(stdQuote > 0 ? stdQuote : baseQuote.FinalPriceVnd / 2, candidate);
+        }
+    }
+
+    /// <summary>
+    /// Tính chuẩn giá gia hạn theo gói tháng (1T / 3T / 6T / 12T / 24T) hoặc đánh mốc thời gian cụ thể.
+    /// </summary>
+    public static long ResolveRenewalPriceForDuration(
+        SqliteConnection c,
+        SqliteTransaction? tx,
+        long customerId,
+        long productId,
+        int durationMonths = 12,
+        DateTime? baseExpiry = null,
+        DateTime? customTargetExpiry = null,
+        DateTime? atVn = null)
+    {
+        var annual = ResolveRenewalPrice(c, tx, customerId, productId, atVn);
+        if (annual <= 0) return 0;
+
+        var effMonths = ComputeEffectiveRenewalMonths(durationMonths, baseExpiry, customTargetExpiry);
+        if (effMonths == 12m) return annual;
+        if (effMonths == 24m) return annual * 2;
+        if (effMonths == 36m) return annual * 3;
+        return Math.Max(1000, RoundToThousand(annual * effMonths / 12m));
+    }
+
+    /// <summary>
+    /// Tra cứu giá vốn dịch vụ gia hạn trả hãng theo Nhóm KH / Dòng thiết bị và thời hạn gia hạn.
+    /// </summary>
+    public static long ResolveRenewalCostForDuration(
+        SqliteConnection c,
+        SqliteTransaction? tx,
+        long customerId,
+        long productId,
+        int durationMonths = 12,
+        DateTime? baseExpiry = null,
+        DateTime? customTargetExpiry = null,
+        DateTime? atVn = null)
+    {
+        var day = (atVn ?? VnDateTimeHelper.TodayVn).ToString("yyyy-MM-dd");
+        var chain = GetCustomerGroupChain(c, tx, customerId);
+        string sku = "";
+        using (var pq = Cmd(c, tx, "SELECT COALESCE(sku,'') FROM products WHERE id=$p", ("$p", productId)))
+        {
+            sku = pq.ExecuteScalar()?.ToString() ?? "";
+        }
+        var pairedSkus = GetPairedRenewalSkus(sku);
+        if (pairedSkus.Length == 0) return 0;
+
+        long annualCost = 0;
+        foreach (var gid in chain)
+        {
+            foreach (var pSku in pairedSkus)
+            {
+                using var q = Cmd(c, tx, @"
+                    SELECT COALESCE(p2.base_cost_vnd, 0)
+                    FROM v7_group_prices gp
+                    JOIN products p2 ON p2.id = gp.product_id
+                    WHERE gp.group_id = $g
+                      AND LOWER(p2.sku) = LOWER($sku)
+                      AND p2.deleted_at IS NULL AND gp.deleted_at IS NULL
+                      AND gp.effective_from <= $d AND (gp.effective_to IS NULL OR gp.effective_to >= $d)
+                    ORDER BY gp.effective_from DESC, gp.id DESC LIMIT 1",
+                    ("$g", gid), ("$sku", pSku), ("$d", day));
+                var found = q.ExecuteScalar();
+                if (found is not null && Convert.ToInt64(found) > 0)
+                {
+                    annualCost = Convert.ToInt64(found);
+                    break;
+                }
+            }
+            if (annualCost > 0) break;
+        }
+
+        if (annualCost <= 0)
+        {
+            foreach (var pSku in pairedSkus)
+            {
+                var fallback = Scalar(c, tx, "SELECT COALESCE(base_cost_vnd,0) FROM products WHERE LOWER(sku)=LOWER($sku) AND deleted_at IS NULL LIMIT 1", ("$sku", pSku));
+                if (fallback > 0)
+                {
+                    annualCost = fallback;
+                    break;
+                }
+            }
+        }
+
+        if (annualCost <= 0) return 0;
+        var effMonths = ComputeEffectiveRenewalMonths(durationMonths, baseExpiry, customTargetExpiry);
+        if (effMonths == 12m) return annualCost;
+        return RoundToThousand(annualCost * effMonths / 12m);
+    }
+
     public static long ResolveRenewalPrice(
         SqliteConnection c,
         SqliteTransaction? tx,

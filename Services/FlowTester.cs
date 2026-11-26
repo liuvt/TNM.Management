@@ -615,7 +615,82 @@ public static class FlowTester
                     "Gọi ReconcileAccountingData lần 2 phải trả về (0,0,0,0).");
                 db.ActorId = ownerId;
 
-                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Tất toán HĐ Khách ({saleInvPaid.Code}), Công Kỹ thuật ({srvInv.Code}) & Hoa hồng Sale · Đồng bộ Kế toán chuẩn.";
+                // Kiểm tra nâng cấp 2 Trụ cột (Thiết bị ↔ Đơn hàng 3 chế độ) + Giá tổng theo thời hạn & Đơn giá linh hoạt:
+                // (A) Khai báo sẵn xe chưa có IMEI bên Thiết bị -> chưa tính vào Active
+                var activeBeforePre = db.Dashboard().Active;
+                db.CreateManualDeviceActivation(customerId, imeiProdId, "", "51K-111.22", "Chủ xe Khai báo trước", "0901222333",
+                    DateTime.Today.ToString("yyyy-MM-dd"), DateTime.Today.AddYears(1).ToString("yyyy-MM-dd"), createdSeller.Id, "XANHGPS", "PENDING_INSTALL", "VIN-PRE-01");
+                var preDev = db.Devices().First(d => d.Plate == "51K-111.22");
+                Assert(preDev.IsPreDeclared && !preDev.HasInstallOrder && db.Dashboard().Active == activeBeforePre,
+                    "Xe khai báo sẵn chờ lắp đặt phải có IsPreDeclared=true, chưa có đơn lắp và không đếm sớm vào Active.");
+
+                // (B) 1/ Đơn lắp đặt gói 24 tháng liên kết xe khai báo sẵn -> tính đúng Giá có lắp 24T (12T + 1 năm GH 800k) & nâng cấp thẳng hồ sơ xe
+                var price12M = v7Orders.PreviewUnitPrice(customerId, imeiProdId, includeInstallPrice: true, durationMonths: 12);
+                var price24M = v7Orders.PreviewUnitPrice(customerId, imeiProdId, includeInstallPrice: true, durationMonths: 24);
+                Assert(price24M == price12M + 800_000,
+                    $"Giá lắp đặt gói 24 tháng phải bằng Giá lắp 12T ({price12M:N0}) + 1 năm gia hạn (800,000) = {price12M + 800_000:N0} (thực tế: {price24M:N0}).");
+
+                var preInstallOrdId = v7Orders.CreateMulti(
+                    ownerId, customerId,
+                    [new V7OrderLineDraft(imeiProdId, 1, CustomUnitPrice: null, TargetActivationId: preDev.ActivationId, Imei: "860000000000003", PlateNo: "51K-111.22", VinNo: "VIN-PRE-01")],
+                    "Bến xe Miền Đông", "Lắp xe đã khai báo sẵn gói 2 năm", false, "0901222333", null, createdSeller.Name, "Chủ xe Khai báo trước",
+                    durationMonths: 24, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: false, orderKind: "INSTALL", completeImmediately: true);
+                var preDevAfter = db.Devices().First(d => d.ActivationId == preDev.ActivationId);
+                Assert(!preDevAfter.IsPreDeclared && preDevAfter.HasInstallOrder && preDevAfter.Imei == "860000000000003" && db.Devices().Count(d => d.Plate == "51K-111.22") == 1,
+                    $"Sau khi hoàn thành Đơn lắp đặt SO7-{preInstallOrdId:000000}, xe khai báo sẵn phải chuyển sang ACTIVE gắn IMEI 860000000000003 mà không bị nhân đôi dòng.");
+
+                // (C) 2/ Đơn bán thương mại (TM7-...) hoàn thành ngay 1 bước với Đơn giá chỉnh linh hoạt & 0 ₫ công lắp
+                var commOrdId = v7Orders.CreateMulti(
+                    ownerId, customerId,
+                    [new V7OrderLineDraft(qtyProdId, 2, CustomUnitPrice: 165_000)],
+                    "Giao sỉ tại văn phòng", "Đơn thương mại chỉnh giá linh hoạt", false, "0908888999", null, createdSeller.Name, "Đại diện HTX",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: null, installerEmployeeId: null,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: true, orderKind: "COMMERCIAL", completeImmediately: true);
+                var commOrd = v7Orders.List().First(o => o.Id == commOrdId);
+                Assert(commOrd.Code.StartsWith("TM7-") && commOrd.OrderKind == "COMMERCIAL" && commOrd.NoInstallFee && commOrd.InstallerFee == 0 && commOrd.Price == 330_000 && commOrd.Status == "COMPLETED",
+                    $"Đơn bán thương mại phải mang mã TM7, công lắp = 0 ₫ và tổng giá = 330.000 ₫ (thực tế: {commOrd.Code}, Kind={commOrd.OrderKind}, Price={commOrd.Price}, Fee={commOrd.InstallerFee}).");
+
+                // (D) 3/ Đơn gia hạn (GH7-...) gộp 2 xe gói ngắn hạn 3 tháng (tự tính 800k * 3/12 = 200k/xe -> tổng 400k) + Đánh mốc thời gian
+                var quote3M = db.PreviewRenewalPriceForDuration(customerId, imeiProdId, 3);
+                Assert(quote3M == 200_000, $"Giá gia hạn ngắn hạn 3 tháng của nhóm 800k/năm phải bằng 200.000 ₫ (thực tế: {quote3M:N0}).");
+                var batchRenRes = v7Orders.CreateRenewalOrder(
+                    ownerId,
+                    targetCustomerId: null,
+                    lines: [new V7RenewalLineDraft(dev1.ActivationId), new V7RenewalLineDraft(dev2.ActivationId)],
+                    durationMonths: 3,
+                    milestoneExpiryDate: null,
+                    sourceType: "HTX",
+                    paymentMethod: "DEBT",
+                    sellerRecordId: createdSeller.Id,
+                    saleSource: createdSeller.Name,
+                    notes: "Gia hạn gộp 2 xe quý 1");
+                Assert(batchRenRes.OrderCode.StartsWith("GH7-") && batchRenRes.RenewedCount == 2 && batchRenRes.TotalAmountVnd == 400_000,
+                    $"Đơn gia hạn gộp 2 xe 3 tháng phải có mã GH7-... và tổng tiền 400.000 ₫ (thực tế: {batchRenRes.OrderCode}, Total={batchRenRes.TotalAmountVnd}).");
+                Assert(db.Devices().First(d => d.ActivationId == dev1.ActivationId).LastRenewalOrderCode == batchRenRes.OrderCode,
+                    "Bảng Thiết bị phải map chính xác mã Đơn gia hạn gần nhất (GH7-...).");
+
+                var milestoneTarget = "2031-06-30";
+                var msRenRes = v7Orders.CreateRenewalOrder(
+                    ownerId,
+                    targetCustomerId: null,
+                    lines: [new V7RenewalLineDraft(preDev.ActivationId, CustomPriceVnd: 450_000)],
+                    durationMonths: 12,
+                    milestoneExpiryDate: milestoneTarget,
+                    sourceType: "TNM",
+                    paymentMethod: "CASH",
+                    sellerRecordId: createdSeller.Id,
+                    saleSource: createdSeller.Name);
+                Assert(db.Devices().First(d => d.ActivationId == preDev.ActivationId).ExpiresAt == milestoneTarget && msRenRes.TotalAmountVnd == 450_000,
+                    "Đơn gia hạn chế độ Đánh mốc thời gian + chỉnh đơn giá thực thu 450.000 ₫ phải ghi nhận đúng mốc 2031-06-30 cho thiết bị.");
+
+                db.ActorId = 0;
+                var (postPur, postSale, postRen, postSrv) = db.ReconcileAccountingData();
+                Assert(postPur == 0 && postSale == 0 && postRen == 0 && postSrv == 0,
+                    $"Sau khi lập Đơn lắp 24T + Đơn thương mại TM7 + Đơn gia hạn gộp GH7, ReconcileAccountingData không được sinh trùng hóa đơn (thực tế: {postPur},{postSale},{postRen},{postSrv}).");
+                db.ActorId = ownerId;
+
+                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Chuẩn hóa 3 loại Đơn (SO7/TM7/GH7) · Tất toán HĐ Khách ({saleInvPaid.Code}), Công Kỹ thuật ({srvInv.Code}) & Hoa hồng Sale.";
             });
 
             // =========================================================================
@@ -645,7 +720,7 @@ public static class FlowTester
 
                 var dash = db.Dashboard();
                 var profit = db.ApproxGrossProfit();
-                Assert(dash.Active == 4 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
+                Assert(dash.Active == 5 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
 
                 return $"Đã ghi {eventCount} sự kiện Audit JSON · Chặn xóa cứng thành công · Dashboard & 4 luồng CSV hoạt động chuẩn.";
             });

@@ -381,6 +381,7 @@ CREATE TABLE IF NOT EXISTS warranty_events(
 CREATE TABLE IF NOT EXISTS v7_orders(
   id INTEGER PRIMARY KEY,
   code TEXT UNIQUE NOT NULL,
+  order_kind TEXT NOT NULL DEFAULT 'INSTALL',
   customer_id INTEGER NOT NULL REFERENCES customers(id),
   seller_id INTEGER NOT NULL REFERENCES app_users(id),
   seller_record_id INTEGER REFERENCES v7_sellers(id),
@@ -423,7 +424,12 @@ CREATE TABLE IF NOT EXISTS v7_order_lines(
   installer_fee_vnd INTEGER NOT NULL DEFAULT 0 CHECK(installer_fee_vnd>=0),
   imei TEXT,
   plate_no TEXT NOT NULL DEFAULT '',
-  vin_no TEXT NOT NULL DEFAULT ''
+  vin_no TEXT NOT NULL DEFAULT '',
+  stock_unit_id INTEGER REFERENCES stock_units(id),
+  activation_id INTEGER REFERENCES activations(id),
+  renewal_id INTEGER REFERENCES renewals(id),
+  prev_expiry TEXT NOT NULL DEFAULT '',
+  new_expiry TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ix_v7_order_lines_order ON v7_order_lines(order_id);
 
@@ -453,6 +459,7 @@ CREATE TABLE IF NOT EXISTS activations(
   vin_no TEXT NOT NULL DEFAULT '',
   activated_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
+  is_pre_declared INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','EXPIRED','DISABLED'))
 );
 CREATE INDEX IF NOT EXISTS ix_activations_expiry ON activations(expires_at, status);
@@ -460,10 +467,12 @@ CREATE INDEX IF NOT EXISTS ix_activations_expiry ON activations(expires_at, stat
 CREATE TABLE IF NOT EXISTS renewals(
   id INTEGER PRIMARY KEY,
   activation_id INTEGER NOT NULL REFERENCES activations(id),
+  v7_order_id INTEGER REFERENCES v7_orders(id),
   customer_id INTEGER REFERENCES customers(id),
   seller_id INTEGER REFERENCES v7_sellers(id),
   seller_name TEXT NOT NULL DEFAULT '',
   source_type TEXT NOT NULL CHECK(source_type IN ('NCC','TNM','HTX','B2C')),
+  duration_months INTEGER NOT NULL DEFAULT 12,
   renewed_at TEXT NOT NULL,
   previous_expiry TEXT NOT NULL,
   new_expiry TEXT NOT NULL,
