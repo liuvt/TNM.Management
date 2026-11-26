@@ -887,7 +887,7 @@
             DetailPermissionKeys: [Permissions.DevicesView, Permissions.DevicesActiveView, Permissions.DevicesDue10View, Permissions.DevicesDue30View, Permissions.DevicesDue60View, Permissions.DevicesOverdueView, Permissions.DevicesRenew, Permissions.DevicesUpdate],
             Tabs:
             [
-                new("Biểu mẫu + Gia hạn, Sửa hạn/TT & + Thêm thiết bị", "Cho phép gia hạn 12 tháng gắn NV bán hàng (Ghi công nợ hoặc Tiền mặt), cập nhật ngày kích hoạt/ngày hết hạn/biển số, hoặc khai báo thêm thiết bị mới (chọn IMEI tồn kho hoặc nhập tay)."),
+                new("Biểu mẫu + Gia hạn, Sửa hạn/TT & + Thêm thiết bị", "Cho phép gia hạn 12 tháng gắn NV bán hàng (hỗ trợ chuyển sang HTX/Khách hàng khác ngay khi gia hạn dành cho Kế toán, Admin & Chủ sở hữu), cập nhật ngày kích hoạt/ngày hết hạn/biển số (hỗ trợ chuyển đơn vị quản lý xe kèm đồng bộ lại hóa đơn công nợ Kế toán theo giá nhóm KH mới dành riêng cho Chủ sở hữu), hoặc thêm thiết bị mới."),
                 new("Bảng Thiết bị đang hoạt động & Bộ lọc cảnh báo hạn", "Lọc nhanh: Đang hoạt động, Đến hạn ≤ 10 ngày (đồng bộ với huy hiệu đỏ trên menu trái), ≤ 30 ngày, ≤ 60 ngày, Quá hạn, Đã khóa."),
                 new("Hộp thoại 📋 Xem log (Dành cho Main / Owner / Admin)", "Tích hợp gọn Lưu vết thiết bị đã xóa mềm, Lịch sử các lần gia hạn (hỗ trợ sửa/xóa/chốt số KT) và Lưu vết thay đổi dữ liệu ngay trong hộp thoại.")
             ],
@@ -895,8 +895,8 @@
             [
                 "Quan sát huy hiệu 'Hết hạn ≤ 10 ngày' trên menu trái và mở mục 'Thiết bị & gia hạn' (/devices).",
                 "Sử dụng bộ lọc hạn (≤ 10 ngày, ≤ 30 ngày, Quá hạn...) hoặc tìm theo Biển số / IMEI / Đại lý.",
-                "Bấm '+ Gia hạn' trên dòng thiết bị → chọn Nhân viên bán hàng phụ trách gia hạn và hình thức thanh toán (Công nợ / Tiền mặt) → xác nhận gia hạn.",
-                "Khi cần chỉnh sửa biển số, chủ xe hoặc thời hạn (trước khi Kế toán chốt số), bấm 'Sửa hạn / TT' trên dòng thiết bị."
+                "Bấm '+ Gia hạn' trên dòng thiết bị → chọn Nhân viên bán hàng phụ trách gia hạn và hình thức thanh toán (Công nợ / Tiền mặt). Với Kế toán, Admin và Chủ sở hữu: có thể chọn chuyển sang HTX/Khách hàng khác ngay trên biểu mẫu để áp giá nhóm KH mới và ghi công nợ đợt gia hạn mới cho đơn vị mới (giữ nguyên công nợ lịch sử của đơn vị cũ).",
+                "Khi cần chỉnh sửa biển số, chủ xe hoặc thời hạn (trước khi Kế toán chốt số), bấm 'Sửa hạn / TT'. Riêng quyền Chủ sở hữu được phép đổi Đại lý / HTX / Khách hàng tại đây để hệ thống tự động cập nhật lại hóa đơn công nợ bên Kế toán (/finance) theo biểu giá nhóm KH tương ứng và lưu vết lịch sử."
             ],
             Notes:
             [

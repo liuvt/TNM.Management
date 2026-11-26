@@ -1923,16 +1923,23 @@ public sealed class V7Orders(IWebHostEnvironment env)
                             if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND id<>$sid AND deleted_at IS NULL", ("$imei", cleanImei), ("$sid", stockUnitId)) > 0)
                                 throw new InvalidOperationException($"IMEI '{cleanImei}' đã tồn tại trên thiết bị khác.");
                             Run(c, "UPDATE stock_units SET imei = imei || '#DEL#' || id WHERE imei=$imei AND id<>$sid AND deleted_at IS NOT NULL", ("$imei", cleanImei), ("$sid", stockUnitId));
-                            Run(c, "UPDATE stock_units SET imei=$imei, customer_id=$c, updated_at=CURRENT_TIMESTAMP WHERE id=$sid", ("$imei", cleanImei), ("$c", effCustomerId), ("$sid", stockUnitId));
+                            Run(c, "UPDATE stock_units SET imei=$imei, customer_id=CASE WHEN $chg=1 OR customer_id IS NULL OR customer_id=$oldC THEN $c ELSE customer_id END, updated_at=CURRENT_TIMESTAMP WHERE id=$sid",
+                                ("$imei", cleanImei), ("$chg", effCustomerId != oldCustomerId ? 1 : 0), ("$oldC", oldCustomerId), ("$c", effCustomerId), ("$sid", stockUnitId));
                         }
                         else
                         {
-                            Run(c, "UPDATE stock_units SET customer_id=$c WHERE id=$sid", ("$c", effCustomerId), ("$sid", stockUnitId));
+                            Run(c, "UPDATE stock_units SET customer_id=CASE WHEN $chg=1 OR customer_id IS NULL OR customer_id=$oldC THEN $c ELSE customer_id END WHERE id=$sid",
+                                ("$chg", effCustomerId != oldCustomerId ? 1 : 0), ("$oldC", oldCustomerId), ("$c", effCustomerId), ("$sid", stockUnitId));
                         }
                         Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
                             ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
-                        Run(c, "UPDATE activations SET customer_id=$c, plate_no=$plate, vin_no=$vin, activated_at=$act, expires_at=$exp WHERE id=$aid",
-                            ("$c", effCustomerId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr), ("$aid", existingActId));
+                        Run(c, @"UPDATE activations
+                            SET customer_id=CASE WHEN $chg=1 OR customer_id=$oldC THEN $c ELSE customer_id END,
+                                agency_name=CASE WHEN $chg=1 THEN (SELECT name FROM customers WHERE id=$c) ELSE agency_name END,
+                                plate_no=$plate, vin_no=$vin, activated_at=$act,
+                                expires_at=CASE WHEN COALESCE(renewal_count,0)>0 THEN expires_at ELSE $exp END
+                            WHERE id=$aid",
+                            ("$chg", effCustomerId != oldCustomerId ? 1 : 0), ("$oldC", oldCustomerId), ("$c", effCustomerId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr), ("$aid", existingActId));
                     }
                     else
                     {
@@ -2013,10 +2020,15 @@ public sealed class V7Orders(IWebHostEnvironment env)
             }
             else
             {
-                Run(c, "UPDATE activations SET customer_id=$c, activated_at=$act, expires_at=$exp WHERE v7_order_id=$o AND deleted_at IS NULL",
-                    ("$c", effCustomerId), ("$act", actDateStr), ("$exp", expDateStr), ("$o", id));
-                Run(c, "UPDATE stock_units SET customer_id=$c WHERE id IN (SELECT stock_unit_id FROM v7_order_lines WHERE order_id=$o AND stock_unit_id IS NOT NULL)",
-                    ("$c", effCustomerId), ("$o", id));
+                Run(c, @"UPDATE activations
+                    SET customer_id=CASE WHEN $chg=1 OR customer_id=$oldC THEN $c ELSE customer_id END,
+                        agency_name=CASE WHEN $chg=1 THEN (SELECT name FROM customers WHERE id=$c) ELSE agency_name END,
+                        activated_at=$act,
+                        expires_at=CASE WHEN COALESCE(renewal_count,0)>0 THEN expires_at ELSE $exp END
+                    WHERE v7_order_id=$o AND deleted_at IS NULL",
+                    ("$chg", effCustomerId != oldCustomerId ? 1 : 0), ("$oldC", oldCustomerId), ("$c", effCustomerId), ("$act", actDateStr), ("$exp", expDateStr), ("$o", id));
+                Run(c, "UPDATE stock_units SET customer_id=CASE WHEN $chg=1 OR customer_id IS NULL OR customer_id=$oldC THEN $c ELSE customer_id END WHERE id IN (SELECT stock_unit_id FROM v7_order_lines WHERE order_id=$o AND stock_unit_id IS NOT NULL)",
+                    ("$chg", effCustomerId != oldCustomerId ? 1 : 0), ("$oldC", oldCustomerId), ("$c", effCustomerId), ("$o", id));
             }
 
             Run(c, @"UPDATE inventory_transactions SET customer_id=$c

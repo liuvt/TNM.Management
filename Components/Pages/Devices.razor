@@ -137,7 +137,15 @@
 @if(canRenew){
     var selectedRenewDevice = devices.FirstOrDefault(x => x.ActivationId == activationId);
     var selectedRenewDeviceName = selectedRenewDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedRenewDevice.DeviceTypeLabel) ? selectedRenewDevice.Sku : selectedRenewDevice.DeviceTypeLabel);
-    <div class="panel edit-panel" hidden="@(!showRenew)"><div class="panel-head"><div><h2>Gia hạn thiết bị</h2><p>Chọn thiết bị IMEI và nhân viên bán hàng phụ trách gia hạn để thống kê cuối kỳ và tính hoa hồng.</p></div></div>
+    var selectedRenewTargetCust = customers.FirstOrDefault(c => c.Id == renewCustomerId);
+    var isChangingCustomerOnRenew = canTransferOnRenew && selectedRenewDevice is not null && renewCustomerId > 0 && renewCustomerId != selectedRenewDevice.CustomerId;
+    <div class="panel edit-panel" hidden="@(!showRenew)">
+        <div class="panel-head">
+            <div>
+                <h2>Gia hạn thiết bị</h2>
+                <p>Chọn thiết bị IMEI và nhân viên bán hàng phụ trách gia hạn để thống kê cuối kỳ và tính hoa hồng.@(canTransferOnRenew ? " Có thể chọn chuyển thiết bị sang Đại lý / HTX / Khách hàng khác ngay trong kỳ gia hạn mới." : "")</p>
+            </div>
+        </div>
 <div class="form-grid">
 <label>Thiết bị / biển số *
     <select @bind="activationId" @bind:after="OnRenewDeviceSelected">
@@ -152,9 +160,38 @@
 <label>Tên thiết bị (Mã sản phẩm)
     <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDeviceName} ({selectedRenewDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
-<label>Giá gia hạn áp dụng (12 tháng)
-    <input readonly value="@(selectedRenewDevice is null ? "—" : $"{selectedRenewDevice.RenewalPriceVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
+@if(canTransferOnRenew)
+{
+<label>Đại lý / HTX / Khách hàng nhận gia hạn (Chuyển đơn vị nếu đổi) *
+    <select @bind="renewCustomerId" @bind:after="OnRenewCustomerChanged">
+        @foreach(var cu in customers)
+        {
+            <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName @(string.IsNullOrWhiteSpace(cu.Group) || cu.Group == "-" ? "" : $"[{cu.Group}]")</option>
+        }
+    </select>
 </label>
+}
+else
+{
+<label>Đại lý / HTX / Khách hàng hiện tại
+    <input readonly value="@(selectedRenewDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedRenewDevice.AgencyName) ? selectedRenewDevice.Customer : selectedRenewDevice.AgencyName))" style="background:#f1f5f9" />
+</label>
+}
+<label>Giá gia hạn áp dụng (12 tháng)
+    <input readonly value="@(selectedRenewDevice is null ? "—" : $"{renewPreviewPriceVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
+</label>
+@if(canTransferOnRenew)
+{
+<label>Biển số xe (cập nhật nếu sang tên / đổi biển)
+    <input @bind="renewPlate" placeholder="VD: 51H-123.45..." />
+</label>
+<label>Tên khách hàng / Chủ xe sử dụng
+    <input @bind="renewOwnerName" placeholder="Tên chủ xe / khách sử dụng..." />
+</label>
+<label>SĐT khách hàng / Chủ xe
+    <input @bind="renewOwnerPhone" placeholder="VD: 0909123456..." />
+</label>
+}
 <label>Nhân viên bán hàng gia hạn (Tính hoa hồng) *
     <select @bind="renewSellerId">
         <option value="0">— Chọn nhân viên bán hàng phụ trách gia hạn —</option>
@@ -179,13 +216,32 @@
     </select>
 </label>
 </div>
-<div class="form-actions"><button class="btn" data-confirm="add" data-confirm-title="Xác nhận Gia hạn thiết bị 12 tháng" data-confirm-msg="@($"Bạn có chắc chắn muốn gia hạn 12 tháng cho thiết bị {(selectedRenewDevice is null ? "" : $"{selectedRenewDevice.Imei} ({selectedRenewDeviceName})")} và đồng bộ doanh thu sang Kế toán không?")" @onclick="Renew">+ Gia hạn 12 tháng</button><span class="feedback">@message</span></div>
+@if(isChangingCustomerOnRenew && selectedRenewDevice is not null)
+{
+    <div class="panel-note" style="margin-top:10px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a;font-weight:600">
+        🔄 Chuyển đơn vị &amp; Gia hạn mới: Thiết bị <strong>@selectedRenewDevice.Imei</strong> sẽ chuyển từ <strong>[@selectedRenewDevice.Customer]</strong> sang <strong>[@(selectedRenewTargetCust?.Name ?? "Đơn vị mới")]</strong>, áp dụng mức giá nhóm KH mới (<strong>@renewPreviewPriceVnd.ToString("N0") ₫</strong>) và ghi nhận hóa đơn gia hạn mới cho đơn vị mới (giữ nguyên toàn bộ công nợ &amp; lịch sử gia hạn cũ tại [@selectedRenewDevice.Customer]).
+    </div>
+}
+<div class="form-actions">
+    <button class="btn"
+            data-confirm="add"
+            data-confirm-title="@(isChangingCustomerOnRenew ? "Xác nhận Chuyển đơn vị & Gia hạn 12 tháng" : "Xác nhận Gia hạn thiết bị 12 tháng")"
+            data-confirm-msg="@(isChangingCustomerOnRenew && selectedRenewDevice is not null
+                ? $"Bạn có chắc chắn muốn chuyển thiết bị {selectedRenewDevice.Imei} ({selectedRenewDeviceName}) từ [{selectedRenewDevice.Customer}] sang [{(selectedRenewTargetCust?.Name ?? "Đơn vị mới")}] và gia hạn 12 tháng với mức giá {renewPreviewPriceVnd:N0} ₫ không?"
+                : $"Bạn có chắc chắn muốn gia hạn 12 tháng cho thiết bị {(selectedRenewDevice is null ? "" : $"{selectedRenewDevice.Imei} ({selectedRenewDeviceName})")} ({renewPreviewPriceVnd:N0} ₫) và đồng bộ doanh thu sang Kế toán không?")"
+            @onclick="Renew">
+        @(isChangingCustomerOnRenew ? "🔄 Chuyển đơn vị & + Gia hạn 12 tháng" : "+ Gia hạn 12 tháng")
+    </button>
+    <span class="feedback">@message</span>
+</div>
 </div>}
 
 @if(canRenew || canUpdateDevice){
     var selectedEditDevice = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
     var selectedEditDeviceName = selectedEditDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedEditDevice.DeviceTypeLabel) ? selectedEditDevice.Sku : selectedEditDevice.DeviceTypeLabel);
-    <div class="panel edit-panel" hidden="@(!showEditAct)"><div class="panel-head"><div><h2>Cập nhật Thời gian gia hạn (Ngày hết hạn), Ngày kích hoạt IMEI &amp; Thông tin thiết bị</h2><p>Cho phép điều chỉnh Ngày kích hoạt, Ngày hết hạn (thời gian gia hạn), nhân viên bán hàng phụ trách, Biển số xe và Thông tin phụ cho đến khi Kế toán chốt số / khóa số.</p></div></div>
+    var selectedEditTargetCust = customers.FirstOrDefault(c => c.Id == editCustomerId);
+    var isChangingCustomerMethod1 = canTransferMethod1 && selectedEditDevice is not null && editCustomerId > 0 && editCustomerId != selectedEditDevice.CustomerId;
+    <div class="panel edit-panel" hidden="@(!showEditAct)"><div class="panel-head"><div><h2>Cập nhật Thời gian gia hạn (Ngày hết hạn), Ngày kích hoạt IMEI &amp; Thông tin thiết bị</h2><p>Cho phép điều chỉnh Ngày kích hoạt, Ngày hết hạn (thời gian gia hạn), nhân viên bán hàng phụ trách, Biển số xe và Thông tin phụ cho đến khi Kế toán chốt số / khóa số.@(canTransferMethod1 ? " Hỗ trợ chuyển đổi Đại lý / HTX / Khách hàng quản lý xe và tự động cập nhật đồng bộ hóa đơn công nợ bên Kế toán theo giá nhóm KH tương ứng." : "")</p></div></div>
 <div class="form-grid">
 <label>Chọn thiết bị IMEI
     <select @bind="editActivationId" @bind:after="OnEditDeviceSelected">
@@ -199,6 +255,26 @@
 <label>Tên thiết bị (Mã sản phẩm)
     <input readonly value="@(selectedEditDevice is null ? "—" : $"{selectedEditDeviceName} ({selectedEditDevice.Sku})")" style="background:#f1f5f9;font-weight:700;color:#0284c7" />
 </label>
+@if(canTransferMethod1)
+{
+<label>Đại lý / HTX / Khách hàng quản lý (Đổi đơn vị &amp; Đồng bộ công nợ) *
+    <select @bind="editCustomerId" @bind:after="OnEditCustomerChanged">
+        @foreach(var cu in customers)
+        {
+            <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName @(string.IsNullOrWhiteSpace(cu.Group) || cu.Group == "-" ? "" : $"[{cu.Group}]")</option>
+        }
+    </select>
+</label>
+<label>Giá gia hạn theo Nhóm KH đã chọn (12 tháng)
+    <input readonly value="@($"{editPreviewRenewalVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
+</label>
+}
+else
+{
+<label>Đại lý / HTX / Khách hàng đang quản lý
+    <input readonly value="@(selectedEditDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedEditDevice.AgencyName) ? selectedEditDevice.Customer : selectedEditDevice.AgencyName))" style="background:#f1f5f9" />
+</label>
+}
 <label>Ngày kích hoạt IMEI *
     <input type="date" @bind="editActivatedDate" @bind:after="OnEditActivatedOrDurationChanged" />
 </label>
@@ -223,7 +299,9 @@
     </select>
 </label>
 <label>Biển số xe<input @bind="editPlate" placeholder="VD: 51H-123.45" /></label>
-<label>Thông tin phụ / Số khung<input @bind="editVin" placeholder="Thông tin phụ, số khung, chủ xe..." /></label>
+<label>Tên khách hàng / Chủ xe<input @bind="editOwnerName" placeholder="Tên chủ xe / khách sử dụng..." /></label>
+<label>SĐT khách hàng / Chủ xe<input @bind="editOwnerPhone" placeholder="VD: 0909123456..." /></label>
+<label>Thông tin phụ / Số khung<input @bind="editVin" placeholder="Thông tin phụ, số khung..." /></label>
 <label>Trạng thái thiết bị *
     <select @bind="editDeviceStatus">
         <option value="ACTIVE">Hoạt động (Mở khóa — Cho phép gia hạn)</option>
@@ -231,7 +309,24 @@
     </select>
 </label>
 </div>
-<div class="form-actions"><button class="btn" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật thông tin thiết bị" data-confirm-msg="@($"Bạn có chắc chắn muốn lưu cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Ngày hết hạn ({editExpiresDate:yyyy-MM-dd}) và thông tin thiết bị {(selectedEditDevice is null ? "" : $"{selectedEditDevice.Imei} ({selectedEditDeviceName})")} không?")" @onclick="SaveActivationUpdate">Lưu Thời gian gia hạn &amp; Thông tin thiết bị</button><span class="feedback">@editMessage</span></div>
+@if(isChangingCustomerMethod1 && selectedEditDevice is not null)
+{
+    <div class="panel-note" style="margin-top:10px;padding:10px 14px;border-radius:8px;background:#fefce8;border:1px solid #fde047;color:#854d0e;font-weight:600">
+        🔄 Điều chỉnh Đơn vị &amp; Đồng bộ Công nợ Kế toán (/finance): Thiết bị <strong>@selectedEditDevice.Imei</strong> sẽ chuyển từ <strong>[@selectedEditDevice.Customer]</strong> sang <strong>[@(selectedEditTargetCust?.Name ?? "Đơn vị mới")]</strong>. Hệ thống tự động cập nhật lại tên đơn vị và tính lại giá trị Hóa đơn / Công nợ chưa khóa sổ bên Kế toán theo đúng biểu giá của Nhóm KH mới (Giá GH: <strong>@editPreviewRenewalVnd.ToString("N0") ₫</strong>).
+    </div>
+}
+<div class="form-actions">
+    <button class="btn"
+            data-confirm="edit"
+            data-confirm-title="@(isChangingCustomerMethod1 ? "Xác nhận Chuyển đơn vị & Đồng bộ Công nợ Kế toán" : "Xác nhận Cập nhật thông tin thiết bị")"
+            data-confirm-msg="@(isChangingCustomerMethod1 && selectedEditDevice is not null
+                ? $"Bạn có chắc chắn muốn chuyển thiết bị {selectedEditDevice.Imei} ({selectedEditDeviceName}) từ [{selectedEditDevice.Customer}] sang [{(selectedEditTargetCust?.Name ?? "Đơn vị mới")}] và cập nhật đồng bộ lại Hóa đơn / Công nợ tương ứng bên Kế toán (/finance) theo giá nhóm KH mới không?"
+                : $"Bạn có chắc chắn muốn lưu cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Ngày hết hạn ({editExpiresDate:yyyy-MM-dd}) và thông tin thiết bị {(selectedEditDevice is null ? "" : $"{selectedEditDevice.Imei} ({selectedEditDeviceName})")} không?")"
+            @onclick="SaveActivationUpdate">
+        @(isChangingCustomerMethod1 ? "🔄 Lưu Chuyển đơn vị & Đồng bộ Công nợ" : "Lưu Thời gian gia hạn & Thông tin thiết bị")
+    </button>
+    <span class="feedback">@editMessage</span>
+</div>
 </div>}
 
 @{
@@ -689,11 +784,12 @@
  private string createDeviceTypeLabel = "XANHGPS", createImei = "", pickedStockImei = "", createPlate = "", pickedAgencyOwnerKey = "", createOwnerName = "", createOwnerPhone = "", createDeviceStatus = "ACTIVE", createMessage = "";
 
  private long activationId=1, editActivationId=1, renewSellerId, editDeviceSellerId, currentActorId;
+ private long renewCustomerId, renewPreviewPriceVnd, editCustomerId, editPreviewRenewalVnd;
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
- private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
- private bool canRenew,canUpdateDevice,canFinanceLock,canViewLog,canViewRowLog,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,isMainRole,showLogModal;
+ private string source="TNM",method="DEBT",message="",editMessage="",listMessage="",historyMessage="",deletedHistoryMessage="",deletedSearch="",editPlate="",editVin="",editOwnerName="",editOwnerPhone="",renewPlate="",renewOwnerName="",renewOwnerPhone="",editDeviceStatus="ACTIVE",search="",filter="ACTIVE",historySellerFilter="",historySearch="";
+ private bool canRenew,canUpdateDevice,canFinanceLock,canViewLog,canViewRowLog,canActive,canOverdue,canDue10,canDue30,canDue60,canSoftDeleteDevice,canTransferMethod1,canTransferOnRenew,isMainRole,showLogModal;
  private string? logInitialTable;
  private long? logInitialRecordId;
  private static readonly string[] deviceLogTables = ["activations", "renewals", "stock_units"];
@@ -794,12 +890,16 @@
    currentActorId = await Gate.RequireAsync(Permissions.DevicesView);
    isMainRole = Db.IsMainDeveloperUser(currentActorId);
    canSoftDeleteDevice = Db.CanSoftDeleteDeviceUser(currentActorId);
+   canTransferMethod1 = Db.CanTransferDeviceMethod1User(currentActorId);
+   canTransferOnRenew = Db.CanTransferDeviceOnRenewUser(currentActorId);
   }
   catch
   {
    currentActorId = 0;
    isMainRole = false;
    canSoftDeleteDevice = false;
+   canTransferMethod1 = false;
+   canTransferOnRenew = false;
   }
   canRenew=await Gate.CanAsync(Permissions.DevicesRenew);
   canUpdateDevice=await Gate.CanAsync(Permissions.DevicesUpdate) || await Gate.CanAsync(Permissions.UsersManage);
@@ -966,13 +1066,28 @@
  }
  private void OnRenewDeviceSelected(){
   var d = devices.FirstOrDefault(x => x.ActivationId == activationId);
-  if (d is not null && d.SellerId is > 0)
+  if (d is not null)
   {
-   renewSellerId = d.SellerId.Value;
+   renewCustomerId = d.CustomerId;
+   renewPreviewPriceVnd = d.RenewalPriceVnd;
+   renewPlate = d.Plate ?? "";
+   renewOwnerName = !string.IsNullOrWhiteSpace(d.OwnerName) ? d.OwnerName : (d.ContactName ?? "");
+   renewOwnerPhone = d.OwnerPhone ?? "";
+   if (d.SellerId is > 0)
+    renewSellerId = d.SellerId.Value;
+   else if (renewSellerId <= 0 && sellerChoices.Count > 0)
+    renewSellerId = sellerChoices[0].Id;
   }
-  else if (renewSellerId <= 0 && sellerChoices.Count > 0)
+ }
+ private void OnRenewCustomerChanged(){
+  var d = devices.FirstOrDefault(x => x.ActivationId == activationId);
+  if (d is null) return;
+  var effCust = renewCustomerId > 0 ? renewCustomerId : d.CustomerId;
+  renewPreviewPriceVnd = Db.PreviewRenewalPrice(effCust, d.ProductId);
+  if (effCust != d.CustomerId)
   {
-   renewSellerId = sellerChoices[0].Id;
+   var targetCust = customers.FirstOrDefault(c => c.Id == effCust);
+   if (targetCust?.SellerId is > 0) renewSellerId = targetCust.SellerId.Value;
   }
  }
  private void OpenRenewFor(DeviceVm d){
@@ -986,13 +1101,28 @@
   var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
   if (d is not null)
   {
+   editCustomerId = d.CustomerId;
+   editPreviewRenewalVnd = d.RenewalPriceVnd;
    if (DateTime.TryParse(d.ActivatedAt, out var dt)) editActivatedDate = dt.Date;
    if (DateTime.TryParse(d.ExpiresAt, out var expDt)) editExpiresDate = expDt.Date;
    else editExpiresDate = editActivatedDate.AddMonths(editDurationMonths);
    editDeviceSellerId = d.SellerId ?? 0;
    editPlate = d.Plate ?? "";
+   editOwnerName = !string.IsNullOrWhiteSpace(d.OwnerName) ? d.OwnerName : (d.ContactName ?? "");
+   editOwnerPhone = d.OwnerPhone ?? "";
    editVin = d.VinNo ?? "";
    editDeviceStatus = IsLocked(d) ? "DISABLED" : "ACTIVE";
+  }
+ }
+ private void OnEditCustomerChanged(){
+  var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
+  if (d is null) return;
+  var effCust = editCustomerId > 0 ? editCustomerId : d.CustomerId;
+  editPreviewRenewalVnd = Db.PreviewRenewalPrice(effCust, d.ProductId);
+  if (effCust != d.CustomerId)
+  {
+   var targetCust = customers.FirstOrDefault(c => c.Id == effCust);
+   if (targetCust?.SellerId is > 0) editDeviceSellerId = targetCust.SellerId.Value;
   }
  }
  private void OnEditActivatedOrDurationChanged(){
@@ -1102,15 +1232,37 @@
  }
  private async Task Renew(){
   try{
-   Db.ActorId=await Gate.RequireAsync(Permissions.DevicesRenew);
+   var actor = await Gate.RequireAsync(Permissions.DevicesRenew);
+   Db.ActorId = actor;
    var currentDev = devices.FirstOrDefault(x => x.ActivationId == activationId);
    var wasLocked = currentDev is not null && IsLocked(currentDev);
    var pickedSeller = sellerChoices.FirstOrDefault(s => s.Id == renewSellerId);
-   Db.Renew(activationId, source, method, pickedSeller?.Id, pickedSeller?.Name);
+   long? targetCust = (canTransferOnRenew && renewCustomerId > 0) ? renewCustomerId : null;
+   var oldCustName = currentDev?.Customer ?? "";
+   var nextCustName = customers.FirstOrDefault(c => c.Id == renewCustomerId)?.Name ?? oldCustName;
+   var transferred = canTransferOnRenew && currentDev is not null && renewCustomerId > 0 && renewCustomerId != currentDev.CustomerId;
+   Db.Renew(
+    activationId,
+    source,
+    method,
+    pickedSeller?.Id,
+    pickedSeller?.Name,
+    targetCustomerId: targetCust,
+    newPlateNo: canTransferOnRenew ? renewPlate : null,
+    newOwnerName: canTransferOnRenew ? renewOwnerName : null,
+    newOwnerPhone: canTransferOnRenew ? renewOwnerPhone : null,
+    actorId: actor);
    Reload();
-   message = wasLocked
-    ? $"Đã tự động mở khóa thiết bị, gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}."
-    : $"Đã gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
+   if (transferred)
+   {
+    message = $"Đã chuyển thiết bị từ [{oldCustName}] sang [{nextCustName}], gia hạn 12 tháng theo giá nhóm KH mới và ghi nhận công nợ cho [{nextCustName}] · NV bán hàng: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
+   }
+   else
+   {
+    message = wasLocked
+     ? $"Đã tự động mở khóa thiết bị, gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}."
+     : $"Đã gia hạn 12 tháng và ghi nhận nhân viên bán hàng phụ trách: {(pickedSeller is not null ? pickedSeller.Name : "Mặc định")}.";
+   }
   }catch(Exception ex){message="Lỗi: "+ex.Message;}
  }
  private async Task ToggleDeviceLock(DeviceVm x){
@@ -1135,8 +1287,10 @@
  }
  private async Task SaveActivationUpdate(){
   try{
-   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
-   Db.UpdateDeviceActivation(
+   var actor = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   Db.ActorId = actor;
+   long? nextCust = (canTransferMethod1 && editCustomerId > 0) ? editCustomerId : null;
+   var summary = Db.UpdateDeviceActivation(
     editActivationId,
     editActivatedDate.ToString("yyyy-MM-dd"),
     editDurationMonths,
@@ -1144,9 +1298,13 @@
     editVin,
     editExpiresDate.ToString("yyyy-MM-dd"),
     editDeviceSellerId > 0 ? editDeviceSellerId : null,
-    editDeviceStatus);
+    editDeviceStatus,
+    editOwnerName,
+    editOwnerPhone,
+    nextCust,
+    actor);
    Reload();
-   editMessage=$"Đã cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Thời gian gia hạn / Hết hạn ({editExpiresDate:yyyy-MM-dd}), Trạng thái ({(editDeviceStatus == "DISABLED" ? "Đã khóa" : "Hoạt động")}) & thông tin thiết bị.";
+   editMessage = summary;
   }catch(Exception ex){editMessage="Lỗi: "+ex.Message;}
  }
 }

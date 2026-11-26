@@ -448,6 +448,7 @@ CREATE TABLE IF NOT EXISTS activations(
   stock_unit_id INTEGER NOT NULL UNIQUE REFERENCES stock_units(id),
   customer_id INTEGER NOT NULL REFERENCES customers(id),
   product_id INTEGER NOT NULL REFERENCES products(id),
+  seller_id INTEGER REFERENCES v7_sellers(id),
   plate_no TEXT NOT NULL DEFAULT '',
   vin_no TEXT NOT NULL DEFAULT '',
   activated_at TEXT NOT NULL,
@@ -459,6 +460,7 @@ CREATE INDEX IF NOT EXISTS ix_activations_expiry ON activations(expires_at, stat
 CREATE TABLE IF NOT EXISTS renewals(
   id INTEGER PRIMARY KEY,
   activation_id INTEGER NOT NULL REFERENCES activations(id),
+  customer_id INTEGER REFERENCES customers(id),
   seller_id INTEGER REFERENCES v7_sellers(id),
   seller_name TEXT NOT NULL DEFAULT '',
   source_type TEXT NOT NULL CHECK(source_type IN ('NCC','TNM','HTX','B2C')),
