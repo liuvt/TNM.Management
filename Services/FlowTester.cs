@@ -854,11 +854,7 @@ public static class FlowTester
                     Assert(logDetails.Contains($"{oldExpBeforeStaff} → {newExpByStaff}") && logDetails.Contains("nv_kho_test") && logDetails.Contains("51H-888.92"),
                         $"Nhật ký audit_logs chưa ghi đầy đủ thông tin Trước → Sau của nhân viên: '{logDetails}'");
 
-                    using var actEvtCmd = logConn.CreateCommand();
-                    actEvtCmd.CommandText = "SELECT COUNT(*) FROM activity_events WHERE table_name='activations' AND record_id=$id AND actor_user_id=$u AND action='UPDATE'";
-                    actEvtCmd.Parameters.AddWithValue("$id", staffTargetDev.ActivationId.ToString());
-                    actEvtCmd.Parameters.AddWithValue("$u", staffUserId);
-                    var evtCnt = Convert.ToInt64(actEvtCmd.ExecuteScalar());
+                    var evtCnt = audit.Count(table: "activations", key: $"{{\"id\":{staffTargetDev.ActivationId}}}", action: "UPDATE", actor: "nv_kho_test");
                     Assert(evtCnt >= 1, "Bảng activity_events chưa lưu vết JSON UPDATE khi nhân viên cập nhật thiết bị.");
                 }
 
