@@ -478,14 +478,15 @@ public static class FlowTester
                 Assert(ren2Inv.Total == 950_000 && ren2Inv.Status == "PAID",
                     $"Chứng từ Kế toán gia hạn phải tự động cập nhật theo số tiền mới 950.000 ₫ và trạng thái PAID (thực tế: {ren2Inv.Total}, {ren2Inv.Status}).");
 
-                // Kế toán chốt số / khóa số -> chặn sửa / xóa lịch sử gia hạn và chặn đổi hạn thiết bị
+                // Kế toán chốt số / khóa số -> chặn sửa / xóa lịch sử gia hạn kế toán đã khóa, nhưng vẫn cho phép cập nhật thông tin / hạn thiết bị (không làm lệch chứng từ đã khóa)
                 db.SetRenewalLock(ren2.Id, true);
                 AssertThrows(() => db.UpdateRenewal(ren2.Id, createdSeller.Id, createdSeller.Name, "TNM", ren2.StartDate, ren2.PreviousExpiry, "2030-01-01", 500_000, "DEBT"),
                     "Chặn cập nhật lịch sử gia hạn khi Kế toán đã chốt số");
                 AssertThrows(() => db.DeleteRenewal(ren2.Id),
                     "Chặn xóa lịch sử gia hạn khi Kế toán đã chốt số");
-                AssertThrows(() => db.UpdateDeviceActivation(dev2.ActivationId, dev2.ActivatedAt, 12, dev2.Plate, dev2.VinNo, "2030-05-05"),
-                    "Chặn cập nhật thời gian gia hạn thiết bị khi có đợt gia hạn đã chốt số");
+                db.UpdateDeviceActivation(dev2.ActivationId, dev2.ActivatedAt, 12, dev2.Plate, dev2.VinNo, "2030-05-05", actorId: ownerId);
+                Assert(db.Renewals().First(r => r.Id == ren2.Id).EndDate == "2029-12-31" && db.Invoices().First(i => i.RenewalId == ren2.Id).Total == 950_000,
+                    "Cập nhật hạn trên Thiết bị không được làm thay đổi chứng từ gia hạn đã chốt sổ.");
 
                 // Mở khóa và xóa lịch sử gia hạn -> khôi phục hạn thiết bị & xóa chứng từ kế toán + giảm hoa hồng Seller
                 db.SetRenewalLock(ren2.Id, false);
