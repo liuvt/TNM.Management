@@ -209,11 +209,12 @@ public sealed class V7Orders(IWebHostEnvironment env)
         BackfillHistoricalRenewalsAsOrders(c);
         RepairCancelledAndDeletedOrdersStock(c);
 
-        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định đối với user thường (cho phép Role Main điều chỉnh khi chưa chốt số, hoặc chuyển sang CANCELLED)
+        // Trigger khóa vĩnh viễn đơn hàng đã hoàn thành (COMPLETED) & giá snapshot cố định đối với user thường (cho phép Role Main điều chỉnh khi chưa chốt số, hoặc chuyển sang CANCELLED, hoặc luồng đồng bộ liên phân hệ hợp lệ)
         Run(c, """
             CREATE TRIGGER trg_v7_orders_lock_completed_update
             BEFORE UPDATE OF code, customer_id, seller_id, seller_record_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, source, status, warehouse_id, installer, installer_employee_id, installer_fee_vnd, no_install_fee, contact_name, customer_phone, sale_source, duration_months, deduct_stock, collect_on_delivery, install_address, install_at, notes, completed_at ON v7_orders
             WHEN OLD.status = 'COMPLETED' AND NEW.status <> 'CANCELLED'
+              AND COALESCE(tnm_internal_sync(), 0) = 0
               AND LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_IMMUTABLE: Đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
@@ -222,6 +223,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             CREATE TRIGGER trg_v7_order_lines_lock_completed_update
             BEFORE UPDATE OF order_id, product_id, quantity, unit_price_vnd, unit_cost_snapshot_vnd, installer_fee_vnd ON v7_order_lines
             WHEN (SELECT status FROM v7_orders WHERE id = OLD.order_id) = 'COMPLETED'
+              AND COALESCE(tnm_internal_sync(), 0) = 0
               AND LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Dòng sản phẩm của đơn hàng đã hoàn thành và khóa snapshot giá cố định, không thể thay đổi.');
@@ -230,6 +232,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
             CREATE TRIGGER trg_v7_order_lines_lock_completed_insert
             BEFORE INSERT ON v7_order_lines
             WHEN (SELECT status FROM v7_orders WHERE id = NEW.order_id) = 'COMPLETED'
+              AND COALESCE(tnm_internal_sync(), 0) = 0
               AND LOWER(COALESCE((SELECT username FROM app_users WHERE id=NULLIF(tnm_actor(),0)),'')) <> 'vanlt_it'
             BEGIN
               SELECT RAISE(ABORT,'COMPLETED_ORDER_LINE_IMMUTABLE: Đơn hàng đã hoàn thành, không thể thêm dòng sản phẩm mới.');
@@ -2003,9 +2006,10 @@ public sealed class V7Orders(IWebHostEnvironment env)
                                    OR LOWER(COALESCE(sg.name,'')) LIKE '%hoàn trả%')",
                             ("$sid", stockUnitId)) > 0;
                         var effectiveLineCost = isReturnedUnit ? 0 : ln.UnitCost;
+                        var stockProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$sid), $p)", ("$sid", stockUnitId), ("$p", ln.ProductId));
 
                         Run(c, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
-                            ("$t", saleOutTxId.Value), ("$s", stockUnitId), ("$p", ln.ProductId), ("$cost", effectiveLineCost));
+                            ("$t", saleOutTxId.Value), ("$s", stockUnitId), ("$p", stockProdId), ("$cost", effectiveLineCost));
 
                         Run(c, "UPDATE stock_units SET status='INSTALLED',warehouse_id=NULL,customer_id=$c,employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$id AND status IN ('IN_STOCK','CONSIGNED','TECHNICIAN')",
                             ("$c", customer), ("$id", stockUnitId));
@@ -2037,6 +2041,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     // Nếu dòng đã có IMEI thì kích hoạt lên bảng Thiết bị (activations) ngay (nếu đã chọn sẵn xe khai báo trước thì nâng cấp bản ghi xe đó, tránh tạo trùng)
                     if (hasImei && stockUnitId > 0)
                     {
+                        var actProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$sid), $p)", ("$sid", stockUnitId), ("$p", ln.ProductId));
                         var preActId = ln.TargetActId > 0
                             ? Scalar(c, "SELECT COALESCE((SELECT id FROM activations WHERE id=$aid AND COALESCE(is_pre_declared,0)=1 AND deleted_at IS NULL LIMIT 1), 0)", ("$aid", ln.TargetActId))
                             : 0;
@@ -2049,7 +2054,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                                     vin_no=CASE WHEN $vin<>'' THEN $vin ELSE vin_no END,
                                     activated_at=$act, expires_at=$exp, is_pre_declared=0, status='ACTIVE', updated_at=datetime('now')
                                 WHERE id=$aid",
-                                ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId),
+                                ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", actProdId),
                                 ("$plate", ln.PlateNo), ("$vin", ln.VinNo), ("$act", actDateStr), ("$exp", expDateStr), ("$aid", preActId));
                             if (oldPlaceholderUnit > 0 && oldPlaceholderUnit != stockUnitId)
                             {
@@ -2061,7 +2066,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         {
                             Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at,is_pre_declared,status)
                                 VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp,0,'ACTIVE')",
-                                ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", ln.PlateNo), ("$vin", ln.VinNo), ("$act", actDateStr), ("$exp", expDateStr));
+                                ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", actProdId), ("$plate", ln.PlateNo), ("$vin", ln.VinNo), ("$act", actDateStr), ("$exp", expDateStr));
                             var createdActId = Scalar(c, "SELECT last_insert_rowid()");
                             Run(c, "UPDATE v7_order_lines SET activation_id=$aid WHERE id=$lid", ("$aid", createdActId), ("$lid", ln.LineId));
                         }
@@ -2277,8 +2282,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                                 ("$w", restoreWh), ("$sid", stockUnitId));
                             Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$oid",
                                 ("$c", customer), ("$oid", otherId));
-                            Run(c, "UPDATE inventory_transaction_lines SET stock_unit_id=$oid WHERE stock_unit_id=$sid AND NOT EXISTS (SELECT 1 FROM inventory_transaction_lines x WHERE x.transaction_id=inventory_transaction_lines.transaction_id AND x.stock_unit_id=$oid)",
-                                ("$oid", otherId), ("$sid", stockUnitId));
+                            var otherProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$oid), $p)", ("$oid", otherId), ("$p", ln.ProductId));
+                            Run(c, "UPDATE inventory_transaction_lines SET stock_unit_id=$oid, product_id=$op WHERE stock_unit_id=$sid AND NOT EXISTS (SELECT 1 FROM inventory_transaction_lines x WHERE x.transaction_id=inventory_transaction_lines.transaction_id AND x.stock_unit_id=$oid)",
+                                ("$oid", otherId), ("$op", otherProdId), ("$sid", stockUnitId));
                             Run(c, "UPDATE v7_stock_effects SET stock_unit_id=$oid WHERE order_id=$o AND stock_unit_id=$sid",
                                 ("$oid", otherId), ("$o", id), ("$sid", stockUnitId));
                             stockUnitId = otherId;
@@ -2321,11 +2327,12 @@ public sealed class V7Orders(IWebHostEnvironment env)
                         stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
                     }
 
+                    var actProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$sid), $p)", ("$sid", stockUnitId), ("$p", ln.ProductId));
                     Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
                         ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
                     Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
                         VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
-                        ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", ln.ProductId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr));
+                        ("$o", id), ("$s", stockUnitId), ("$c", customer), ("$p", actProdId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr));
                     activatedCount++;
                 }
 
@@ -2752,6 +2759,13 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 foreach (var invId in renInvs) SoftVoidInv(invId);
                 foreach (var ri in renItems)
                 {
+                    var rInvs = new List<long>();
+                    using (var riq = Cmd(c, "SELECT id FROM invoices WHERE renewal_id=$r AND deleted_at IS NULL", ("$r", ri.RenId)))
+                    using (var rir = riq.ExecuteReader())
+                    {
+                        while (rir.Read()) rInvs.Add(rir.GetInt64(0));
+                    }
+                    foreach (var rInvId in rInvs) SoftVoidInv(rInvId);
                     Run(c, "UPDATE renewals SET deleted_at=$now, deleted_by=$actor WHERE id=$r", ("$now", nowIso), ("$actor", actor), ("$r", ri.RenId));
                     var remExp = Str(c, "SELECT COALESCE((SELECT new_expiry FROM renewals WHERE activation_id=$a AND deleted_at IS NULL ORDER BY renewed_at DESC, id DESC LIMIT 1), '')", ("$a", ri.ActId));
                     var reverted = !string.IsNullOrWhiteSpace(remExp) ? remExp : ri.PrevExp;
@@ -2764,6 +2778,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     ("$now", nowIso), ("$actor", actor), ("$o", id));
                 Run(c, "UPDATE v7_orders SET status='CANCELLED', deleted_at=$now, deleted_by=$actor WHERE id=$o",
                     ("$now", nowIso), ("$actor", actor), ("$o", id));
+                SyncOpenSellerCommissions(c);
                 return $"Đã xóa mềm Đơn gia hạn {code}, khôi phục hạn cũ của xe và hủy chứng từ kế toán liên quan.";
             }
 
@@ -2887,7 +2902,7 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 if (!alreadyReversed)
                 {
                     Run(c, @"INSERT INTO quantity_movements(document_no,product_id,warehouse_id,location_id,delta_qty,movement_type,ref_type,ref_id,note,actor_user_id)
-                        VALUES('QR-'||lower(hex(randomblob(8))),$p,$w,$l,$d,'RECEIPT','V7_ORDER_CANCEL',$o,$note,$u)",
+                        VALUES('QR-'||lower(hex(randomblob(8))),$p,$w,$l,$d,'RECEIVE','V7_ORDER_CANCEL',$o,$note,$u)",
                         ("$p", qi.ProdId), ("$w", qi.WhId), ("$l", qi.LocId), ("$d", qi.IssuedQty), ("$o", id),
                         ("$note", $"Hoàn nhập kho do xóa mềm đơn {code}"), ("$u", actor));
                 }
@@ -3138,8 +3153,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                                     ("$code", txCode), ("$w", txWh), ("$c", effCustomerId), ("$actor", actor));
                                 saleOutTxId = Scalar(c, "SELECT last_insert_rowid()");
                             }
+                            var slotProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$sid), $p)", ("$sid", slotId), ("$p", ln.ProductId));
                             Run(c, "INSERT INTO inventory_transaction_lines(transaction_id,stock_unit_id,product_id,unit_cost_snapshot_vnd) VALUES($t,$s,$p,$cost)",
-                                ("$t", saleOutTxId.Value), ("$s", slotId), ("$p", ln.ProductId), ("$cost", ln.UnitCost));
+                                ("$t", saleOutTxId.Value), ("$s", slotId), ("$p", slotProdId), ("$cost", ln.UnitCost));
                             Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$id",
                                 ("$c", effCustomerId), ("$id", slotId));
                             Run(c, "INSERT INTO v7_stock_effects(order_id,stock_unit_id) VALUES($o,$s)", ("$o", id), ("$s", slotId));
@@ -3301,8 +3317,9 @@ public sealed class V7Orders(IWebHostEnvironment env)
                                     ("$w", effWarehouse), ("$sid", stockUnitId));
                                 Run(c, "UPDATE stock_units SET status='INSTALLED', warehouse_id=NULL, customer_id=$c, employee_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=$oid",
                                     ("$c", effCustomerId), ("$oid", otherId));
-                                Run(c, "UPDATE inventory_transaction_lines SET stock_unit_id=$oid WHERE stock_unit_id=$sid AND NOT EXISTS (SELECT 1 FROM inventory_transaction_lines x WHERE x.transaction_id=inventory_transaction_lines.transaction_id AND x.stock_unit_id=$oid)",
-                                    ("$oid", otherId), ("$sid", stockUnitId));
+                                var otherProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$oid), $p)", ("$oid", otherId), ("$p", ln.ProductId));
+                                Run(c, "UPDATE inventory_transaction_lines SET stock_unit_id=$oid, product_id=$op WHERE stock_unit_id=$sid AND NOT EXISTS (SELECT 1 FROM inventory_transaction_lines x WHERE x.transaction_id=inventory_transaction_lines.transaction_id AND x.stock_unit_id=$oid)",
+                                    ("$oid", otherId), ("$op", otherProdId), ("$sid", stockUnitId));
                                 Run(c, "UPDATE v7_stock_effects SET stock_unit_id=$oid WHERE order_id=$o AND stock_unit_id=$sid",
                                     ("$oid", otherId), ("$o", id), ("$sid", stockUnitId));
                                 stockUnitId = otherId;
@@ -3343,11 +3360,12 @@ public sealed class V7Orders(IWebHostEnvironment env)
                             stockUnitId = Scalar(c, "SELECT last_insert_rowid()");
                         }
 
+                        var actProdId = Scalar(c, "SELECT COALESCE((SELECT product_id FROM stock_units WHERE id=$sid), $p)", ("$sid", stockUnitId), ("$p", ln.ProductId));
                         Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
                             ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
                         Run(c, @"INSERT INTO activations(v7_order_id,stock_unit_id,customer_id,product_id,plate_no,vin_no,activated_at,expires_at)
                             VALUES($o,$s,$c,$p,$plate,$vin,$act,$exp)",
-                            ("$o", id), ("$s", stockUnitId), ("$c", effCustomerId), ("$p", ln.ProductId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr));
+                            ("$o", id), ("$s", stockUnitId), ("$c", effCustomerId), ("$p", actProdId), ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr));
                     }
 
                     allImeis.Add(cleanImei);

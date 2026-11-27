@@ -735,7 +735,91 @@ public static class FlowTester
                 AssertThrows(() => v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000092")],
                     "Kho Q7", "Trùng IMEI đã kích hoạt", false), "Cảnh báo trùng khi IMEI đang kích hoạt thực tế");
 
-                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Chuẩn hóa 3 loại Đơn (SO7/TM7/GH7) · Hoàn kho khi Hủy/Xóa đơn & Cảnh báo trùng IMEI chuẩn xác.";
+                // (F) Kiểm tra đồng bộ xuyên suốt Đơn hàng – Kho – Thiết bị – Kế toán (Chuyển đơn vị Cách 1 bởi Owner trên đơn COMPLETED, Đơn gộp GH7, Xóa mềm đơn số lượng & Chặn xóa/sửa lệch HĐ trên Kế toán):
+                // F1. Xóa mềm đơn thương mại hàng số lượng (commOrdId: 2 SP qtyProdId) -> hoàn kho số lượng +2 & hủy HĐ SALE
+                var qtyBeforeSoftDelComm = ops.Balances(ownerId).First(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Quantity;
+                v7Orders.SoftDeleteOrder(ownerId, commOrdId);
+                var qtyAfterSoftDelComm = ops.Balances(ownerId).First(b => b.ProductId == qtyProdId && b.WarehouseId == wh1Id).Quantity;
+                Assert(qtyAfterSoftDelComm == qtyBeforeSoftDelComm + 2,
+                    $"Xóa mềm đơn thương mại hàng số lượng phải hoàn trả đúng +2 SP về Kho (trước={qtyBeforeSoftDelComm}, sau={qtyAfterSoftDelComm}).");
+
+                // F2. Sửa & Xóa 1 xe trong Đơn gia hạn gộp 2 xe (batchRenRes: GH7-...) -> đồng bộ ngược GH7 + Hóa đơn gộp RENEWAL
+                var batchRenDev2 = db.Renewals().First(r => r.ActivationId == dev2.ActivationId && r.Price == 200_000);
+                db.UpdateRenewal(batchRenDev2.Id, createdSeller.Id, createdSeller.Name, "HTX", batchRenDev2.StartDate[..10], batchRenDev2.PreviousExpiry, batchRenDev2.EndDate, 250_000, "DEBT");
+                var ghOrdAfterEdit = v7Orders.List().First(o => o.Id == batchRenRes.OrderId);
+                var ghInvAfterEdit = db.Invoices().First(i => i.RefCode == batchRenRes.OrderCode && i.Type == "RENEWAL");
+                Assert(ghOrdAfterEdit.Price == 450_000 && ghInvAfterEdit.Total == 450_000,
+                    $"Sửa 1 dòng gia hạn trong đơn gộp GH7 phải đồng bộ Tổng đơn GH7 ({ghOrdAfterEdit.Price:N0}) = Hóa đơn RENEWAL ({ghInvAfterEdit.Total:N0}) = 450.000 ₫.");
+
+                db.DeleteRenewal(batchRenDev2.Id, ownerId);
+                var ghOrdAfterDel1 = v7Orders.List().First(o => o.Id == batchRenRes.OrderId);
+                var ghInvAfterDel1 = db.Invoices().First(i => i.RefCode == batchRenRes.OrderCode && i.Type == "RENEWAL");
+                var ghRemQty = ghOrdAfterDel1.Lines.Sum(l => l.Quantity);
+                Assert(ghRemQty == 1 && ghOrdAfterDel1.Price == 200_000 && ghInvAfterDel1.Total == 200_000,
+                    $"Xóa 1 xe khỏi đơn gộp GH7 phải giảm Đơn GH7 về 1 xe / 200.000 ₫ và Hóa đơn RENEWAL về 200.000 ₫ (thực tế: Qty={ghRemQty}, Ord={ghOrdAfterDel1.Price}, Inv={ghInvAfterDel1.Total}).");
+
+                // F3. Owner thực hiện Cách 1 (UpdateDeviceActivation đổi đơn vị) trực tiếp trên đơn COMPLETED (reuseOrdId)
+                var custGroup2Id = catalog.SaveGroup(ownerId, "CUSTOMER", null, "DL_VIP_SYNC", "Nhóm HTX VIP Test Đồng Bộ");
+                catalog.SetCustomerGroupPrice(ownerId, custGroup2Id, imeiProdId, 1_800_000, 1_950_000, 650_000, DateTime.Today.AddDays(-10));
+                var cust2Id = catalog.SaveCustomer(ownerId, null, "", "HTX Đồng Bộ Mới", custGroup2Id, "0907777888", "TP.HCM", "Sale Đồng Bộ");
+                var reuseDev = db.Devices().First(d => d.Imei == "860000000000092");
+                db.UpdateDeviceActivation(reuseDev.ActivationId, reuseDev.ActivatedAt, 12, reuseDev.Plate, reuseDev.VinNo, reuseDev.ExpiresAt,
+                    createdSeller.Id, "ACTIVE", "Chủ xe HTX Đồng Bộ", "0907777888", cust2Id, ownerId);
+                var reuseOrdAfterTransfer = v7Orders.List().First(o => o.Id == reuseOrdId);
+                var reuseSaleInv = db.Invoices().First(i => i.RefCode == reuseOrdAfterTransfer.Code && i.Type == "SALE");
+                Assert(reuseOrdAfterTransfer.CustomerId == cust2Id && reuseOrdAfterTransfer.Price == 1_950_000 && reuseSaleInv.Total == 1_950_000,
+                    $"Owner chuyển đơn vị Cách 1 trên đơn COMPLETED phải đồng bộ Đơn hàng ({reuseOrdAfterTransfer.Price:N0}) = Hóa đơn SALE ({reuseSaleInv.Total:N0}) = 1.950.000 ₫ theo nhóm giá mới.");
+
+                // F4. Chặn xóa lẻ hoặc sửa lệch tiền chứng từ trên Kế toán khi Đơn hàng gốc đang COMPLETED
+                AssertThrows(() => db.DeleteInvoice(reuseSaleInv.Id), "Chặn xóa lẻ chứng từ SALE khi đơn hàng gốc đang hiệu lực");
+                AssertThrows(() => db.UpdateCustomInvoice(reuseSaleInv.Id, cust2Id, null, "", "Sửa lệch tiền", imeiProdId, 1, 999_000, reuseSaleInv.DueAt),
+                    "Chặn sửa lệch tổng tiền chứng từ SALE khỏi Đơn hàng gốc");
+
+                // F5. Xóa mềm 1 thiết bị trong đơn gộp 2 thiết bị COMPLETED -> đồng bộ giảm trừ Đơn hàng + HĐ SALE + HĐ SERVICE + Hoàn 1 IMEI về IN_STOCK
+                db.Receive(imeiProdId, wh1Id, "860000000000093\n860000000000094");
+                var multiSyncOrdId = v7Orders.CreateMulti(ownerId, cust2Id,
+                    [
+                        new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000093", PlateNo: "51H-000.93"),
+                        new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000094", PlateNo: "51H-000.94")
+                    ],
+                    "Kho Q7", "Đơn gộp 2 xe test xóa mềm 1 xe", false, "0907777888", null, createdSeller.Name, "HTX Đồng Bộ Mới",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: false, orderKind: "INSTALL", completeImmediately: true);
+                var multiOrdCode = v7Orders.List().First(o => o.Id == multiSyncOrdId).Code;
+                var act94 = db.Devices().First(d => d.Imei == "860000000000094");
+                db.SoftDeleteDeviceActivation(act94.ActivationId, ownerId);
+
+                var multiOrdAfterDel = v7Orders.List().First(o => o.Id == multiSyncOrdId);
+                var multiRemQty = multiOrdAfterDel.Lines.Sum(l => l.Quantity);
+                var multiSaleInv = db.Invoices().First(i => i.RefCode == multiOrdCode && i.Type == "SALE");
+                var multiSrvInv = db.Invoices().First(i => i.RefCode == multiOrdCode && i.Type == "SERVICE");
+                Assert(multiRemQty == 1 && multiOrdAfterDel.Price == 1_950_000 && multiSaleInv.Total == 1_950_000 &&
+                       multiOrdAfterDel.InstallerFee == multiSrvInv.Total &&
+                       db.Stock().First(s => s.Imei == "860000000000094").Status == "IN_STOCK",
+                    $"Xóa mềm 1 xe trong đơn gộp 2 xe phải đồng bộ Đơn hàng (Qty={multiRemQty}, Price={multiOrdAfterDel.Price}, Fee={multiOrdAfterDel.InstallerFee}) = HĐ SALE ({multiSaleInv.Total}) + HĐ Kỹ thuật ({multiSrvInv.Total}) & hoàn 860000000000094 về IN_STOCK.");
+
+                // F6. Kiểm tra xuất kho chéo mã Nasa (SP000019 trong kho -> đơn đặt mã Nasa khác ID) không vướng Trigger validate_inventory_product / validate_activation_product
+                var nasaSkuA = productMaster.Save(ownerId, new ProductMaster.ProductDraft(null, prodGroupId, "Nasa GPS 4G nano", "GOODS", "Bộ", true, 12, CustomSku: "SP000019"));
+                var nasaProdAId = productMaster.Products().First(p => p.Sku == nasaSkuA).Id;
+                db.Receive(nasaProdAId, wh1Id, "1200009999");
+                var nasaOrdId = v7Orders.CreateMulti(ownerId, cust2Id,
+                    [new V7OrderLineDraft(imeiProdId, 1, CustomUnitPrice: 850_000)],
+                    "Kho Q7", "Test Nasa chéo mã hoàn thành", false, "0907777888", null, createdSeller.Name, "HTX Nasa",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: false, orderKind: "INSTALL", completeImmediately: false);
+                v7Orders.Report(ownerId, nasaOrdId, "1200009999", "51H-999.99", "Xe Nasa chéo mã");
+                v7Orders.Complete(ownerId, nasaOrdId);
+                Assert(db.Devices().Any(d => d.Imei == "1200009999" && d.Plate == "51H-999.99"), "Hoàn tất đơn chéo mã IMEI không vướng Trigger validate_inventory_product / validate_activation_product.");
+                v7Orders.SoftDeleteOrder(ownerId, nasaOrdId);
+                Assert(db.Stock().First(s => s.Imei == "1200009999").Status == "IN_STOCK", "Hoàn kho IMEI Nasa sau xóa mềm chuẩn xác.");
+
+                db.ActorId = 0;
+                var (finPur, finSale, finRen, finSrv) = db.ReconcileAccountingData();
+                Assert(finPur == 0 && finSale == 0 && finRen == 0 && finSrv == 0,
+                    $"Đối soát tổng thể cuối cùng ReconcileAccountingData phải khớp tuyệt đối 0 lệch (thực tế: {finPur},{finSale},{finRen},{finSrv}).");
+                db.ActorId = ownerId;
+
+                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Đồng bộ tuyệt đối Đơn hàng (SO7/TM7/GH7) ↔ Kho ↔ Thiết bị ↔ Kế toán (0 sai lệch).";
             });
 
             // =========================================================================
@@ -765,7 +849,7 @@ public static class FlowTester
 
                 var dash = db.Dashboard();
                 var profit = db.ApproxGrossProfit();
-                Assert(dash.Active == 6 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
+                Assert(dash.Active == 7 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
 
                 return $"Đã ghi {eventCount} sự kiện Audit JSON · Chặn xóa cứng thành công · Dashboard & 4 luồng CSV hoạt động chuẩn.";
             });

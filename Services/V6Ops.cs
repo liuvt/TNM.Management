@@ -97,7 +97,7 @@ public sealed class V6Ops(IWebHostEnvironment environment)
                 SELECT p.id AS pid,w.id AS wid,l.id AS lid,p.sku AS sku,p.name AS pname,w.name AS wname,l.name AS lname,COALESCE(SUM(q.delta_qty),0) AS qty
                 FROM quantity_movements q JOIN products p ON p.id=q.product_id
                 JOIN warehouses w ON w.id=q.warehouse_id JOIN warehouse_locations l ON l.id=q.location_id
-                WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+                WHERE q.deleted_at IS NULL AND p.deleted_at IS NULL AND w.deleted_at IS NULL
                 GROUP BY p.id,w.id,l.id
                 HAVING COALESCE(SUM(q.delta_qty),0) <> 0
                 UNION ALL
@@ -125,12 +125,13 @@ public sealed class V6Ops(IWebHostEnvironment environment)
             SELECT q.id,q.document_no,q.occurred_at,p.sku,w.name,l.name,q.delta_qty,q.movement_type,q.note,q.warehouse_id
             FROM quantity_movements q JOIN products p ON p.id=q.product_id
             JOIN warehouses w ON w.id=q.warehouse_id JOIN warehouse_locations l ON l.id=q.location_id
+            WHERE q.deleted_at IS NULL
             ORDER BY q.id DESC LIMIT $limit
             ", r => (Warehouse: r.GetInt64(9), Entry: new QuantityEntry(r.GetInt64(0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), r.GetInt64(6), Text(r, 7), Text(r, 8))), ("$limit", Math.Clamp(limit, 1, 200000)));
         return rows.Where(x => CanWarehouse(c, user, x.Warehouse)).Select(x => x.Entry).ToList();
     }
     private static long Current(SqliteConnection c, long product, long warehouse, long location) => Scalar(c,
-        "SELECT COALESCE(SUM(delta_qty),0) FROM quantity_movements WHERE product_id=$p AND warehouse_id=$w AND location_id=$l",
+        "SELECT COALESCE(SUM(delta_qty),0) FROM quantity_movements WHERE product_id=$p AND warehouse_id=$w AND location_id=$l AND deleted_at IS NULL",
         ("$p", product), ("$w", warehouse), ("$l", location));
     private static void CheckLocation(SqliteConnection c, long warehouse, long location)
     { if (Scalar(c, "SELECT COUNT(*) FROM warehouse_locations WHERE id=$l AND warehouse_id=$w AND is_active=1 AND deleted_at IS NULL", ("$l", location), ("$w", warehouse)) == 0) throw new InvalidOperationException("Vị trí không thuộc kho đã chọn."); }
