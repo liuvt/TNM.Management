@@ -303,13 +303,14 @@
     var selectedEditDeviceName = selectedEditDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedEditDevice.DeviceTypeLabel) ? selectedEditDevice.Sku : selectedEditDevice.DeviceTypeLabel);
     var selectedEditTargetCust = customers.FirstOrDefault(c => c.Id == editCustomerId);
     var isChangingCustomerMethod1 = canTransferMethod1 && selectedEditDevice is not null && editCustomerId > 0 && editCustomerId != selectedEditDevice.CustomerId;
+    var isEditingPreDeclared = selectedEditDevice?.IsPreDeclared == true;
     <div class="so-modal-overlay" @onclick="CloseEditDeviceModal">
-        <div class="so-modal-dialog" style="max-width:920px" @onclick:stopPropagation="true">
+        <div class="so-modal-dialog" style="max-width:940px" @onclick:stopPropagation="true">
             <div class="so-modal-header">
                 <div>
-                    <div class="eyebrow">CẬP NHẬT HỒ SƠ THIẾT BỊ &amp; THỜI HẠN</div>
+                    <div class="eyebrow">CẬP NHẬT THỜI GIAN GIA HẠN (NGÀY HẾT HẠN) &amp; THÔNG TIN THIẾT BỊ</div>
                     <h2>@(selectedEditDevice is null ? "Sửa thông tin thiết bị" : $"{(string.IsNullOrWhiteSpace(selectedEditDevice.Plate) ? selectedEditDevice.DisplayImei : $"{selectedEditDevice.Plate} · {selectedEditDevice.DisplayImei}")} [{selectedEditDeviceName}]")</h2>
-                    <p>Điều chỉnh Ngày kích hoạt, Ngày hết hạn, nhân viên bán hàng, Biển số xe và Thông tin phụ cho đến khi Kế toán chốt số.@(canTransferMethod1 ? " Hỗ trợ đổi Đại lý / HTX / Khách hàng và đồng bộ công nợ bên Kế toán." : "")</p>
+                    <p>Cho phép nhân viên cập nhật lại <strong>Ngày hết hạn (Thời gian gia hạn)</strong>, Ngày kích hoạt, Biển số, Chủ xe, SĐT và Trạng thái thiết bị — mọi thay đổi đều được hệ thống tự động ghi Log chi tiết.@(canTransferMethod1 ? " Tài khoản Chủ sở hữu có thể đổi Đại lý / HTX quản lý và đồng bộ công nợ Kế toán." : "")</p>
                 </div>
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseEditDeviceModal">✕ Đóng</button>
             </div>
@@ -338,20 +339,29 @@
                         <input readonly value="@(selectedEditDevice is null ? "—" : (string.IsNullOrWhiteSpace(selectedEditDevice.AgencyName) ? selectedEditDevice.Customer : selectedEditDevice.AgencyName))" style="background:#f1f5f9" />
                     </label>
                     }
+                    @if(!isEditingPreDeclared)
+                    {
+                    <label>Ngày hết hạn / Thời gian gia hạn thiết bị * <small style="color:#0284c7;font-weight:600">(Hiện tại: @(selectedEditDevice?.ExpiresAt ?? "—"))</small>
+                        <input type="date" @bind="editExpiresDate" style="border-color:#0284c7;font-weight:700" />
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+                            <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(1)">+1 tháng</button>
+                            <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(3)">+3 tháng</button>
+                            <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(6)">+6 tháng</button>
+                            <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(12)">+12 tháng</button>
+                        </div>
+                    </label>
                     <label>Ngày kích hoạt IMEI *
                         <input type="date" @bind="editActivatedDate" @bind:after="OnEditActivatedOrDurationChanged" />
                     </label>
-                    <label>Tính nhanh theo thời hạn
+                    <label>Tính hạn từ Ngày kích hoạt
                         <select @bind="editDurationMonths" @bind:after="OnEditActivatedOrDurationChanged">
-                            <option value="12">1 năm (12 tháng)</option>
-                            <option value="24">2 năm (24 tháng)</option>
-                            <option value="36">3 năm (36 tháng)</option>
-                            <option value="6">6 tháng</option>
+                            <option value="12">1 năm (12 tháng từ Ngày kích hoạt)</option>
+                            <option value="24">2 năm (24 tháng từ Ngày kích hoạt)</option>
+                            <option value="36">3 năm (36 tháng từ Ngày kích hoạt)</option>
+                            <option value="6">6 tháng từ Ngày kích hoạt</option>
                         </select>
                     </label>
-                    <label>Ngày hết hạn / Thời gian gia hạn thiết bị *
-                        <input type="date" @bind="editExpiresDate" />
-                    </label>
+                    }
                     <label>Nhân viên bán hàng phụ trách
                         <select @bind="editDeviceSellerId">
                             <option value="0">— Giữ nguyên nhân viên bán hàng hiện tại —</option>
@@ -365,12 +375,15 @@
                     <label>Tên khách hàng / Chủ xe<input @bind="editOwnerName" placeholder="Tên chủ xe / khách sử dụng..." /></label>
                     <label>SĐT khách hàng / Chủ xe<input @bind="editOwnerPhone" placeholder="VD: 0909123456..." /></label>
                     <label>Thông tin phụ / Số khung<input @bind="editVin" placeholder="Thông tin phụ, số khung..." /></label>
+                    @if(!isEditingPreDeclared)
+                    {
                     <label>Trạng thái thiết bị *
                         <select @bind="editDeviceStatus">
                             <option value="ACTIVE">Hoạt động (Mở khóa — Cho phép gia hạn)</option>
                             <option value="DISABLED">Tạm khóa thiết bị</option>
                         </select>
                     </label>
+                    }
                 </div>
                 @if(isChangingCustomerMethod1 && selectedEditDevice is not null)
                 {
@@ -386,17 +399,19 @@
                 }
             </div>
             <div class="so-modal-footer">
-                <span></span>
+                <span style="font-size:12px;color:#475569">📋 Hệ thống tự động ghi Log người thực hiện &amp; chi tiết Trước → Sau cho mọi thay đổi.</span>
                 <div style="display:flex;gap:8px;align-items:center">
                     <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseEditDeviceModal">Hủy</button>
                     <button type="button" class="btn"
                             data-confirm="edit"
-                            data-confirm-title="@(isChangingCustomerMethod1 ? "Xác nhận Chuyển đơn vị & Đồng bộ Công nợ Kế toán" : "Xác nhận Cập nhật thông tin thiết bị")"
+                            data-confirm-title="@(isChangingCustomerMethod1 ? "Xác nhận Chuyển đơn vị & Đồng bộ Công nợ Kế toán" : "Xác nhận Cập nhật Thời hạn & Thông tin thiết bị")"
                             data-confirm-msg="@(isChangingCustomerMethod1 && selectedEditDevice is not null
                                 ? $"Bạn có chắc chắn muốn chuyển thiết bị {selectedEditDevice.Imei} ({selectedEditDeviceName}) từ [{selectedEditDevice.Customer}] sang [{(selectedEditTargetCust?.Name ?? "Đơn vị mới")}] và cập nhật đồng bộ lại Hóa đơn / Công nợ tương ứng bên Kế toán (/finance) theo giá nhóm KH mới không?"
-                                : $"Bạn có chắc chắn muốn lưu cập nhật Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}), Ngày hết hạn ({editExpiresDate:yyyy-MM-dd}) và thông tin thiết bị {(selectedEditDevice is null ? "" : $"{selectedEditDevice.Imei} ({selectedEditDeviceName})")} không?")"
+                                : isEditingPreDeclared
+                                    ? $"Bạn có chắc chắn muốn lưu cập nhật thông tin hồ sơ xe chờ lắp {(string.IsNullOrWhiteSpace(editPlate) ? selectedEditDevice?.Plate : editPlate)} không?"
+                                    : $"Bạn có chắc chắn muốn lưu cập nhật Thời gian gia hạn / Ngày hết hạn ({(selectedEditDevice?.ExpiresAt ?? "—")} → {editExpiresDate:yyyy-MM-dd}), Ngày kích hoạt ({editActivatedDate:yyyy-MM-dd}) và thông tin thiết bị {(selectedEditDevice is null ? "" : $"{selectedEditDevice.DisplayImei} ({selectedEditDeviceName})")} không?")"
                             @onclick="SaveActivationUpdate">
-                        @(isChangingCustomerMethod1 ? "🔄 Lưu Chuyển đơn vị & Đồng bộ Công nợ" : "Lưu Thời gian gia hạn & Thông tin thiết bị")
+                        @(isChangingCustomerMethod1 ? "🔄 Lưu Chuyển đơn vị & Đồng bộ Công nợ" : "💾 Lưu Thời gian gia hạn & Thông tin thiết bị")
                     </button>
                 </div>
             </div>
@@ -600,9 +615,9 @@
                         <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=RENEWAL&deviceId={x.ActivationId}")'>+ Đơn gia hạn</button>
                     }
                 }
-                @if(!x.IsPreDeclared && (canRenew || canUpdateDevice))
+                @if(canRenew || canUpdateDevice)
                 {
-                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenEditFor(x)">Sửa TT</button>
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenEditFor(x)">✏️ Sửa hạn / TT</button>
                 }
                 @if(canSoftDeleteDevice || isMainRole)
                 {
@@ -1450,6 +1465,11 @@
  private void OnEditActivatedOrDurationChanged(){
   editExpiresDate = editActivatedDate.AddMonths(editDurationMonths > 0 ? editDurationMonths : 12);
  }
+ private void QuickExtendEditExpiry(int months){
+  var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
+  var baseDate = (d is not null && DateTime.TryParse(d.ExpiresAt, out var curExp)) ? curExp.Date : editExpiresDate.Date;
+  editExpiresDate = baseDate.AddMonths(months);
+ }
  private void OpenEditFor(DeviceVm d){
   editMessage = "";
   editActivationId = d.ActivationId;
@@ -1575,7 +1595,9 @@
  }
  private async Task SaveActivationUpdate(){
   try{
-   var actor = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   var actor = canUpdateDevice
+    ? await Gate.RequireAsync(Permissions.DevicesUpdate)
+    : await Gate.RequireAsync(Permissions.DevicesRenew);
    Db.ActorId = actor;
    long? nextCust = (canTransferMethod1 && editCustomerId > 0) ? editCustomerId : null;
    var summary = Db.UpdateDeviceActivation(

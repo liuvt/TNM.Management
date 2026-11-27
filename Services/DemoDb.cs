@@ -1488,22 +1488,29 @@ public sealed class DemoDb
             {
                 var isMain = IsMainDeveloper(c, t, effActor);
                 var cur = QueryTx(c, t, @"SELECT a.id, a.stock_unit_id, a.customer_id, COALESCE(c.name,''), a.product_id, p.sku, p.name,
-                        COALESCE(a.v7_order_id,0), a.expires_at, u.imei, COALESCE(a.plate_no,''),
+                        COALESCE(a.v7_order_id,0), COALESCE(a.expires_at,''), u.imei, COALESCE(a.plate_no,''),
                         COALESCE(NULLIF(a.device_type_label,''),
                             CASE WHEN p.sku='SP000001' THEN 'XANHGPS'
                                  WHEN p.sku IN ('DX00002','SP000019') THEN 'NASAGPS'
                                  WHEN p.sku='SP000005' THEN 'TDCGPS'
                                  WHEN p.sku='SP000012' THEN 'AICAM'
                                  WHEN p.sku='SP000006' THEN 'mGPS'
-                                 ELSE p.sku END)
+                                 ELSE p.sku END),
+                        COALESCE(a.activated_at,''), COALESCE(a.vin_no,''), COALESCE(a.owner_name,''),
+                        COALESCE(a.owner_phone,''), COALESCE(a.status,'ACTIVE'), COALESCE(a.seller_id,0),
+                        COALESCE(sl.code||' — '||sl.full_name, ''), COALESCE(a.is_pre_declared,0)
                     FROM activations a
                     JOIN stock_units u ON u.id=a.stock_unit_id
                     JOIN products p ON p.id=a.product_id
                     LEFT JOIN customers c ON c.id=a.customer_id
+                    LEFT JOIN v7_sellers sl ON sl.id=a.seller_id
                     WHERE a.id=$id AND a.deleted_at IS NULL",
                     r => (Id: L(r, 0), StockUnitId: L(r, 1), CustId: L(r, 2), CustName: S(r, 3),
                           ProdId: L(r, 4), ProdSku: S(r, 5), ProdName: S(r, 6), OrderId: L(r, 7),
-                          ExpiresAt: S(r, 8), Imei: S(r, 9), OldPlate: S(r, 10), DevLabel: S(r, 11)),
+                          ExpiresAt: S(r, 8), Imei: S(r, 9), OldPlate: S(r, 10), DevLabel: S(r, 11),
+                          OldActAt: S(r, 12), OldVin: S(r, 13), OldOwner: S(r, 14),
+                          OldPhone: S(r, 15), OldStatus: S(r, 16), OldSellerId: L(r, 17),
+                          OldSellerLabel: S(r, 18), IsPreDeclared: L(r, 19) == 1),
                     ("$id", activationId)).SingleOrDefault();
 
                 if (cur.Id == 0)
@@ -1524,17 +1531,19 @@ public sealed class DemoDb
                         throw new InvalidOperationException("Không tìm thấy Đại lý / HTX / Khách hàng mới đã chọn.");
                 }
 
-                var actStr = actDate.ToString("yyyy-MM-dd");
-                var expStr = expDate.ToString("yyyy-MM-dd");
+                var actStr = cur.IsPreDeclared ? cur.OldActAt : actDate.ToString("yyyy-MM-dd");
+                var expStr = cur.IsPreDeclared ? cur.ExpiresAt : expDate.ToString("yyyy-MM-dd");
 
-                if (!isMain && (!string.Equals(cur.ExpiresAt, expStr, StringComparison.OrdinalIgnoreCase) || isTransferring))
+                // Chỉ chặn khi chuyển đổi đơn vị (Cách 1) làm thay đổi chứng từ công nợ đã chốt sổ;
+                // nhân viên cập nhật Ngày hết hạn (Thời gian gia hạn) & thông tin xe luôn được phép thực hiện (không làm lệch chứng từ đã chốt sổ).
+                if (!isMain && isTransferring)
                 {
                     var lockedCount = N(c, t, @"SELECT COUNT(*) FROM renewals r
                         LEFT JOIN invoices i ON i.renewal_id=r.id AND i.deleted_at IS NULL
                         WHERE r.activation_id=$id AND r.deleted_at IS NULL AND (r.is_locked=1 OR COALESCE(i.is_locked,0)=1)",
                         ("$id", activationId));
                     if (lockedCount > 0)
-                        throw new InvalidOperationException("Thiết bị này có đợt gia hạn / chứng từ kế toán đã được chốt số khóa sổ, không thể điều chỉnh thời hạn hoặc đồng bộ đổi đơn vị.");
+                        throw new InvalidOperationException("Thiết bị này có đợt gia hạn / chứng từ kế toán đã được chốt số khóa sổ, không thể đồng bộ đổi đơn vị.");
                 }
 
                 if (!isMain && isTransferring && cur.OrderId > 0)
@@ -1548,12 +1557,16 @@ public sealed class DemoDb
                 }
 
                 string? normStatus = null;
-                if (!string.IsNullOrWhiteSpace(status))
+                if (!cur.IsPreDeclared && !string.IsNullOrWhiteSpace(status))
                 {
                     normStatus = status.Trim().ToUpperInvariant() is "DISABLED" or "LOCKED" or "KHOÁ" or "KHÓA" ? "DISABLED" : "ACTIVE";
                 }
 
                 var effPlate = plateNo is not null ? plateNo.Trim() : cur.OldPlate;
+                var effVin = vinNo is not null ? vinNo.Trim() : cur.OldVin;
+                var effOwner = ownerName is not null ? ownerName.Trim() : cur.OldOwner;
+                var effPhone = ownerPhone is not null ? ownerPhone.Trim() : cur.OldPhone;
+                var effStatus = normStatus ?? cur.OldStatus;
                 long? resolvedSellerId = sellerId is > 0 ? sellerId.Value : null;
 
                 Exec(c, t, @"UPDATE activations SET
@@ -1567,7 +1580,8 @@ public sealed class DemoDb
                     status=COALESCE($st, status),
                     owner_name=COALESCE($owner, owner_name),
                     owner_phone=COALESCE($phone, owner_phone),
-                    updated_at=datetime('now')
+                    updated_at=datetime('now'),
+                    updated_by=$actor
                     WHERE id=$id",
                     ("$cust", targetCust.Id),
                     ("$tr", isTransferring ? 1 : 0),
@@ -1575,11 +1589,12 @@ public sealed class DemoDb
                     ("$seller", resolvedSellerId),
                     ("$act", actStr),
                     ("$exp", expStr),
-                    ("$plate", plateNo is not null ? plateNo.Trim() : null),
-                    ("$vin", vinNo is not null ? vinNo.Trim() : null),
+                    ("$plate", plateNo is not null ? effPlate : null),
+                    ("$vin", vinNo is not null ? effVin : null),
                     ("$st", normStatus),
-                    ("$owner", ownerName is not null ? ownerName.Trim() : null),
-                    ("$phone", ownerPhone is not null ? ownerPhone.Trim() : null),
+                    ("$owner", ownerName is not null ? effOwner : null),
+                    ("$phone", ownerPhone is not null ? effPhone : null),
+                    ("$actor", effActor > 0 ? effActor : null),
                     ("$id", activationId));
 
                 // Đồng bộ hạn mới (new_expiry) của đợt gia hạn gần nhất chưa khóa sổ nếu sửa ngày hết hạn
@@ -1835,20 +1850,49 @@ public sealed class DemoDb
                     SyncUnlockedSellerCommissionInvoices(c, t);
                 }
 
+                var actorLabel = effActor > 0
+                    ? QueryTx(c, t, "SELECT CASE WHEN COALESCE(TRIM(display_name),'')<>'' THEN TRIM(display_name) || ' (' || username || ')' ELSE username END FROM app_users WHERE id=$u", r => S(r, 0), ("$u", effActor)).FirstOrDefault() ?? $"User#{effActor}"
+                    : "Hệ thống";
+                var cleanImeiForLog = StripDelSuffix(cur.Imei);
+                var diffParts = new List<string>();
+                if (!cur.IsPreDeclared && !string.Equals(cur.ExpiresAt, expStr, StringComparison.OrdinalIgnoreCase))
+                    diffParts.Add($"Ngày hết hạn (Gia hạn): {(string.IsNullOrWhiteSpace(cur.ExpiresAt) ? "—" : cur.ExpiresAt)} → {expStr}");
+                if (!cur.IsPreDeclared && !string.Equals(cur.OldActAt, actStr, StringComparison.OrdinalIgnoreCase))
+                    diffParts.Add($"Ngày kích hoạt: {(string.IsNullOrWhiteSpace(cur.OldActAt) ? "—" : cur.OldActAt)} → {actStr}");
+                if (plateNo is not null && !string.Equals(cur.OldPlate, effPlate, StringComparison.Ordinal))
+                    diffParts.Add($"Biển số: {(string.IsNullOrWhiteSpace(cur.OldPlate) ? "—" : cur.OldPlate)} → {(string.IsNullOrWhiteSpace(effPlate) ? "—" : effPlate)}");
+                if (ownerName is not null && !string.Equals(cur.OldOwner, effOwner, StringComparison.Ordinal))
+                    diffParts.Add($"Chủ xe: {(string.IsNullOrWhiteSpace(cur.OldOwner) ? "—" : cur.OldOwner)} → {(string.IsNullOrWhiteSpace(effOwner) ? "—" : effOwner)}");
+                if (ownerPhone is not null && !string.Equals(cur.OldPhone, effPhone, StringComparison.Ordinal))
+                    diffParts.Add($"SĐT: {(string.IsNullOrWhiteSpace(cur.OldPhone) ? "—" : cur.OldPhone)} → {(string.IsNullOrWhiteSpace(effPhone) ? "—" : effPhone)}");
+                if (vinNo is not null && !string.Equals(cur.OldVin, effVin, StringComparison.Ordinal))
+                    diffParts.Add($"Số khung/TT phụ: {(string.IsNullOrWhiteSpace(cur.OldVin) ? "—" : cur.OldVin)} → {(string.IsNullOrWhiteSpace(effVin) ? "—" : effVin)}");
+                if (resolvedSellerId.HasValue && resolvedSellerId.Value != cur.OldSellerId)
+                {
+                    var newSellerLabel = QueryTx(c, t, "SELECT code||' — '||full_name FROM v7_sellers WHERE id=$id", r => S(r, 0), ("$id", resolvedSellerId.Value)).FirstOrDefault() ?? $"#{resolvedSellerId.Value}";
+                    diffParts.Add($"NV bán hàng: {(string.IsNullOrWhiteSpace(cur.OldSellerLabel) ? "Chưa gán" : cur.OldSellerLabel)} → {newSellerLabel}");
+                }
+                if (!cur.IsPreDeclared && normStatus is not null && !string.Equals(cur.OldStatus, effStatus, StringComparison.OrdinalIgnoreCase))
+                    diffParts.Add($"Trạng thái: {(cur.OldStatus == "DISABLED" ? "Khoá" : "Hoạt động")} → {(effStatus == "DISABLED" ? "Khoá" : "Hoạt động")}");
+
+                var diffSummary = diffParts.Count > 0
+                    ? string.Join(" · ", diffParts)
+                    : $"Xác nhận lưu giữ nguyên (Kích hoạt: {actStr} → Hết hạn: {expStr})";
+
                 if (isTransferring)
                 {
                     Log(c, t, "TRANSFER_DEVICE", "ACTIVATION", activationId,
-                        $"Chuyển thiết bị IMEI {StripDelSuffix(cur.Imei)} ({cur.DevLabel}) từ [{cur.CustName}] sang [{targetCust.Name}] · Giá GH nhóm mới: {previewNewRenewalPrice:N0} ₫ · Đã đồng bộ {syncedRenewalCount} đợt gia hạn & {syncedInvoiceCount} hóa đơn công nợ");
+                        $"[{actorLabel}] Chuyển thiết bị IMEI {cleanImeiForLog} ({cur.DevLabel}) từ [{cur.CustName}] sang [{targetCust.Name}] · Giá GH nhóm mới: {previewNewRenewalPrice:N0} ₫ · Đồng bộ {syncedRenewalCount} đợt GH & {syncedInvoiceCount} HĐ công nợ" + (diffParts.Count > 0 ? $" · {diffSummary}" : ""));
                 }
                 else
                 {
                     Log(c, t, "UPDATE_ACTIVATION", "ACTIVATION", activationId,
-                        $"Kích hoạt: {actStr} -> Hết hạn: {expStr}" + (normStatus is not null ? $" · Trạng thái: {(normStatus == "DISABLED" ? "Đã khóa" : "Hoạt động")}" : ""));
+                        $"[{actorLabel}] Cập nhật thiết bị {(cur.IsPreDeclared ? $"Chờ lắp ({effPlate})" : $"IMEI {cleanImeiForLog}")} ({cur.DevLabel} · {targetCust.Name}): {diffSummary}");
                 }
 
                 return isTransferring
-                    ? $"Đã chuyển thiết bị IMEI {StripDelSuffix(cur.Imei)} từ [{cur.CustName}] sang [{targetCust.Name}] (Giá gia hạn nhóm KH mới: {previewNewRenewalPrice:N0} ₫) và đồng bộ {syncedInvoiceCount} chứng từ công nợ / {syncedRenewalCount} đợt gia hạn bên Kế toán."
-                    : $"Đã cập nhật Ngày kích hoạt ({actStr}), Thời gian gia hạn / Hết hạn ({expStr}), Trạng thái ({(normStatus == "DISABLED" ? "Đã khóa" : "Hoạt động")}) & thông tin thiết bị.";
+                    ? $"Đã chuyển thiết bị IMEI {cleanImeiForLog} từ [{cur.CustName}] sang [{targetCust.Name}] (Giá gia hạn nhóm KH mới: {previewNewRenewalPrice:N0} ₫), đồng bộ {syncedInvoiceCount} chứng từ công nợ / {syncedRenewalCount} đợt gia hạn và ghi nhận vào Nhật ký hệ thống."
+                    : $"Đã cập nhật thành công thiết bị {(cur.IsPreDeclared ? effPlate : cleanImeiForLog)} ({diffSummary}) — Đã lưu vết vào Nhật ký hệ thống.";
             });
 
             NotifyDevicesChanged();

@@ -814,6 +814,53 @@ public static class FlowTester
                 v7Orders.SoftDeleteOrder(ownerId, nasaOrdId);
                 Assert(db.Stock().First(s => s.Imei == "1200009999").Status == "IN_STOCK", "Hoàn kho IMEI Nasa sau xóa mềm chuẩn xác.");
 
+                // F7. Nhân viên thường (staffUserId) được phép cập nhật Thời gian gia hạn (Ngày hết hạn) & thông tin thiết bị, có ghi Log chi tiết Trước -> Sau
+                Assert(auth.AllowedPermissions(staffUserId).Contains(Permissions.DevicesUpdate), "Nhân viên phải có quyền cập nhật hạn & thông tin thiết bị (devices.update).");
+                var staffTargetDev = db.Devices().First(d => d.Imei == "860000000000092");
+                var oldExpBeforeStaff = staffTargetDev.ExpiresAt;
+                var newExpByStaff = DateTime.Parse(oldExpBeforeStaff).AddMonths(3).ToString("yyyy-MM-dd");
+                db.UpdateDeviceActivation(
+                    staffTargetDev.ActivationId,
+                    staffTargetDev.ActivatedAt,
+                    12,
+                    "51H-888.92",
+                    "SK-NV-UPDATE",
+                    newExpByStaff,
+                    createdSeller.Id,
+                    "ACTIVE",
+                    "Chủ xe NV Cập nhật",
+                    "0908889999",
+                    null,
+                    staffUserId);
+                var afterStaffDev = db.Devices().First(d => d.ActivationId == staffTargetDev.ActivationId);
+                Assert(afterStaffDev.ExpiresAt == newExpByStaff && afterStaffDev.Plate == "51H-888.92" && afterStaffDev.OwnerName == "Chủ xe NV Cập nhật",
+                    "Nhân viên cập nhật Ngày hết hạn & thông tin thiết bị chưa được lưu đúng.");
+
+                // Chặn nhân viên thường đổi Đơn vị / HTX theo Cách 1
+                AssertThrows(() => db.UpdateDeviceActivation(staffTargetDev.ActivationId, afterStaffDev.ActivatedAt, 12, afterStaffDev.Plate, afterStaffDev.VinNo, afterStaffDev.ExpiresAt,
+                    createdSeller.Id, "ACTIVE", afterStaffDev.OwnerName, afterStaffDev.OwnerPhone, customerId, staffUserId),
+                    "Chặn nhân viên thường chuyển đổi đơn vị quản lý theo Cách 1");
+
+                // Kiểm chứng bắt buộc ghi Log đầy đủ vào cả audit_logs (Trước -> Sau + Tên nhân viên) và activity_events (JSON Trigger)
+                using (var logConn = new SqliteConnection($"Data Source={dbPath};Foreign Keys=True"))
+                {
+                    logConn.Open();
+                    using var logCmd = logConn.CreateCommand();
+                    logCmd.CommandText = "SELECT COALESCE(details,'') FROM audit_logs WHERE action='UPDATE_ACTIVATION' AND entity='ACTIVATION' AND entity_id=$id AND actor_user_id=$u ORDER BY id DESC LIMIT 1";
+                    logCmd.Parameters.AddWithValue("$id", staffTargetDev.ActivationId);
+                    logCmd.Parameters.AddWithValue("$u", staffUserId);
+                    var logDetails = Convert.ToString(logCmd.ExecuteScalar()) ?? "";
+                    Assert(logDetails.Contains($"{oldExpBeforeStaff} → {newExpByStaff}") && logDetails.Contains("nv_kho_test") && logDetails.Contains("51H-888.92"),
+                        $"Nhật ký audit_logs chưa ghi đầy đủ thông tin Trước → Sau của nhân viên: '{logDetails}'");
+
+                    using var actEvtCmd = logConn.CreateCommand();
+                    actEvtCmd.CommandText = "SELECT COUNT(*) FROM activity_events WHERE table_name='activations' AND record_id=$id AND actor_user_id=$u AND action='UPDATE'";
+                    actEvtCmd.Parameters.AddWithValue("$id", staffTargetDev.ActivationId.ToString());
+                    actEvtCmd.Parameters.AddWithValue("$u", staffUserId);
+                    var evtCnt = Convert.ToInt64(actEvtCmd.ExecuteScalar());
+                    Assert(evtCnt >= 1, "Bảng activity_events chưa lưu vết JSON UPDATE khi nhân viên cập nhật thiết bị.");
+                }
+
                 db.ActorId = 0;
                 var (finPur, finSale, finRen, finSrv) = db.ReconcileAccountingData();
                 Assert(finPur == 0 && finSale == 0 && finRen == 0 && finSrv == 0,
