@@ -409,6 +409,7 @@ public sealed class DeviceImportService
 
         // Bước 3: Đối soát & Thực thi đồng bộ vào DB theo đúng thông luồng Thiết bị ↔ Đơn hàng ↔ Kho ↔ Kế toán
         using var conn = Open(actorId);
+        EnsureActivationSchemaColumns(conn);
         var effActor = actorId > 0
             ? actorId
             : ScalarLong(conn, null, "SELECT COALESCE((SELECT id FROM app_users WHERE is_owner=1 AND is_active=1 ORDER BY id LIMIT 1), (SELECT id FROM app_users ORDER BY id LIMIT 1), 1)");
@@ -1806,6 +1807,45 @@ public sealed class DeviceImportService
             ("$im", string.Join(", ", imeis)),
             ("$pl", string.Join(", ", plates)),
             ("$o", orderId));
+    }
+
+    private static void EnsureActivationSchemaColumns(SqliteConnection c)
+    {
+        var actCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(activations)";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) actCols.Add(r.GetString(1));
+        }
+        (string Col, string Def)[] required =
+        [
+            ("is_pre_declared", "INTEGER NOT NULL DEFAULT 0"),
+            ("status", "TEXT NOT NULL DEFAULT 'ACTIVE'"),
+            ("device_type_label", "TEXT NOT NULL DEFAULT ''"),
+            ("agency_name", "TEXT NOT NULL DEFAULT ''"),
+            ("owner_name", "TEXT NOT NULL DEFAULT ''"),
+            ("owner_phone", "TEXT NOT NULL DEFAULT ''"),
+            ("last_renewed_at", "TEXT NOT NULL DEFAULT ''"),
+            ("renewal_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("seller_id", "INTEGER"),
+            ("v7_order_id", "INTEGER")
+        ];
+        foreach (var (col, def) in required)
+        {
+            if (!actCols.Contains(col))
+                Exec(c, null, $"ALTER TABLE activations ADD COLUMN {col} {def}");
+        }
+
+        var custCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var cmd2 = c.CreateCommand())
+        {
+            cmd2.CommandText = "PRAGMA table_info(customers)";
+            using var r2 = cmd2.ExecuteReader();
+            while (r2.Read()) custCols.Add(r2.GetString(1));
+        }
+        if (!custCols.Contains("sub_group_id"))
+            Exec(c, null, "ALTER TABLE customers ADD COLUMN sub_group_id INTEGER");
     }
 
     private static long ScalarLong(SqliteConnection c, SqliteTransaction? tx, string sql, params (string, object?)[] args)
