@@ -1068,6 +1068,12 @@
                                             🗑 Xóa cứng GH
                                         </button>
                                     }
+                                    else if(canSoftDeleteOrder && !o.IsAccountingLocked)
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm Đơn gia hạn" data-confirm-msg="@($"Xóa mềm Đơn gia hạn {o.Code}, khôi phục hạn cũ của xe và hủy chứng từ kế toán liên quan?")" @onclick="() => QuickSoftDeleteOrder(o.Id)">
+                                            🗑 Xóa mềm GH
+                                        </button>
+                                    }
                                 </div>
                             }
                             else if(!o.IsImmutable && o.Status != "CANCELLED")
@@ -1080,7 +1086,7 @@
                                         <button type="button" class="btn secondary btn-sm" style="flex:1" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
                                             Nhập IMEI
                                         </button>
-                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="@(isMainDev ? "Xác nhận Hủy & Xóa cứng đơn hàng" : "Xác nhận Hủy đơn hàng")" data-confirm-msg="@(isMainDev ? $"Bạn có chắc chắn muốn hủy và xóa cứng đơn hàng {o.Code} ({o.CustomerB2BDisplay}) khỏi cơ sở dữ liệu không?" : $"Bạn có chắc chắn muốn hủy đơn hàng {o.Code} ({o.CustomerB2BDisplay}) không?")" @onclick="() => QuickCancelOrder(o.Id)">
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="@(isMainDev ? "Xác nhận Hủy & Xóa cứng đơn hàng" : "Xác nhận Hủy đơn & Hoàn trả Kho")" data-confirm-msg="@(isMainDev ? $"Bạn có chắc chắn muốn hủy và xóa cứng đơn hàng {o.Code} ({o.CustomerB2BDisplay}) và trả thiết bị về kho không?" : $"Bạn có chắc chắn muốn hủy đơn hàng {o.Code} ({o.CustomerB2BDisplay}) và trả toàn bộ mã IMEI / thiết bị về lại Kho để dùng cho đơn khác không?")" @onclick="() => QuickCancelOrder(o.Id)">
                                             @(isMainDev ? "🗑 Xóa cứng" : "Hủy đơn")
                                         </button>
                                     </div>
@@ -1102,6 +1108,12 @@
                                                 🗑 Xóa cứng
                                             </button>
                                         }
+                                        else if(canSoftDeleteOrder && !o.IsAccountingLocked)
+                                        {
+                                            <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm &amp; Hoàn kho đơn hàng" data-confirm-msg="@($"Xóa mềm đơn {o.Code}, hoàn trả toàn bộ thiết bị về Kho và hủy chứng từ kế toán chưa chốt số?")" @onclick="() => QuickSoftDeleteOrder(o.Id)">
+                                                🗑 Xóa mềm
+                                            </button>
+                                        }
                                     </div>
                                 </div>
                             }
@@ -1117,6 +1129,12 @@
                                             🗑 Hủy &amp; Xóa cứng
                                         </button>
                                     }
+                                    else if(canSoftDeleteOrder && !o.IsAccountingLocked)
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm &amp; Hoàn kho đơn hàng" data-confirm-msg="@($"Xóa mềm đơn {o.Code}, hoàn trả toàn bộ IMEI / số lượng về Kho và hủy chứng từ công nợ chưa chốt số?")" @onclick="() => QuickSoftDeleteOrder(o.Id)">
+                                            🗑 Xóa mềm &amp; Hoàn kho
+                                        </button>
+                                    }
                                 </div>
                             }
                             else
@@ -1129,6 +1147,12 @@
                                     {
                                         <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa cứng đơn hàng" data-confirm-msg="@($"Bạn có chắc chắn muốn xóa cứng đơn hàng {o.Code} ({o.CustomerB2BDisplay}) khỏi cơ sở dữ liệu không?")" @onclick="() => QuickCancelOrder(o.Id)">
                                             🗑 Xóa cứng đơn
+                                        </button>
+                                    }
+                                    else if(canSoftDeleteOrder)
+                                    {
+                                        <button type="button" class="btn secondary btn-sm" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm đơn đã hủy" data-confirm-msg="@($"Xóa mềm đơn đã hủy {o.Code} khỏi danh sách và đảm bảo hoàn trả thiết bị về Kho?")" @onclick="() => QuickSoftDeleteOrder(o.Id)">
+                                            🗑 Xóa mềm đơn
                                         </button>
                                     }
                                 </div>
@@ -1528,12 +1552,27 @@
                                 🗑 Hủy &amp; Xóa cứng đơn hoàn thành
                             </button>
                         }
+                        else if(canSoftDeleteOrder && !SelectedOrder.IsAccountingLocked)
+                        {
+                            <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm &amp; Hoàn kho đơn hàng" data-confirm-msg="@($"Xóa mềm đơn {SelectedOrder.Code}, hoàn trả toàn bộ thiết bị IMEI / số lượng về Kho và hủy chứng từ kế toán chưa chốt số?")" @onclick="() => QuickSoftDeleteOrder(SelectedOrder.Id)">
+                                🗑 Xóa mềm đơn &amp; Hoàn trả Kho
+                            </button>
+                        }
                     }
-                    else if(SelectedOrder.Status == "CANCELLED" && isMainDev)
+                    else if(SelectedOrder.Status == "CANCELLED")
                     {
-                        <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa cứng đơn đã hủy" data-confirm-msg="@($"Xóa cứng đơn đã hủy {SelectedOrder.Code}?")" @onclick="Cancel">
-                            🗑 Xóa cứng đơn đã hủy
-                        </button>
+                        @if(isMainDev)
+                        {
+                            <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa cứng đơn đã hủy" data-confirm-msg="@($"Xóa cứng đơn đã hủy {SelectedOrder.Code}?")" @onclick="Cancel">
+                                🗑 Xóa cứng đơn đã hủy
+                            </button>
+                        }
+                        else if(canSoftDeleteOrder)
+                        {
+                            <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm đơn đã hủy" data-confirm-msg="@($"Xóa mềm đơn đã hủy {SelectedOrder.Code} khỏi danh sách?")" @onclick="() => QuickSoftDeleteOrder(SelectedOrder.Id)">
+                                🗑 Xóa mềm đơn đã hủy
+                            </button>
+                        }
                     }
                 </div>
                 <button type="button" class="btn secondary" data-confirm="none" @onclick="CloseOrderModal">Đóng</button>
@@ -1600,7 +1639,7 @@
     private sealed class LineReportInput { public string Imei { get; set; } = ""; public string PlateNo { get; set; } = ""; public string VinNo { get; set; } = ""; }
     private static readonly string[] orderLogTables = ["v7_orders", "v7_order_lines", "v7_order_events", "v7_stock_effects", "renewals"];
     private static readonly string[] orderAuditEntities = ["V7_ORDER", "ORDER", "SALE_ORDER", "RENEWAL"];
-    private bool canViewLog, showLogModal, showWorkflowHelp, canTransferOnRenew;
+    private bool canViewLog, showLogModal, showWorkflowHelp, canTransferOnRenew, canSoftDeleteOrder;
     private string? logInitialTable;
     private long? logInitialRecordId;
     private void OpenModuleLog() { logInitialTable = null; logInitialRecordId = null; showLogModal = true; }
@@ -1841,11 +1880,13 @@
             actor = await Gate.RequireAsync(Permissions.OrdersView);
             isMainDev = Orders.IsMainDeveloperActor(actor);
             canTransferOnRenew = Db.CanTransferDeviceOnRenewUser(actor);
+            canSoftDeleteOrder = Orders.IsAdminActor(actor) || canTransferOnRenew;
         }
         catch
         {
             isMainDev = false;
             canTransferOnRenew = false;
+            canSoftDeleteOrder = false;
         }
         canViewLog = await Gate.CanViewSystemLogsAsync();
         customers = Db.Customers();
@@ -2404,15 +2445,23 @@
         selected = id;
         var curOrder = orders.FirstOrDefault(x => x.Id == id);
         var code = curOrder?.Code ?? $"#{id}";
-        var wasHardDelete = isMainDev || curOrder?.Status == "COMPLETED";
+        var wasHardDelete = isMainDev;
         Orders.Cancel(actor, id);
         showOrderModal = false;
         if (wasHardDelete)
         {
             selected = 0;
-            return $"Đã hủy & xóa cứng đơn {code} và đồng bộ hoàn trả kho / khôi phục dữ liệu liên quan.";
+            return $"Đã hủy & xóa cứng đơn {code} và hoàn trả toàn bộ thiết bị IMEI / tồn kho về lại Kho.";
         }
-        return $"Đã hủy đơn {code}.";
+        return $"Đã hủy đơn {code} và giải phóng toàn bộ IMEI / thiết bị về lại Kho để thực hiện đơn khác.";
+    });
+
+    private Task QuickSoftDeleteOrder(long id) => Act(actor =>
+    {
+        var res = Orders.SoftDeleteOrder(actor, id);
+        if (selected == id) selected = 0;
+        showOrderModal = false;
+        return res;
     });
 
     private void OnOrderSelected()
@@ -2801,14 +2850,14 @@
     {
         var targetId = selected;
         var code = SelectedOrder?.Code ?? $"#{targetId}";
-        var wasHardDelete = isMainDev || SelectedOrder?.Status == "COMPLETED";
+        var wasHardDelete = isMainDev;
         Orders.Cancel(actor, targetId);
         showOrderModal = false;
         if (wasHardDelete)
         {
             selected = 0;
-            return $"Đã hủy & xóa cứng hoàn toàn đơn {code} và đồng bộ khôi phục kho / hạn thiết bị / chứng từ kế toán liên quan.";
+            return $"Đã hủy & xóa cứng hoàn toàn đơn {code} và đồng bộ hoàn trả thiết bị IMEI / tồn kho về lại Kho.";
         }
-        return $"Đã hủy đơn {code}.";
+        return $"Đã hủy đơn {code} và giải phóng toàn bộ IMEI / thiết bị về lại Kho để thực hiện đơn khác.";
     });
 }

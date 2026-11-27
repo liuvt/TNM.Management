@@ -690,7 +690,52 @@ public static class FlowTester
                     $"Sau khi lập Đơn lắp 24T + Đơn thương mại TM7 + Đơn gia hạn gộp GH7, ReconcileAccountingData không được sinh trùng hóa đơn (thực tế: {postPur},{postSale},{postRen},{postSrv}).");
                 db.ActorId = ownerId;
 
-                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Chuẩn hóa 3 loại Đơn (SO7/TM7/GH7) · Tất toán HĐ Khách ({saleInvPaid.Code}), Công Kỹ thuật ({srvInv.Code}) & Hoa hồng Sale.";
+                // (E) Kiểm tra luồng Hủy đơn / Xóa mềm đơn -> Hoàn trả IMEI về Kho + Tự giải phóng slot 'CHỜ-NHẬP-IMEI' + Cảnh báo trùng IMEI chuẩn xác:
+                db.Receive(imeiProdId, wh1Id, "860000000000091\n860000000000092");
+                // Đơn chờ nhập IMEI trừ kho trước 1 slot (sẽ mượn tạm 1 trong 2 IMEI trên)
+                var anonOrdId = v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1)],
+                    "Kho Q7", "Đơn hoàn thành trước chờ bổ sung IMEI", false, "0908888999", null, createdSeller.Name, "KH Chờ IMEI",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: false, orderKind: "INSTALL", completeImmediately: true);
+                Assert(v7Orders.List().First(o => o.Id == anonOrdId).HasMissingImei, "Đơn hoàn thành chưa nhập IMEI phải bật cờ HasMissingImei.");
+
+                // Tạo đơn nháp báo IMEI 860000000000092 rồi HỦY ĐƠN -> IMEI phải được giải phóng sạch và nằm ở IN_STOCK
+                var cancelOrdId = v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000092", PlateNo: "51H-000.92")],
+                    "Kho Q7", "Đơn test hủy trả kho", false, "0908888999", null, createdSeller.Name, "KH Hủy",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId, deductStock: true);
+                // Trong lúc cancelOrdId chưa hủy, đơn khác nhập trùng 860000000000092 phải bị cảnh báo trùng rõ mã đơn
+                AssertThrows(() => v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000092")],
+                    "Kho Q7", "Đơn trùng", false), "Cảnh báo trùng IMEI đang chờ xử lý ở đơn khác");
+
+                v7Orders.Cancel(ownerId, cancelOrdId);
+                var cancelledOrd = v7Orders.List().First(o => o.Id == cancelOrdId);
+                Assert(cancelledOrd.Status == "CANCELLED" && string.IsNullOrEmpty(cancelledOrd.Imei) && cancelledOrd.Lines.All(l => string.IsNullOrEmpty(l.Imei)),
+                    "Sau khi Hủy đơn, liên kết IMEI trên đơn hủy phải được gỡ sạch.");
+                Assert(db.Stock().First(s => s.Imei == "860000000000092").Status == "IN_STOCK",
+                    "Sau khi Hủy đơn, thiết bị 860000000000092 phải nằm ở trạng thái IN_STOCK trong Kho.");
+
+                // Tạo & Hoàn thành đơn mới dùng 860000000000092 (tự động chuyển slot tạm nếu bị anonOrdId giữ chỗ, không báo trùng giả!)
+                var specOrdId = v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000092", PlateNo: "51H-111.92")],
+                    "Kho Q7", "Đơn dùng lại IMEI từ đơn hủy", false, "0908888999", null, createdSeller.Name, "KH Lắp thật",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: false, orderKind: "INSTALL", completeImmediately: true);
+                Assert(db.Devices().Any(d => d.Imei == "860000000000092" && !d.IsPreDeclared), "Đơn dùng lại IMEI từ đơn hủy phải hoàn thành và kích hoạt thành công.");
+
+                // Xóa mềm đơn đã hoàn thành specOrdId -> hoàn trả 860000000000092 về lại IN_STOCK, sau đó xuất lại cho đơn mới thành công (không lỗi UNIQUE v7_stock_effects)
+                v7Orders.SoftDeleteOrder(ownerId, specOrdId);
+                Assert(db.Stock().First(s => s.Imei == "860000000000092").Status == "IN_STOCK" && !db.Devices().Any(d => d.Imei == "860000000000092"),
+                    "Sau khi Xóa mềm đơn hoàn thành, thiết bị 860000000000092 phải quay về IN_STOCK tại Kho.");
+
+                var reuseOrdId = v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000092", PlateNo: "51H-222.92")],
+                    "Kho Q7", "Đơn xuất lại IMEI sau xóa mềm", false, "0908888999", null, createdSeller.Name, "KH Xuất lại",
+                    durationMonths: 12, warehouseId: wh1Id, partner: false, installer: "Nguyễn Kỹ Thuật", installerEmployeeId: installerId,
+                    deductStock: true, sellerRecordId: createdSeller.Id, noInstallFee: false, orderKind: "INSTALL", completeImmediately: true);
+                Assert(reuseOrdId > 0 && db.Devices().Any(d => d.Imei == "860000000000092" && d.Plate == "51H-222.92"),
+                    "IMEI sau khi hoàn kho từ đơn xóa mềm phải xuất lại và kích hoạt ở đơn khác trơn tru.");
+                AssertThrows(() => v7Orders.CreateMulti(ownerId, customerId, [new V7OrderLineDraft(imeiProdId, 1, Imei: "860000000000092")],
+                    "Kho Q7", "Trùng IMEI đã kích hoạt", false), "Cảnh báo trùng khi IMEI đang kích hoạt thực tế");
+
+                return $"Gia hạn +1 năm ({dev1After.ExpiresAt}) · Chuẩn hóa 3 loại Đơn (SO7/TM7/GH7) · Hoàn kho khi Hủy/Xóa đơn & Cảnh báo trùng IMEI chuẩn xác.";
             });
 
             // =========================================================================
@@ -720,7 +765,7 @@ public static class FlowTester
 
                 var dash = db.Dashboard();
                 var profit = db.ApproxGrossProfit();
-                Assert(dash.Active == 5 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
+                Assert(dash.Active == 6 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
 
                 return $"Đã ghi {eventCount} sự kiện Audit JSON · Chặn xóa cứng thành công · Dashboard & 4 luồng CSV hoạt động chuẩn.";
             });

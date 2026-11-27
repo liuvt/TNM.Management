@@ -2215,9 +2215,9 @@ public sealed class DemoDb
 
                             Exec(c, t, "UPDATE v7_stock_effects SET deleted_at=$now, deleted_by=$actor WHERE order_id=$o AND deleted_at IS NULL",
                                 ("$now", nowIso), ("$actor", delActorParam), ("$o", ordInfo.Id));
-                            Exec(c, t, "UPDATE v7_order_lines SET stock_unit_id=NULL, deleted_at=$now, deleted_by=$actor WHERE order_id=$o AND deleted_at IS NULL",
+                            Exec(c, t, "UPDATE v7_order_lines SET imei=NULL, stock_unit_id=NULL, activation_id=NULL, deleted_at=$now, deleted_by=$actor WHERE order_id=$o AND deleted_at IS NULL",
                                 ("$now", nowIso), ("$actor", delActorParam), ("$o", ordInfo.Id));
-                            Exec(c, t, "UPDATE v7_orders SET status='CANCELLED', deleted_at=$now, deleted_by=$actor WHERE id=$o",
+                            Exec(c, t, "UPDATE v7_orders SET status='CANCELLED', imei=NULL, deleted_at=$now, deleted_by=$actor WHERE id=$o",
                                 ("$now", nowIso), ("$actor", delActorParam), ("$o", ordInfo.Id));
 
                             summaryParts.Add($"Hủy đơn {ordInfo.Code}" + (ordInvNos.Count > 0 ? $" & chứng từ công nợ [{string.Join(", ", ordInvNos)}]" : ""));
@@ -2234,7 +2234,7 @@ public sealed class DemoDb
 
                             if (matchedLine.Id > 0)
                             {
-                                Exec(c, t, "UPDATE v7_order_lines SET stock_unit_id=NULL, deleted_at=$now, deleted_by=$actor WHERE id=$lid",
+                                Exec(c, t, "UPDATE v7_order_lines SET imei=NULL, stock_unit_id=NULL, activation_id=NULL, deleted_at=$now, deleted_by=$actor WHERE id=$lid",
                                     ("$now", nowIso), ("$actor", delActorParam), ("$lid", matchedLine.Id));
                                 Exec(c, t, "UPDATE v7_stock_effects SET deleted_at=$now, deleted_by=$actor WHERE stock_unit_id=$s AND deleted_at IS NULL",
                                     ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
@@ -2267,13 +2267,21 @@ public sealed class DemoDb
                     }
                 }
 
-                // 3. Xử lý tồn kho IMEI (stock_units): nếu xuất từ kho RECEIVE thì hoàn trả IN_STOCK và tách bản ghi lưu vết riêng
-                var receiveWh = N(c, t, @"SELECT COALESCE(
+                // 3. Xử lý tồn kho IMEI (stock_units): nếu là thiết bị kho (trừ tồn kho hoặc có phiếu nhập/NCC) thì hoàn trả IN_STOCK và tách bản ghi lưu vết riêng
+                var isPreDeclaredUnit = cleanImei.StartsWith("CHO-LAP-", StringComparison.OrdinalIgnoreCase);
+                var orderWasPartnerNoDeduct = act.OrderId > 0 && N(c, t, "SELECT CASE WHEN source='PARTNER' AND COALESCE(deduct_stock,1)=0 THEN 1 ELSE 0 END FROM v7_orders WHERE id=$o", ("$o", act.OrderId)) == 1;
+                var receiveWh = isPreDeclaredUnit ? 0 : N(c, t, @"SELECT COALESCE(
                     (SELECT COALESCE(tx.warehouse_id, (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 0)
                      FROM inventory_transaction_lines l
                      JOIN inventory_transactions tx ON tx.id=l.transaction_id
                      WHERE l.stock_unit_id=$s AND tx.movement_type='RECEIVE' AND l.deleted_at IS NULL AND tx.deleted_at IS NULL
-                     ORDER BY l.id DESC LIMIT 1), 0)", ("$s", act.StockUnitId));
+                     ORDER BY l.id DESC LIMIT 1),
+                    (SELECT COALESCE(warehouse_id, (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 0)
+                     FROM v7_orders WHERE id=$o AND COALESCE(deduct_stock,1)=1),
+                    CASE WHEN (SELECT supplier_id FROM stock_units WHERE id=$s) IS NOT NULL AND $noDeduct=0
+                         THEN (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1)
+                         ELSE 0 END,
+                    0)", ("$s", act.StockUnitId), ("$o", act.OrderId), ("$noDeduct", orderWasPartnerNoDeduct ? 1 : 0));
 
                 if (receiveWh > 0)
                 {
@@ -2282,13 +2290,15 @@ public sealed class DemoDb
                           AND transaction_id IN (SELECT id FROM inventory_transactions WHERE movement_type='SALE_OUT')",
                         ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
 
-                    // Tạo bản ghi stock_units lưu vết đã xóa để giải phóng stock_unit_id thật về lại tồn kho IN_STOCK
+                    // Tạo bản ghi stock_units lưu vết đã xóa để giải phóng stock_unit_id thật về lại tồn kho IN_STOCK (kể cả trên v7_stock_effects UNIQUE)
                     Exec(c, t, @"INSERT INTO stock_units(product_id,imei,status,warehouse_id,customer_id,employee_id,created_at,updated_at,deleted_at,deleted_by)
                         VALUES($p,$imei,'INSTALLED',NULL,$c,NULL,datetime('now'),datetime('now'),$now,$actor)",
                         ("$p", act.ProdId), ("$imei", $"{cleanImei}#DEL#{act.Id}"), ("$c", act.CustId), ("$now", nowIso), ("$actor", delActorParam));
                     var archiveUnitId = N(c, t, "SELECT last_insert_rowid()");
 
                     Exec(c, t, "UPDATE activations SET stock_unit_id=$arch WHERE id=$a", ("$arch", archiveUnitId), ("$a", act.Id));
+                    Exec(c, t, "UPDATE v7_stock_effects SET stock_unit_id=$arch, deleted_at=COALESCE(deleted_at,$now), deleted_by=COALESCE(deleted_by,$actor) WHERE stock_unit_id=$s",
+                        ("$arch", archiveUnitId), ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
                     Exec(c, t, @"UPDATE stock_units
                         SET imei=$imei, status='IN_STOCK', warehouse_id=$w, customer_id=NULL, employee_id=NULL, deleted_at=NULL, updated_at=datetime('now')
                         WHERE id=$s",
@@ -2297,6 +2307,8 @@ public sealed class DemoDb
                 }
                 else
                 {
+                    Exec(c, t, "UPDATE v7_stock_effects SET deleted_at=COALESCE(deleted_at,$now), deleted_by=COALESCE(deleted_by,$actor) WHERE stock_unit_id=$s",
+                        ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
                     Exec(c, t, "UPDATE stock_units SET imei=$delImei, deleted_at=$now, deleted_by=$actor WHERE id=$s",
                         ("$delImei", $"{cleanImei}#DEL#{act.Id}"), ("$now", nowIso), ("$actor", delActorParam), ("$s", act.StockUnitId));
                 }
@@ -2470,12 +2482,17 @@ public sealed class DemoDb
                         Exec(c, t, "DELETE FROM inventory_transactions WHERE id=$t AND movement_type='SALE_OUT'", ("$t", txId));
                 }
 
-                var receiveWh = !isArchiveUnit ? N(c, t, @"SELECT COALESCE(
+                var isPreDeclaredUnit = cleanImei.StartsWith("CHO-LAP-", StringComparison.OrdinalIgnoreCase);
+                var receiveWh = (!isArchiveUnit && !isPreDeclaredUnit) ? N(c, t, @"SELECT COALESCE(
                     (SELECT COALESCE(tx.warehouse_id, (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1), 0)
                      FROM inventory_transaction_lines l
                      JOIN inventory_transactions tx ON tx.id=l.transaction_id
                      WHERE l.stock_unit_id=$s AND tx.movement_type='RECEIVE'
-                     ORDER BY l.id DESC LIMIT 1), 0)", ("$s", act.StockUnitId)) : 0;
+                     ORDER BY l.id DESC LIMIT 1),
+                    CASE WHEN (SELECT supplier_id FROM stock_units WHERE id=$s) IS NOT NULL
+                         THEN (SELECT id FROM warehouses WHERE deleted_at IS NULL ORDER BY id LIMIT 1)
+                         ELSE 0 END,
+                    0)", ("$s", act.StockUnitId)) : 0;
 
                 if (receiveWh > 0 && N(c, t, "SELECT COUNT(*) FROM stock_units WHERE LOWER(TRIM(imei))=LOWER($imei) AND id<>$s AND deleted_at IS NULL", ("$imei", cleanImei), ("$s", act.StockUnitId)) == 0)
                 {
