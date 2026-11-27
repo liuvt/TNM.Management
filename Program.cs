@@ -27,6 +27,31 @@ if (runFlowTests)
     Environment.ExitCode = report.AllPassed ? 0 : 1;
     return;
 }
+if (args.Length >= 2 && string.Equals(args[0], "--import-devices", StringComparison.OrdinalIgnoreCase))
+{
+    Console.OutputEncoding = System.Text.Encoding.UTF8;
+    var importFile = args[1];
+    var targetDb = Path.Combine(Directory.GetCurrentDirectory(), "App_Data", "tnm-local.db");
+    bool isDryRun = false;
+    for (int i = 2; i < args.Length; i++)
+    {
+        if (string.Equals(args[i], "--dry-run", StringComparison.OrdinalIgnoreCase))
+            isDryRun = true;
+        else if (string.Equals(args[i], "--db", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            targetDb = args[++i];
+    }
+    var importer = new DeviceImportService(targetDb);
+    var res = importer.ImportFromFile(importFile, dryRun: isDryRun);
+    Console.WriteLine(res.SummaryMessage);
+    Console.WriteLine($"Sheets={res.SheetsRead} | Rows={res.TotalRowsRead} | UniqueValid={res.ValidUniqueDevices} | MergedDup={res.DuplicateRowsMerged} | AutoCleaned={res.AutoCleanedCount}");
+    Console.WriteLine($"Inserted={res.InsertedNewCount} | LinkedCompletedOrd={res.LinkedCompletedOrderCount} | Updated={res.UpdatedExistingCount} | Unchanged={res.UnchangedExistingCount} | ProtectedInStock={res.ProtectedInStockCount} | NewCust={res.NewCustomersCreatedCount} | CleanedLegacy={res.CleanedLegacyCorruptedCount} | Errors={res.RejectedErrorCount}");
+    foreach (var err in res.Errors.Take(30))
+        Console.WriteLine($"  [ERROR] {err.SheetName} R{err.RowNumber} ({err.RawImei} / {err.RawPlate}): {err.Reason}");
+    foreach (var wn in res.WarningsAndFixes.Where(w => w.Category is "PROTECT_IN_STOCK" or "LINK_COMPLETED_ORDER" or "CLEAN_LEGACY_SHIFT" or "RECOVER_PLATE"))
+        Console.WriteLine($"  [{wn.Category}] {wn.SheetName} R{wn.RowNumber} ({wn.Imei} / {wn.Plate}): {wn.Detail}");
+    Environment.ExitCode = res.RejectedErrorCount == 0 ? 0 : 2;
+    return;
+}
 var offlineRecovery = ownerReset || ownerResetDefault;
 if (!offlineRecovery && args.Any(x => x.StartsWith("--reset-owner-", StringComparison.OrdinalIgnoreCase)))
     throw new ArgumentException("Chỉ sử dụng: dotnet run -- --reset-owner-password hoặc --reset-owner-default");
@@ -58,6 +83,7 @@ builder.Services.Configure<Microsoft.AspNetCore.SignalR.HubOptions>(hubOptions =
 });
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<DemoDb>();
+builder.Services.AddScoped<DeviceImportService>();
 builder.Services.AddScoped<V6Ops>();
 builder.Services.AddScoped<V7Orders>();
 builder.Services.AddScoped<InputCatalog>();

@@ -1,6 +1,7 @@
 @attribute [Authorize(Policy = Permissions.DevicesView)]
 @page "/devices"
 @inject DemoDb Db
+@inject DeviceImportService DeviceImporter
 @inject PermissionGate Gate
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -23,10 +24,135 @@
 </div>
 <div class="crud-actionbar">
     @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showCreateDevice?"":"secondary")" @onclick="()=>ToggleForm(nameof(showCreateDevice))">@(showCreateDevice?"Đóng · + Thêm thiết bị":"+ Thêm thiết bị / Khai báo xe")</button>}
+    @if(canRenew || canUpdateDevice){<button type="button" class="btn @(showImportPanel?"":"secondary")" @onclick="()=>ToggleForm(nameof(showImportPanel))">@(showImportPanel?"Đóng · Import Excel/CSV":"📤 Import Excel / CSV (12 cột)")</button>}
     @if(canRenew || canUpdateDevice){<button type="button" class="btn secondary" @onclick="()=>ToggleForm(nameof(showEditAct))">@(showEditAct?"Đóng · Sửa thông tin thiết bị":"Sửa thông tin thiết bị")</button>}
     <button type="button" class="btn secondary" data-confirm="none" @onclick='() => Nav.NavigateTo("/sales-orders?create=INSTALL")'>+ Tạo đơn lắp đặt mới</button>
     <button type="button" class="btn secondary" data-confirm="none" @onclick="ExportDevicesExcel">📥 Xuất Excel Thiết bị (@FilteredDevicesList.Count)</button>
 </div>
+
+@if(canRenew || canUpdateDevice){
+<div class="panel edit-panel" hidden="@(!showImportPanel)">
+    <div class="panel-head">
+        <div>
+            <h2>📤 Import Hồ sơ Thiết bị &amp; Phương tiện Chuẩn 12 Cột (.xlsx / .csv)</h2>
+            <p>Kiểm định nghiêm ngặt dữ liệu đầu vào trước khi ghi — Đảm bảo đồng nhất 100% thông luồng <strong>Thiết bị ↔ Đơn hàng (SO7/TM7/GH7) ↔ Kho ↔ Kế toán</strong> (không trừ kho trùng, không ghi đè đơn gia hạn ERP, không sinh công nợ ảo).</p>
+        </div>
+        <div>
+            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="DownloadStandardImportTemplate">📄 Tải file mẫu chuẩn 12 cột (.xlsx)</button>
+        </div>
+    </div>
+
+    <div class="panel-note" style="margin-bottom:12px;padding:12px 14px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;color:#334155;font-size:13px;line-height:1.55">
+        <div><strong>📌 Ràng buộc bắt buộc đối với dữ liệu đầu vào (12 cột theo đúng thứ tự):</strong></div>
+        <div><code>1. STT</code> · <code>2. Biển số xe/Số khung</code> · <code>3. Số EMEI Thiết bị</code> · <code>4. Tên Thiết bị</code> (chỉ nhận: <strong>XANHGPS, NASAGPS, TDCGPS, AICAM, mGPS, CAM4CH</strong>) · <code>5. Tên Đại lý</code> · <code>6. Tên Khách hàng</code> · <code>7. SĐT Khách hàng</code> · <code>8. Trạng thái thiết bị</code> · <code>9. Ngày kích hoạt</code> (<code>dd/MM/yyyy</code>) · <code>10. Ngày hết hạn</code> (<code>dd/MM/yyyy</code>) · <code>11. Ngày gia hạn gần nhất (nếu có)</code> · <code>12. Số lần gia hạn</code>.</div>
+        <div style="margin-top:4px;color:#0f766e">✅ Hỗ trợ đọc đa Sheet (VD: <em>Tổng hợp thiết bị</em> + <em>Update</em>), tự động khôi phục biển số chữ E bị lỗi số mũ Excel (<code>6.8E+259</code> → <code>68E00258</code>), gỡ dấu phẩy IMEI, chống đảo tháng/ngày US-locale và tự động khớp vào Đơn hoàn thành chờ IMEI.</div>
+    </div>
+
+    <div class="form-grid">
+        <label>Chọn file Excel (.xlsx) hoặc CSV (.csv) chuẩn 12 cột
+            <InputFile OnChange="OnImportFileSelected" accept=".xlsx,.csv,.tsv" />
+        </label>
+        <label>Hoặc dán trực tiếp dữ liệu CSV (bao gồm dòng tiêu đề 12 cột)
+            <textarea rows="3" @bind="importCsvPaste" placeholder="STT,Biển số xe/Số khung,Số EMEI Thiết bị,Tên Thiết bị,Tên Đại lý,Tên Khách hàng,SĐT Khách hàng,Trạng thái thiết bị,Ngày kích hoạt,Ngày hết hạn,Ngày gia hạn gần nhất (nếu có),Số lần gia hạn"></textarea>
+        </label>
+    </div>
+
+    <div class="form-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        @if(!string.IsNullOrWhiteSpace(importCsvPaste))
+        {
+            <button type="button" class="btn secondary" data-confirm="none" disabled="@importBusy" @onclick="RunPasteDryRun">🔍 Bước 1: Kiểm tra dữ liệu dán (Dry-Run)</button>
+        }
+        @if(importReport is not null && importReport.DryRun && importReport.RejectedErrorCount == 0 && importReport.ValidUniqueDevices > 0)
+        {
+            <button type="button" class="btn"
+                    disabled="@importBusy"
+                    data-confirm="edit"
+                    data-confirm-title="Xác nhận Import Hồ sơ Thiết bị vào Hệ thống"
+                    data-confirm-msg="@($"Bạn có chắc chắn muốn thực thi Import '{importSourceName}' ({importReport.ValidUniqueDevices:N0} IMEI hợp lệ: Thêm mới {importReport.InsertedNewCount:N0}, Khớp Đơn hoàn thành {importReport.LinkedCompletedOrderCount:N0}, Cập nhật {importReport.UpdatedExistingCount:N0}, Bảo vệ tồn kho {importReport.ProtectedInStockCount:N0}) vào hệ thống không?")"
+                    @onclick="CommitValidatedImport">
+                ✅ Bước 2: Xác nhận Import vào Hệ thống (@(importReport.InsertedNewCount + importReport.LinkedCompletedOrderCount + importReport.UpdatedExistingCount) thay đổi)
+            </button>
+        }
+        @if(importReport is not null)
+        {
+            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="ClearImportState">Làm mới</button>
+        }
+        @if(!string.IsNullOrWhiteSpace(importStatusMsg))
+        {
+            <span class="feedback">@importStatusMsg</span>
+        }
+    </div>
+
+    @if(importReport is not null)
+    {
+        <div class="panel-note" style="margin-top:12px;padding:12px 14px;border-radius:8px;background:@(importReport.RejectedErrorCount > 0 ? "#fef2f2" : importReport.Committed ? "#f0fdf4" : "#eff6ff");border:1px solid @(importReport.RejectedErrorCount > 0 ? "#fca5a5" : importReport.Committed ? "#86efac" : "#93c5fd");color:@(importReport.RejectedErrorCount > 0 ? "#991b1b" : importReport.Committed ? "#166534" : "#1e3a8a");font-weight:600">
+            @importReport.SummaryMessage
+        </div>
+
+        <div class="device-summary-bar" style="margin-top:10px">
+            <div class="device-summary-item"><span>Tổng dòng đọc (@importReport.SheetsRead sheet):</span><strong>@importReport.TotalRowsRead.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>IMEI hợp lệ duy nhất:</span><strong class="text-blue">@importReport.ValidUniqueDevices.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>➕ Thêm mới:</span><strong class="text-green">@importReport.InsertedNewCount.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>🔗 Khớp Đơn hoàn thành:</span><strong class="text-purple">@importReport.LinkedCompletedOrderCount.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>🔄 Cập nhật có sẵn:</span><strong class="text-blue">@importReport.UpdatedExistingCount.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>🛡️ Bảo vệ Tồn kho / Đơn mở:</span><strong class="text-orange">@importReport.ProtectedInStockCount.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>🧹 Tự sửa định dạng Excel:</span><strong>@importReport.AutoCleanedCount.ToString("N0")</strong></div>
+            <div class="device-summary-item"><span>❌ Dòng lỗi bị chặn:</span><strong class="text-red">@importReport.RejectedErrorCount.ToString("N0")</strong></div>
+        </div>
+
+        @if(importReport.Errors.Count > 0)
+        {
+            <div class="table-wrap" style="margin-top:10px;max-height:260px;overflow:auto">
+                <table>
+                    <thead><tr><th>SHEET</th><th>DÒNG</th><th>IMEI ĐẦU VÀO</th><th>BIỂN SỐ ĐẦU VÀO</th><th>NGUYÊN NHÂN CHẶN (VI PHẠM RÀNG BUỘC)</th></tr></thead>
+                    <tbody>
+                    @foreach(var err in importReport.Errors.Take(100))
+                    {
+                        <tr>
+                            <td><strong>@err.SheetName</strong></td>
+                            <td>@err.RowNumber</td>
+                            <td><code>@(string.IsNullOrWhiteSpace(err.RawImei) ? "—" : err.RawImei)</code></td>
+                            <td>@(string.IsNullOrWhiteSpace(err.RawPlate) ? "—" : err.RawPlate)</td>
+                            <td style="color:#dc2626;font-weight:600">@err.Reason</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if(importReport.PreviewItems.Count > 0)
+        {
+            <div style="margin-top:12px;font-weight:600;color:#334155">Xem trước các dòng Thêm mới / Khớp Đơn hàng / Cập nhật / Bảo vệ Kho (hiển thị tối đa 50 dòng tiêu biểu):</div>
+            <div class="table-wrap" style="margin-top:6px;max-height:300px;overflow:auto">
+                <table>
+                    <thead><tr><th>SHEET · DÒNG</th><th>THAO TÁC</th><th>SỐ IMEI</th><th>BIỂN SỐ / SK</th><th>DÒNG TB</th><th>KHÁCH HÀNG / ĐV MAP</th><th>KÍCH HOẠT → HẾT HẠN</th><th>GHI CHÚ ĐỐI SOÁT</th></tr></thead>
+                    <tbody>
+                    @foreach(var pv in importReport.PreviewItems.Take(50))
+                    {
+                        <tr>
+                            <td><small>@pv.SheetName · #@pv.RowNumber</small></td>
+                            <td>
+                                @if(pv.Action == "INSERT_NEW"){<span class="chip green-chip">+ Thêm mới</span>}
+                                else if(pv.Action == "LINK_COMPLETED_ORDER"){<span class="chip purple-chip">🔗 Khớp Đơn HT</span>}
+                                else if(pv.Action == "SKIP_IN_STOCK"){<span class="chip orange-chip">🛡️ Giữ Tồn kho</span>}
+                                else {<span class="chip blue-chip">🔄 Cập nhật</span>}
+                            </td>
+                            <td><strong>@pv.Imei</strong></td>
+                            <td><strong>@(string.IsNullOrWhiteSpace(pv.PlateNo) ? "—" : pv.PlateNo)</strong>@if(!string.IsNullOrWhiteSpace(pv.VinNo) && pv.VinNo != pv.Imei){<div><small>SK: @pv.VinNo</small></div>}</td>
+                            <td>@pv.DeviceType (@pv.ProductSku)</td>
+                            <td><strong>@pv.ResolvedCustomerName</strong>@if(!string.IsNullOrWhiteSpace(pv.OwnerName)){<div><small>Chủ xe: @pv.OwnerName</small></div>}</td>
+                            <td>@pv.ActivatedAt → <strong>@pv.ExpiresAt</strong></td>
+                            <td><small>@pv.Note</small></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+}
 
 @if(canRenew || canUpdateDevice){
 <div class="panel edit-panel" hidden="@(!showCreateDevice)">
@@ -805,13 +931,123 @@ else
     </SystemLogModal>
 }
 @code {
- private bool showEditAct, showCreateDevice;
+ private bool showEditAct, showCreateDevice, showImportPanel, importBusy;
+ private byte[]? pendingImportBytes;
+ private string importSourceName = "", importCsvPaste = "", importStatusMsg = "";
+ private DeviceImportReport? importReport;
  private readonly PagerState devicePager = new();
  private readonly PagerState renewalPager = new();
  private readonly PagerState deletedDevicePager = new();
  private void ToggleForm(string form){
   showEditAct = form=="showEditAct" && !showEditAct;
   showCreateDevice = form=="showCreateDevice" && !showCreateDevice;
+  showImportPanel = form=="showImportPanel" && !showImportPanel;
+ }
+
+ private async Task DownloadStandardImportTemplate()
+ {
+  var headers = new[]
+  {
+   "STT", "Biển số xe/Số khung", "Số EMEI Thiết bị", "Tên Thiết bị", "Tên Đại lý",
+   "Tên Khách hàng", "SĐT Khách hàng", "Trạng thái thiết bị", "Ngày kích hoạt",
+   "Ngày hết hạn", "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn"
+  };
+  var sampleRows = new object?[][]
+  {
+   [1, "51H12345", "09B919C2CX", "XANHGPS", "HTX Tân Đại Thành", "Nguyễn Văn A", "0909123456", "Hoạt động", "27/10/2026", "27/10/2027", "", 0],
+   [2, "68E00258", "1200010533", "NASAGPS", "ĐL CTY TRƯỜNG NHẬT MINH - CẦN THƠ", "50F23448", "", "Hoạt động", "27/10/2026", "26/11/2027", "", 0]
+  };
+  await ExcelExporter.DownloadAsync(JS, "mau-import-thiet-bi-12-cot", "Tổng hợp thiết bị", headers, sampleRows);
+ }
+
+ private async Task OnImportFileSelected(InputFileChangeEventArgs e)
+ {
+  var file = e.File;
+  if (file is null) return;
+  importBusy = true;
+  importStatusMsg = $"Đang đọc & kiểm định ràng buộc file '{file.Name}'...";
+  StateHasChanged();
+  try
+  {
+   using var stream = file.OpenReadStream(maxAllowedSize: 30 * 1024 * 1024);
+   using var ms = new MemoryStream();
+   await stream.CopyToAsync(ms);
+   pendingImportBytes = ms.ToArray();
+   importSourceName = file.Name;
+   importCsvPaste = "";
+   using var checkStream = new MemoryStream(pendingImportBytes);
+   importReport = DeviceImporter.ImportFromStream(checkStream, importSourceName, dryRun: true, actorId: currentActorId);
+   importStatusMsg = importReport.RejectedErrorCount == 0
+    ? "✅ Đã kiểm tra xong dữ liệu (Hợp lệ 100%). Bấm 'Bước 2: Xác nhận Import vào Hệ thống' để ghi dữ liệu."
+    : $"❌ Phát hiện {importReport.RejectedErrorCount} dòng vi phạm ràng buộc — Vui lòng kiểm tra bảng lỗi bên dưới.";
+  }
+  catch (Exception ex)
+  {
+   importStatusMsg = $"Lỗi đọc file: {ex.Message}";
+   importReport = null;
+  }
+  finally
+  {
+   importBusy = false;
+  }
+ }
+
+ private void RunPasteDryRun()
+ {
+  if (string.IsNullOrWhiteSpace(importCsvPaste)) return;
+  importBusy = true;
+  try
+  {
+   pendingImportBytes = System.Text.Encoding.UTF8.GetBytes(importCsvPaste);
+   importSourceName = "du-lieu-dan-truc-tiep.csv";
+   using var ms = new MemoryStream(pendingImportBytes);
+   importReport = DeviceImporter.ImportFromStream(ms, importSourceName, dryRun: true, actorId: currentActorId);
+   importStatusMsg = importReport.RejectedErrorCount == 0
+    ? "✅ Đã kiểm tra xong dữ liệu dán (Hợp lệ 100%). Bấm 'Bước 2: Xác nhận Import vào Hệ thống' để ghi dữ liệu."
+    : $"❌ Phát hiện {importReport.RejectedErrorCount} dòng vi phạm ràng buộc.";
+  }
+  catch (Exception ex)
+  {
+   importStatusMsg = $"Lỗi kiểm tra dữ liệu: {ex.Message}";
+  }
+  finally
+  {
+   importBusy = false;
+  }
+ }
+
+ private void CommitValidatedImport()
+ {
+  if (pendingImportBytes is null || pendingImportBytes.Length == 0) return;
+  importBusy = true;
+  try
+  {
+   using var ms = new MemoryStream(pendingImportBytes);
+   importReport = DeviceImporter.ImportFromStream(ms, importSourceName, dryRun: false, actorId: currentActorId);
+   if (importReport.Committed)
+   {
+    listMessage = importReport.SummaryMessage;
+    importStatusMsg = "✅ Đã thực thi Import & đồng bộ thành công!";
+    Reload();
+   }
+  }
+  catch (Exception ex)
+  {
+   importStatusMsg = $"Lỗi khi ghi dữ liệu Import: {ex.Message}";
+  }
+  finally
+  {
+   importBusy = false;
+  }
+ }
+
+ private void ClearImportState()
+ {
+  pendingImportBytes = null;
+  importSourceName = "";
+  importCsvPaste = "";
+  importStatusMsg = "";
+  importReport = null;
  }
 
  private List<DeviceVm> devices=[];

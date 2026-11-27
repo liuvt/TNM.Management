@@ -47,6 +47,7 @@ public static class FlowTester
             var ops = new V6Ops(env);
             var auth = new AuthRepository(env);
             var audit = new AuditTrail(env);
+            var deviceImporter = new DeviceImportService(env);
             var dbPath = Path.Combine(tempDir, "App_Data", "tnm-local.db");
 
             int stepNo = 0;
@@ -852,6 +853,70 @@ public static class FlowTester
                 Assert(dash.Active == 7 && dash.Revenue > 0, $"Chỉ số Dashboard không khớp: Active={dash.Active}, Revenue={dash.Revenue}");
 
                 return $"Đã ghi {eventCount} sự kiện Audit JSON · Chặn xóa cứng thành công · Dashboard & 4 luồng CSV hoạt động chuẩn.";
+            });
+
+            // =========================================================================
+            // 9. KIỂM ĐỊNH RÀNG BUỘC & IMPORT THIẾT BỊ CHUẨN 12 CỘT (.XLSX / .CSV)
+            // =========================================================================
+            Step("9. Import Thiết bị 12 cột", "Kiểm tra Chặn lệch cột/sai IMEI, Khôi phục biển số E+, Chống đảo ngày, Bảo vệ Kho & GH7", () =>
+            {
+                // 9A. Chặn file sai cấu trúc tiêu đề 12 cột (chống lặp lại lỗi lệch cột 'BIỂNSỐ')
+                var badHeaderCsv = "STT,Biển số,Tài khoản,Tên thiết bị,IMEI\n1,50E16157,50E16157,NASA4G,1800008444";
+                var badHeaderRes = deviceImporter.ImportFromCsvText(badHeaderCsv, dryRun: false, actorId: ownerId);
+                Assert(!badHeaderRes.Committed && badHeaderRes.RejectedErrorCount > 0, "Phải chặn file không đúng 12 cột tiêu đề chuẩn.");
+
+                // 9B. Chặn dòng sai định dạng IMEI ('BIỂNSỐ') hoặc sai Tên Thiết bị ('UNKNOWN_GPS')
+                var badRowCsv = "STT,Biển số xe/Số khung,Số EMEI Thiết bị,Tên Thiết bị,Tên Đại lý,Tên Khách hàng,SĐT Khách hàng,Trạng thái thiết bị,Ngày kích hoạt,Ngày hết hạn,Ngày gia hạn gần nhất (nếu có),Số lần gia hạn\n" +
+                                "1,50E16157,BIỂNSỐ,XANHGPS,HTX Tân Đại Thành,Nguyễn A,0909123456,Hoạt động,20/10/2026,20/10/2027,0,0\n" +
+                                "2,51H12345,861385079999111,UNKNOWN_GPS,HTX Tân Đại Thành,Nguyễn B,0909123456,Hoạt động,20/10/2026,20/10/2027,0,0";
+                var badRowRes = deviceImporter.ImportFromCsvText(badRowCsv, dryRun: false, actorId: ownerId);
+                Assert(!badRowRes.Committed && badRowRes.RejectedErrorCount == 2, $"Phải chặn đúng 2 dòng sai IMEI/Tên TB (thực tế: {badRowRes.RejectedErrorCount}).");
+
+                // 9C. Kiểm tra bảo vệ IN_STOCK tồn kho, bảo vệ hạn GH7 ERP, khôi phục biển số 6.8E+259 -> 68E00258, gỡ dấu phẩy IMEI & chống đảo tháng/ngày
+                var inStockUnit = db.Stock().First(s => s.Status == "IN_STOCK");
+                var activeRen = db.Renewals().First();
+                var renewedDev = db.Devices().First(d => d.ActivationId == activeRen.ActivationId);
+                var expectedProtectedExp = renewedDev.ExpiresAt;
+
+                var validXlsxBytes = ExcelExporter.BuildWorkbook(
+                    "Update",
+                    [
+                        "STT", "Biển số xe/Số khung", "Số EMEI Thiết bị", "Tên Thiết bị", "Tên Đại lý",
+                        "Tên Khách hàng", "SĐT Khách hàng", "Trạng thái thiết bị", "Ngày kích hoạt",
+                        "Ngày hết hạn", "Ngày gia hạn gần nhất (nếu có)", "Số lần gia hạn"
+                    ],
+                    [
+                        // Dòng 1: Mới hoàn toàn, biển số bị lỗi khoa học 6.8E+259 -> 68E00258, IMEI có dấu phẩy, SĐT mất số 0 đầu (dùng NASAGPS khớp SP000019/DX00002 trong sandbox)
+                        [1, "6.8E+259", "12,509,999,888", "NASAGPS", renewedDev.Customer, "Trần Văn C", "912345678", "Hoạt động", "27/10/2026", "27/10/2027", "0", 0],
+                        // Dòng 2: Trùng IMEI đang IN_STOCK trong Kho -> Phải giữ nguyên IN_STOCK (ProtectedInStockCount = 1)
+                        [2, "51F99887", inStockUnit.Imei, "NASAGPS", renewedDev.Customer, "Lê Văn D", "#REF!", "Hoạt động", "25/10/2026", "25/10/2027", "0", 0],
+                        // Dòng 3: Trùng thiết bị đã có đơn gia hạn GH7 trong ERP nhưng file đưa hạn cũ thấp hơn -> Phải bảo vệ hạn GH7
+                        [3, renewedDev.Plate, renewedDev.Imei, "NASAGPS", renewedDev.Customer, "Chủ xe GH", "", "Hoạt động", "15/10/2026", "15/10/2027", "0", 0]
+                    ]);
+
+                using var ms = new MemoryStream(validXlsxBytes);
+                var dryRes = deviceImporter.ImportFromStream(ms, "test-import.xlsx", dryRun: true, actorId: ownerId);
+                Assert(dryRes.DryRun && !dryRes.Committed && dryRes.RejectedErrorCount == 0 && dryRes.InsertedNewCount == 1 && dryRes.ProtectedInStockCount == 1,
+                    $"Dry-run không khớp kỳ vọng: Err={dryRes.RejectedErrorCount}, Ins={dryRes.InsertedNewCount}, Prot={dryRes.ProtectedInStockCount}");
+
+                ms.Position = 0;
+                var commitRes = deviceImporter.ImportFromStream(ms, "test-import.xlsx", dryRun: false, actorId: ownerId);
+                Assert(commitRes.Committed && commitRes.InsertedNewCount == 1 && commitRes.ProtectedInStockCount == 1, "Commit import phải thành công.");
+
+                var allDevs = db.Devices();
+                var importedNew = allDevs.FirstOrDefault(d => d.Imei == "12509999888");
+                Assert(importedNew is not null && importedNew.Plate == "68E00258" && importedNew.OwnerPhone == "0912345678",
+                    $"Khôi phục biển số E+ / IMEI dấu phẩy / SĐT chưa chuẩn: Plate={importedNew?.Plate}, Phone={importedNew?.OwnerPhone}");
+
+                Assert(db.Stock().First(s => s.Imei == inStockUnit.Imei).Status == "IN_STOCK", "IMEI đang tồn kho phải được giữ nguyên IN_STOCK.");
+                Assert(allDevs.First(d => d.Imei == renewedDev.Imei).ExpiresAt == expectedProtectedExp, "Không được hạ ngày hết hạn thấp hơn phiếu gia hạn GH7 trong ERP.");
+
+                db.ActorId = 0;
+                var (pDiff, sDiff, rDiff, srvDiff) = db.ReconcileAccountingData();
+                Assert(pDiff == 0 && sDiff == 0 && rDiff == 0 && srvDiff == 0, "Import thiết bị tuyệt đối không được sinh công nợ / hóa đơn ảo.");
+                db.ActorId = ownerId;
+
+                return $"Chặn chuẩn file lệch cột & IMEI lỗi · Khôi phục '6.8E+259'→'68E00258' · Bảo vệ IN_STOCK & hạn GH7 · 0 công nợ ảo.";
             });
         }
         finally
