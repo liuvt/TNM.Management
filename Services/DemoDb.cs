@@ -1608,6 +1608,19 @@ public sealed class DemoDb
                     Exec(c, t, "UPDATE v7_order_lines SET new_expiry=$exp WHERE renewal_id=$rid AND deleted_at IS NULL", ("$exp", expStr), ("$rid", latestRenewalId));
                 }
 
+                // Đồng bộ Biển số / Số khung sang các dòng đơn hàng (SO7/TM7/GH7) gắn với thiết bị này nếu nhân viên cập nhật thông tin xe
+                if ((plateNo is not null && !string.Equals(cur.OldPlate, effPlate, StringComparison.Ordinal))
+                    || (vinNo is not null && !string.Equals(cur.OldVin, effVin, StringComparison.Ordinal)))
+                {
+                    Exec(c, t, @"UPDATE v7_order_lines
+                        SET plate_no=CASE WHEN $hasPlate=1 THEN $plate ELSE plate_no END,
+                            vin_no=CASE WHEN $hasVin=1 THEN $vin ELSE vin_no END
+                        WHERE (activation_id=$aid OR (stock_unit_id=$sid AND $sid>0)) AND deleted_at IS NULL",
+                        ("$hasPlate", plateNo is not null ? 1 : 0), ("$plate", effPlate),
+                        ("$hasVin", vinNo is not null ? 1 : 0), ("$vin", effVin),
+                        ("$aid", activationId), ("$sid", cur.StockUnitId));
+                }
+
                 int syncedRenewalCount = 0;
                 int syncedInvoiceCount = 0;
                 long previewNewRenewalPrice = GroupPriceResolver.ResolveRenewalPrice(c, t, targetCust.Id, cur.ProdId);
@@ -3030,7 +3043,7 @@ public sealed class DemoDb
         }
     }
 
-    public void UpdateRenewal(long renewalId, long? sellerId, string? sellerName, string source, string renewedAt, string previousExpiry, string newExpiry, long amountVnd, string paymentMethod)
+    public void UpdateRenewal(long renewalId, long? sellerId, string? sellerName, string source, string renewedAt, string previousExpiry, string newExpiry, long amountVnd, string paymentMethod, long actorId = 0)
     {
         if (!(new[] { "TNM", "NCC", "HTX", "B2C" }).Contains(source) || !(new[] { "CASH", "DEBT" }).Contains(paymentMethod))
             throw new InvalidOperationException("Nguồn gia hạn / hình thức thanh toán không hợp lệ.");
@@ -3048,19 +3061,28 @@ public sealed class DemoDb
         var prevExpStr = prevExpDate.ToString("yyyy-MM-dd");
         var newExpStr = newExpDate.ToString("yyyy-MM-dd");
 
+        var effActor = actorId > 0 ? actorId : ActorId;
+        var prevActor = ActorId;
+        if (effActor > 0) ActorId = effActor;
+        using var scope = effActor > 0 ? AuditRuntime.As(effActor) : null;
         using var syncScope = AuditRuntime.AllowCompletedOrderSync();
+        try
+        {
         Tx((c, t) =>
         {
             var cur = QueryTx(c, t, @"SELECT r.id, r.activation_id, r.is_locked, COALESCE(r.customer_id, a.customer_id), a.product_id,
                 u.imei, COALESCE(a.plate_no,''),
                 COALESCE(NULLIF(a.device_type_label,''), CASE WHEN p.sku='SP000001' THEN 'XANHGPS' WHEN p.sku='DX00002' THEN 'NASA-4G-21000' WHEN p.sku='DX00003' THEN 'TG2000' ELSE p.name END, p.sku),
-                COALESCE(r.v7_order_id, 0)
+                COALESCE(r.v7_order_id, 0),
+                COALESCE(r.renewed_at,''), COALESCE(r.previous_expiry,''), COALESCE(r.new_expiry,''),
+                COALESCE(r.amount_vnd,0), COALESCE(r.seller_name,''), COALESCE(r.payment_method,'DEBT')
                 FROM renewals r
                 JOIN activations a ON a.id=r.activation_id
                 JOIN stock_units u ON u.id=a.stock_unit_id
                 JOIN products p ON p.id=a.product_id
                 WHERE r.id=$id AND r.deleted_at IS NULL",
-                r => (Id: L(r, 0), ActId: L(r, 1), IsLocked: L(r, 2) == 1, CustId: L(r, 3), ProdId: L(r, 4), Imei: S(r, 5), PlateNo: S(r, 6), DeviceName: S(r, 7), RenOrdId: L(r, 8)),
+                r => (Id: L(r, 0), ActId: L(r, 1), IsLocked: L(r, 2) == 1, CustId: L(r, 3), ProdId: L(r, 4), Imei: S(r, 5), PlateNo: S(r, 6), DeviceName: S(r, 7), RenOrdId: L(r, 8),
+                      OldRenAt: S(r, 9), OldPrevExp: S(r, 10), OldNewExp: S(r, 11), OldAmt: L(r, 12), OldSeller: S(r, 13), OldPay: S(r, 14)),
                 ("$id", renewalId)).SingleOrDefault();
             if (cur.Id == 0)
                 throw new InvalidOperationException("Không tìm thấy lịch sử gia hạn hoặc bản ghi đã bị xóa.");
@@ -3123,8 +3145,8 @@ public sealed class DemoDb
                 r => S(r, 0), ("$act", cur.ActId)).FirstOrDefault() ?? "";
             if (!string.IsNullOrWhiteSpace(latestExp))
             {
-                Exec(c, t, "UPDATE activations SET expires_at=$exp, last_renewed_at=$lat WHERE id=$act",
-                    ("$exp", latestExp), ("$lat", latestRenAt), ("$act", cur.ActId));
+                Exec(c, t, "UPDATE activations SET expires_at=$exp, last_renewed_at=$lat, updated_at=datetime('now'), updated_by=$actor WHERE id=$act",
+                    ("$exp", latestExp), ("$lat", latestRenAt), ("$actor", effActor > 0 ? effActor : null), ("$act", cur.ActId));
             }
 
             // Đồng bộ Chứng từ Kế toán (invoices, invoice_lines, payments, payment_allocations)
@@ -3211,10 +3233,37 @@ public sealed class DemoDb
             }
 
             SyncUnlockedSellerCommissionInvoices(c, t);
-            Log(c, t, "UPDATE_RENEWAL", "RENEWAL", renewalId, $"Cập nhật gia hạn #{renewalId}: Hạn {prevExpStr}->{newExpStr}, {amountVnd:N0} VND ({paymentMethod}), Seller: {resolvedSellerName}");
+            var actorLabel = effActor > 0
+                ? QueryTx(c, t, "SELECT CASE WHEN COALESCE(TRIM(display_name),'')<>'' THEN TRIM(display_name) || ' (' || username || ')' ELSE username END FROM app_users WHERE id=$u", r => S(r, 0), ("$u", effActor)).FirstOrDefault() ?? $"User#{effActor}"
+                : "Hệ thống";
+            var ordCodeForLog = cur.RenOrdId > 0
+                ? (QueryTx(c, t, "SELECT code FROM v7_orders WHERE id=$ord", r => S(r, 0), ("$ord", cur.RenOrdId)).FirstOrDefault() ?? $"GH7-{cur.RenOrdId:000000}")
+                : $"GH#{renewalId}";
+            var renDiffs = new List<string>();
+            if (!string.Equals(cur.OldNewExp, newExpStr, StringComparison.OrdinalIgnoreCase))
+                renDiffs.Add($"Ngày hết hạn (Hạn mới): {cur.OldNewExp} → {newExpStr}");
+            if (!string.Equals(cur.OldPrevExp, prevExpStr, StringComparison.OrdinalIgnoreCase))
+                renDiffs.Add($"Hạn cũ: {cur.OldPrevExp} → {prevExpStr}");
+            if (!string.Equals(cur.OldRenAt, renStr, StringComparison.OrdinalIgnoreCase))
+                renDiffs.Add($"Ngày GH: {cur.OldRenAt} → {renStr}");
+            if (cur.OldAmt != amountVnd)
+                renDiffs.Add($"Số tiền: {cur.OldAmt:N0} ₫ → {amountVnd:N0} ₫");
+            if (!string.Equals(cur.OldPay, paymentMethod, StringComparison.OrdinalIgnoreCase))
+                renDiffs.Add($"TT: {cur.OldPay} → {paymentMethod}");
+            if (!string.Equals(cur.OldSeller, resolvedSellerName, StringComparison.Ordinal))
+                renDiffs.Add($"NV bán hàng: {(string.IsNullOrWhiteSpace(cur.OldSeller) ? "—" : cur.OldSeller)} → {(string.IsNullOrWhiteSpace(resolvedSellerName) ? "—" : resolvedSellerName)}");
+            var renDiffSummary = renDiffs.Count > 0 ? string.Join(" · ", renDiffs) : $"Xác nhận giữ nguyên hạn {prevExpStr} → {newExpStr} ({amountVnd:N0} ₫)";
+            var fullLogMsg = $"[{actorLabel}] Cập nhật gia hạn {ordCodeForLog} · IMEI {StripDelSuffix(cur.Imei)}{(string.IsNullOrWhiteSpace(cur.PlateNo) ? "" : $" ({cur.PlateNo})")}: {renDiffSummary}";
+            Log(c, t, "UPDATE_RENEWAL", "RENEWAL", renewalId, fullLogMsg);
+            Log(c, t, "UPDATE_RENEWAL", "ACTIVATION", cur.ActId, fullLogMsg);
             return 0;
         });
         NotifyDevicesChanged();
+        }
+        finally
+        {
+            ActorId = prevActor;
+        }
     }
 
     public void DeleteRenewal(long renewalId, long actorId = 0)
@@ -4026,6 +4075,28 @@ public sealed class DemoDb
           WHERE LOWER(COALESCE(u.username,''))<>'vanlt_it' AND LOWER(COALESCE(a.details,'')) NOT LIKE '%vanlt_it%'
           ORDER BY a.id DESC LIMIT 300",
           r => new AuditVm(L(r,0),S(r,1),S(r,2),S(r,3),S(r,4),S(r,5)));
+    }
+
+    public List<AuditVm> DeviceAuditLogs(long activationId, int limit = 30)
+    {
+        if (activationId <= 0) return [];
+        using var c = Open();
+        return Query(c, @"SELECT a.id, a.occurred_at,
+                CASE WHEN COALESCE(TRIM(u.display_name),'')<>'' THEN TRIM(u.display_name) || ' (' || u.username || ')'
+                     WHEN COALESCE(TRIM(u.username),'')<>'' THEN u.username
+                     ELSE 'Hệ thống' END,
+                a.action, a.entity, a.details
+          FROM audit_logs a
+          LEFT JOIN app_users u ON u.id=a.actor_user_id
+          WHERE LOWER(COALESCE(u.username,''))<>'vanlt_it'
+            AND LOWER(COALESCE(a.details,'')) NOT LIKE '%vanlt_it%'
+            AND (
+                (a.entity='ACTIVATION' AND a.entity_id=$aid)
+                OR (a.entity='RENEWAL' AND a.entity_id IN (SELECT id FROM renewals WHERE activation_id=$aid))
+            )
+          ORDER BY a.id DESC LIMIT $lim",
+          r => new AuditVm(L(r, 0), S(r, 1), S(r, 2), S(r, 3), S(r, 4), S(r, 5)),
+          ("$aid", activationId), ("$lim", limit));
     }
 
     public long ApproxGrossProfit()

@@ -348,12 +348,13 @@
                             <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(3)">+3 tháng</button>
                             <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(6)">+6 tháng</button>
                             <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="() => QuickExtendEditExpiry(12)">+12 tháng</button>
+                            <button type="button" class="btn secondary btn-sm" style="padding:3px 8px;font-size:11.5px" data-confirm="none" @onclick="OnEditActivatedOrDurationChanged">Tính từ Ngày kích hoạt</button>
                         </div>
                     </label>
                     <label>Ngày kích hoạt IMEI *
-                        <input type="date" @bind="editActivatedDate" @bind:after="OnEditActivatedOrDurationChanged" />
+                        <input type="date" @bind="editActivatedDate" />
                     </label>
-                    <label>Tính hạn từ Ngày kích hoạt
+                    <label>Gói tính hạn từ Ngày kích hoạt
                         <select @bind="editDurationMonths" @bind:after="OnEditActivatedOrDurationChanged">
                             <option value="12">1 năm (12 tháng từ Ngày kích hoạt)</option>
                             <option value="24">2 năm (24 tháng từ Ngày kích hoạt)</option>
@@ -645,26 +646,37 @@
 {
     var dDev = detailDevice;
     var dRens = detailDeviceRenewals;
-    <div class="so-modal-overlay" @onclick="() => detailDevice = null">
-        <div class="so-modal-dialog" style="max-width:900px" @onclick:stopPropagation="true">
+    <div class="so-modal-overlay" @onclick="CloseDeviceDetailModal">
+        <div class="so-modal-dialog" style="max-width:980px" @onclick:stopPropagation="true">
             <div class="so-modal-header">
                 <div>
-                    <div class="eyebrow">CHI TIẾT HỒ SƠ PHƯƠNG TIỆN &amp; LỊCH SỬ ĐƠN GIA HẠN</div>
+                    <div class="eyebrow">CHI TIẾT HỒ SƠ PHƯƠNG TIỆN · ĐƠN GIA HẠN &amp; NHẬT KÝ CẬP NHẬT</div>
                     <h2>@(string.IsNullOrWhiteSpace(dDev.Plate) ? dDev.DisplayImei : $"{dDev.Plate} · {dDev.DisplayImei}")</h2>
                 </div>
-                <div style="display:flex;gap:8px;align-items:center">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    @if(canRenew || canUpdateDevice)
+                    {
+                        <button type="button" class="btn secondary btn-sm" style="border-color:#0284c7;color:#0369a1;font-weight:700" data-confirm="none" @onclick="() => OpenEditFromDetail(dDev)">✏️ Sửa Ngày hết hạn / TT</button>
+                    }
                     @if(dDev.IsPreDeclared)
                     {
-                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=INSTALL&deviceId={dDev.ActivationId}")'>+ Tạo Đơn lắp đặt cho xe này</button>
+                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=INSTALL&deviceId={dDev.ActivationId}")'>+ Tạo Đơn lắp đặt</button>
                     }
                     else if(canRenew)
                     {
-                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=RENEWAL&deviceId={dDev.ActivationId}")'>+ Tạo Đơn gia hạn cho xe này</button>
+                        <button type="button" class="btn btn-sm" data-confirm="none" @onclick='() => Nav.NavigateTo($"/sales-orders?create=RENEWAL&deviceId={dDev.ActivationId}")'>+ Tạo Đơn gia hạn</button>
                     }
-                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => detailDevice = null">✕ Đóng</button>
+                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseDeviceDetailModal">✕ Đóng</button>
                 </div>
             </div>
             <div class="so-modal-body">
+                @if(!string.IsNullOrWhiteSpace(historyMessage))
+                {
+                    <div class="panel-note" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:@(historyMessage.StartsWith("Lỗi:") ? "#fef2f2" : "#f0fdf4");border:1px solid @(historyMessage.StartsWith("Lỗi:") ? "#fca5a5" : "#86efac");color:@(historyMessage.StartsWith("Lỗi:") ? "#991b1b" : "#166534");font-weight:600">
+                        @historyMessage
+                    </div>
+                }
+
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:14px">
                     <div><small style="color:#64748b">Biển số xe</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.Plate) ? "—" : dDev.Plate)</strong></div></div>
                     <div><small style="color:#64748b">Số khung / Thông tin phụ</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.VinNo) ? "—" : dDev.VinNo)</strong></div></div>
@@ -672,14 +684,63 @@
                     <div><small style="color:#64748b">Chủ xe &amp; SĐT</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.OwnerName) ? "—" : dDev.OwnerName) @(string.IsNullOrWhiteSpace(dDev.OwnerPhone) ? "" : $"· {dDev.OwnerPhone}")</strong></div></div>
                     <div><small style="color:#64748b">Dòng thiết bị &amp; Số IMEI</small><div><strong>@(string.IsNullOrWhiteSpace(dDev.DeviceTypeLabel) ? dDev.Sku : dDev.DeviceTypeLabel) (@dDev.DisplayImei)</strong></div></div>
                     <div><small style="color:#64748b">Liên kết Đơn lắp đặt</small><div><strong>@(dDev.IsPreDeclared ? "🆕 Chưa tạo đơn lắp đặt" : dDev.HasInstallOrder ? $"✅ Đã có đơn lắp ({dDev.OrderCode})" : "Hồ sơ có sẵn (Chưa gắn đơn lắp)")</strong></div></div>
-                    <div><small style="color:#64748b">Ngày kích hoạt → Ngày hết hạn</small><div><strong>@(dDev.IsPreDeclared ? "Chờ kích hoạt" : $"{dDev.ActivatedAt} → {dDev.ExpiresAt}")</strong></div></div>
+                    <div><small style="color:#64748b">Ngày kích hoạt → Ngày hết hạn</small><div><strong style="color:#0284c7">@(dDev.IsPreDeclared ? "Chờ kích hoạt" : $"{dDev.ActivatedAt} → {dDev.ExpiresAt}")</strong></div></div>
                     <div><small style="color:#64748b">Giá gia hạn chuẩn 12T (Nhóm KH)</small><div><strong style="color:#15803d">@dDev.RenewalPriceVnd.ToString("N0") ₫</strong></div></div>
                 </div>
+
+                @if(editingRenewalId > 0 && dRens.Any(x => x.Id == editingRenewalId))
+                {
+                    <div style="margin-bottom:14px;padding:12px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:10px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                            <strong style="color:#1e3a8a">✏️ Cập nhật Mốc thời gian gia hạn (Ngày hết hạn) &amp; Thông tin đợt gia hạn #@editingRenewalId</strong>
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CancelEditRenewal">Hủy sửa</button>
+                        </div>
+                        <div class="form-grid">
+                            <label>Ngày thực hiện gia hạn *
+                                <input type="date" @bind="editRenewalStartDate" />
+                            </label>
+                            <label>Hạn cũ *
+                                <input type="date" @bind="editRenewalPrevExpiry" />
+                            </label>
+                            <label>Mốc hạn mới (Ngày hết hạn mới) *
+                                <input type="date" @bind="editRenewalEndDate" style="border-color:#0284c7;font-weight:700" />
+                                <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 7px;font-size:11px" data-confirm="none" @onclick="() => editRenewalEndDate = editRenewalPrevExpiry.AddMonths(1)">+1T</button>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 7px;font-size:11px" data-confirm="none" @onclick="() => editRenewalEndDate = editRenewalPrevExpiry.AddMonths(3)">+3T</button>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 7px;font-size:11px" data-confirm="none" @onclick="() => editRenewalEndDate = editRenewalPrevExpiry.AddMonths(6)">+6T</button>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 7px;font-size:11px" data-confirm="none" @onclick="() => editRenewalEndDate = editRenewalPrevExpiry.AddMonths(12)">+12T</button>
+                                </div>
+                            </label>
+                            <label>Số tiền gia hạn (VND) *
+                                <input type="number" min="0" step="10000" @bind="editRenewalPrice" />
+                            </label>
+                            <label>Nhân viên bán hàng
+                                <select @bind="editRenewalSellerId">
+                                    <option value="0">— Chưa chọn / Giữ nguyên —</option>
+                                    @foreach(var sl in sellerChoices)
+                                    {
+                                        <option value="@sl.Id">@sl.Code — @sl.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>Hình thức thanh toán
+                                <select @bind="editRenewalPayMethod">
+                                    <option value="DEBT">Ghi công nợ Kế toán</option>
+                                    <option value="CASH">Thanh toán tiền mặt</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="form-actions" style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+                            <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CancelEditRenewal">Hủy</button>
+                            <button type="button" class="btn btn-sm" data-confirm="edit" data-confirm-title="Xác nhận Cập nhật Đợt gia hạn &amp; Ngày hết hạn" data-confirm-msg="@($"Lưu cập nhật Mốc hạn mới ({editRenewalPrevExpiry:yyyy-MM-dd} → {editRenewalEndDate:yyyy-MM-dd}) và đồng bộ sang Thiết bị, Đơn gia hạn GH7 & Kế toán?")" @onclick="SaveRenewalEdit">💾 Lưu cập nhật Đợt gia hạn</button>
+                        </div>
+                    </div>
+                }
 
                 <h3 style="font-size:0.96rem;margin:0 0 8px 0">Lịch sử các lần Gia hạn &amp; Mốc thời gian (Map theo Đơn gia hạn: @dRens.Count lần)</h3>
                 @if(dRens.Count == 0)
                 {
-                    <div class="panel-note">Thiết bị này chưa phát sinh Đơn gia hạn nào.</div>
+                    <div class="panel-note">Thiết bị này chưa phát sinh Đơn gia hạn nào. Bạn có thể bấm <strong>✏️ Sửa Ngày hết hạn / TT</strong> ở góc trên để cập nhật trực tiếp Ngày hết hạn ban đầu hoặc bấm <strong>+ Tạo Đơn gia hạn</strong>.</div>
                 }
                 else
                 {
@@ -695,6 +756,10 @@
                                     <th>Số tiền</th>
                                     <th>NV bán hàng</th>
                                     <th>Hóa đơn KT</th>
+                                    @if(canRenew || canUpdateDevice)
+                                    {
+                                        <th>Thao tác</th>
+                                    }
                                 </tr>
                             </thead>
                             <tbody>
@@ -706,10 +771,55 @@
                                         <td><span class="chip blue-chip">@(string.IsNullOrWhiteSpace(r.OrderCode) ? $"GH#{r.Id}" : r.OrderCode)</span></td>
                                         <td>@r.StartDate</td>
                                         <td>@(r.DurationMonths == 12 ? "12 tháng (1 năm)" : $"{r.DurationMonths} tháng")</td>
-                                        <td><strong>@r.PreviousExpiry → @r.EndDate</strong></td>
+                                        <td><strong>@r.PreviousExpiry → <span style="color:#15803d">@r.EndDate</span></strong></td>
                                         <td><strong>@r.Price.ToString("N0") ₫</strong></td>
                                         <td>@r.SellerName</td>
                                         <td>@(string.IsNullOrWhiteSpace(r.InvoiceNo) ? "—" : r.InvoiceNo)</td>
+                                        @if(canRenew || canUpdateDevice)
+                                        {
+                                            <td>
+                                                @if(r.IsLocked)
+                                                {
+                                                    <span class="chip orange-chip">🔒 Đã chốt KT</span>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => StartEditRenewal(r)">✏️ Sửa hạn</button>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <h3 style="font-size:0.96rem;margin:16px 0 8px 0">📋 Nhật ký cập nhật Thời hạn (Ngày hết hạn) &amp; Thông tin thiết bị (@detailDeviceLogs.Count bản ghi)</h3>
+                @if(detailDeviceLogs.Count == 0)
+                {
+                    <div class="panel-note">Chưa có lịch sử chỉnh sửa thủ công trên thiết bị này.</div>
+                }
+                else
+                {
+                    <div class="table-wrap" style="max-height:220px;overflow-y:auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Thời gian</th>
+                                    <th>Nhân viên thực hiện</th>
+                                    <th>Thao tác</th>
+                                    <th>Chi tiết thay đổi (Trước → Sau)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach(var lg in detailDeviceLogs)
+                                {
+                                    <tr>
+                                        <td><small><strong>@lg.At</strong></small></td>
+                                        <td><strong>@lg.Actor</strong></td>
+                                        <td><span class="chip blue-chip">@VnLabels.AuditAction(lg.Action)</span></td>
+                                        <td class="wrap-cell" style="max-width:460px"><small>@lg.Details</small></td>
                                     </tr>
                                 }
                             </tbody>
@@ -1113,6 +1223,7 @@
 
  private DeviceVm? detailDevice;
  private List<RenewalVm> detailDeviceRenewals = [];
+ private List<AuditVm> detailDeviceLogs = [];
 
  // State thêm thiết bị mới (Khai báo xe chờ lắp hoặc Đã kích hoạt IMEI)
  private long createCustomerId, createProductId, createSellerId, createPreviewRenewalVnd;
@@ -1136,8 +1247,22 @@
  private void OpenDeviceRecordLog(long actId) { if (!canViewRowLog) return; logInitialTable = "activations"; logInitialRecordId = actId; showLogModal = true; }
  private void OpenDeviceDetailModal(DeviceVm x)
  {
+  historyMessage = "";
+  CancelEditRenewal();
   detailDevice = x;
   detailDeviceRenewals = Db.Renewals().Where(r => r.ActivationId == x.ActivationId).ToList();
+  detailDeviceLogs = Db.DeviceAuditLogs(x.ActivationId);
+ }
+ private void CloseDeviceDetailModal()
+ {
+  detailDevice = null;
+  CancelEditRenewal();
+  historyMessage = "";
+ }
+ private void OpenEditFromDetail(DeviceVm x)
+ {
+  CloseDeviceDetailModal();
+  OpenEditFor(x);
  }
 
  private IEnumerable<string> AvailableDeviceTypeLabels =>
@@ -1296,7 +1421,10 @@
   {
    detailDevice = devices.FirstOrDefault(x => x.ActivationId == detailDevice.ActivationId);
    if(detailDevice is not null)
+   {
     detailDeviceRenewals = Db.Renewals().Where(r => r.ActivationId == detailDevice.ActivationId).ToList();
+    detailDeviceLogs = Db.DeviceAuditLogs(detailDevice.ActivationId);
+   }
   }
   if(canViewLog){renewals=Db.Renewals();deletedDevices=Db.DeletedDevices();}
  }
@@ -1504,7 +1632,8 @@
  }
  private async Task SaveRenewalEdit(){
   try{
-   Db.ActorId = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesView) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   var actor = canUpdateDevice ? await Gate.RequireAsync(Permissions.DevicesUpdate) : await Gate.RequireAsync(Permissions.DevicesRenew);
+   Db.ActorId = actor;
    var pickedSeller = sellerChoices.FirstOrDefault(s => s.Id == editRenewalSellerId);
    Db.UpdateRenewal(
     editingRenewalId,
@@ -1515,11 +1644,12 @@
     editRenewalPrevExpiry.ToString("yyyy-MM-dd"),
     editRenewalEndDate.ToString("yyyy-MM-dd"),
     editRenewalPrice,
-    editRenewalPayMethod);
+    editRenewalPayMethod,
+    actor);
    var updatedId = editingRenewalId;
    CancelEditRenewal();
    Reload();
-   historyMessage = $"Đã cập nhật lịch sử gia hạn #{updatedId}, đồng bộ thời gian hết hạn thiết bị và cập nhật lại Doanh thu + Hoa hồng bên Kế toán.";
+   historyMessage = $"Đã cập nhật đợt gia hạn #{updatedId}, đồng bộ Ngày hết hạn thiết bị, Đơn gia hạn GH7 + Kế toán và ghi Log hệ thống.";
   }catch(Exception ex){historyMessage="Lỗi: "+ex.Message;}
  }
  private async Task ConfirmDeleteRenewal(long renewalId){

@@ -1059,8 +1059,8 @@
                             @if(o.OrderKind == "RENEWAL")
                             {
                                 <div style="display:flex;flex-direction:column;gap:5px;min-width:140px">
-                                    <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
-                                        👁 Xem Đơn gia hạn
+                                    <button type="button" class="btn @(!o.IsAccountingLocked || isMainDev ? "" : "secondary") btn-sm" data-confirm="none" @onclick="() => OpenOrderModal(o.Id)">
+                                        @(!o.IsAccountingLocked || isMainDev ? "✏️ Xem / Sửa hạn GH" : "👁 Xem Đơn gia hạn")
                                     </button>
                                     @if(isMainDev)
                                     {
@@ -1200,14 +1200,50 @@
 
                 @if(SelectedOrder.OrderKind == "RENEWAL")
                 {
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;padding:12px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;margin-bottom:14px">
+                    var canEditRenOrd = (!SelectedOrder.IsAccountingLocked || isMainDev) && SelectedOrder.Status != "CANCELLED";
+                    var liveRenOrdTotal = canEditRenOrd
+                        ? SelectedOrder.Lines.Sum(l => GetLinePriceInput(l))
+                        : SelectedOrder.Price;
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;padding:12px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;margin-bottom:12px">
                         <div><small style="color:#475569">Mã Đơn gia hạn</small><div><strong>@SelectedOrder.Code</strong></div></div>
                         <div><small style="color:#475569">Đơn vị / Khách hàng</small><div><strong>@SelectedOrder.CustomerB2BDisplay</strong></div></div>
-                        <div><small style="color:#475569">Nhân viên bán hàng</small><div><strong>@(string.IsNullOrWhiteSpace(SelectedOrder.SaleSource) ? "—" : SelectedOrder.SaleSource)</strong></div></div>
-                        <div><small style="color:#475569">Ngày gia hạn &amp; Kỳ hạn</small><div><strong>@SelectedOrder.ActivatedAt · @SelectedOrder.DurationDisplay</strong></div></div>
-                        <div><small style="color:#475569">Tổng tiền Đơn gia hạn</small><div><strong style="color:#15803d;font-size:1.05rem">@SelectedOrder.Price.ToString("N0") ₫</strong></div></div>
-                        <div><small style="color:#475569">Ghi chú</small><div><strong>@(string.IsNullOrWhiteSpace(SelectedOrder.Notes) ? "—" : SelectedOrder.Notes)</strong></div></div>
+                        <div><small style="color:#475569">Tổng tiền Đơn gia hạn</small><div><strong style="color:#15803d;font-size:1.05rem">@liveRenOrdTotal.ToString("N0") ₫</strong>@(liveRenOrdTotal != SelectedOrder.Price ? $" (Trước: {SelectedOrder.Price:N0} ₫)" : "")</div></div>
+                        <div><small style="color:#475569">Trạng thái Kế toán</small><div><strong>@(SelectedOrder.IsAccountingLocked ? "🔒 Đã chốt sổ KT" : "✏️ Cho phép cập nhật hạn & thông tin")</strong></div></div>
                     </div>
+
+                    @if(canEditRenOrd)
+                    {
+                        <div style="margin-bottom:12px;padding:12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                                <strong style="font-size:0.9rem;color:#0f172a">✏️ Cập nhật Thời gian Gia hạn (Ngày hết hạn) &amp; Thông tin chung Đơn @SelectedOrder.Code</strong>
+                                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                                    <small style="color:#475569;font-weight:600">Cộng nhanh hạn mới cho toàn đơn (từ Hạn cũ):</small>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="() => BatchExtendRenewalOrderLines(1)">+1 tháng</button>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="() => BatchExtendRenewalOrderLines(3)">+3 tháng</button>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="() => BatchExtendRenewalOrderLines(6)">+6 tháng</button>
+                                    <button type="button" class="btn secondary btn-sm" style="padding:2px 8px;font-size:11.5px" data-confirm="none" @onclick="() => BatchExtendRenewalOrderLines(12)">+12 tháng</button>
+                                </div>
+                            </div>
+                            <div class="form-grid">
+                                <label>Ngày thực hiện gia hạn *
+                                    <input type="date" @bind="activationDateInput" />
+                                </label>
+                                <label>Nhân viên bán hàng phụ trách
+                                    <select @bind="editSellerId" @bind:after="OnEditSellerChanged">
+                                        <option value="0">— Giữ nguyên / Chưa chọn —</option>
+                                        @foreach(var sl in sellerChoices)
+                                        {
+                                            <option value="@sl.Id">@sl.Code — @sl.Name</option>
+                                        }
+                                    </select>
+                                </label>
+                                <label>Ghi chú Đơn gia hạn
+                                    <input @bind="editNotes" placeholder="Ghi chú gia hạn..." />
+                                </label>
+                            </div>
+                        </div>
+                    }
 
                     <div class="table-wrap">
                         <table>
@@ -1218,22 +1254,73 @@
                                     <th>Số IMEI</th>
                                     <th>Biển số xe</th>
                                     <th>Số khung / Chủ xe</th>
-                                    <th>Hạn cũ → Mốc hạn mới</th>
-                                    <th>Đơn giá gia hạn</th>
+                                    <th>Hạn cũ</th>
+                                    <th>Mốc hạn mới (Ngày hết hạn) *</th>
+                                    <th>Đơn giá gia hạn (VND)</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @for(var i = 0; i < SelectedOrder.Lines.Count; i++)
                                 {
                                     var ln = SelectedOrder.Lines[i];
+                                    var rep = GetOrCreateLineReport(ln);
+                                    var prevDt = GetOrInitRenewalLinePrevDate(ln);
+                                    var nextDt = GetOrInitRenewalLineNewDate(ln);
+                                    var linePrice = GetLinePriceInput(ln);
                                     <tr>
                                         <td><strong>@(i + 1)</strong></td>
                                         <td><strong>@ln.ProductSku</strong> — @ln.ProductName</td>
                                         <td><strong style="color:#0f766e">@(ln.Imei ?? "—")</strong></td>
-                                        <td><strong>@(string.IsNullOrWhiteSpace(ln.PlateNo) ? "—" : ln.PlateNo)</strong></td>
-                                        <td>@(string.IsNullOrWhiteSpace(ln.VinNo) ? "—" : ln.VinNo)</td>
-                                        <td><small>@ln.PrevExpiry</small> → <strong style="color:#15803d">@ln.NewExpiry</strong></td>
-                                        <td><strong>@ln.UnitPrice.ToString("N0") ₫</strong></td>
+                                        <td>
+                                            @if(canEditRenOrd)
+                                            {
+                                                <input value="@rep.PlateNo" @onchange="e => SetLineReport(ln.Id, null, e.Value?.ToString(), null)" placeholder="Biển số..." style="min-width:105px" />
+                                            }
+                                            else
+                                            {
+                                                <strong>@(string.IsNullOrWhiteSpace(ln.PlateNo) ? "—" : ln.PlateNo)</strong>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if(canEditRenOrd)
+                                            {
+                                                <input value="@rep.VinNo" @onchange="e => SetLineReport(ln.Id, null, null, e.Value?.ToString())" placeholder="Chủ xe / Số khung..." style="min-width:120px" />
+                                            }
+                                            else
+                                            {
+                                                @(string.IsNullOrWhiteSpace(ln.VinNo) ? "—" : ln.VinNo)
+                                            }
+                                        </td>
+                                        <td>
+                                            @if(canEditRenOrd)
+                                            {
+                                                <input type="date" value="@prevDt.ToString("yyyy-MM-dd")" @onchange="e => SetRenewalLinePrevDate(ln.Id, e.Value?.ToString())" style="width:auto;padding:4px 6px" />
+                                            }
+                                            else
+                                            {
+                                                <small>@ln.PrevExpiry</small>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if(canEditRenOrd)
+                                            {
+                                                <input type="date" value="@nextDt.ToString("yyyy-MM-dd")" @onchange="e => SetRenewalLineNewDate(ln.Id, e.Value?.ToString())" style="width:auto;padding:4px 6px;border-color:#15803d;font-weight:700;color:#15803d" />
+                                            }
+                                            else
+                                            {
+                                                <strong style="color:#15803d">@ln.NewExpiry</strong>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if(canEditRenOrd)
+                                            {
+                                                <input type="number" min="0" step="10000" value="@linePrice" @onchange="e => SetLinePriceInput(ln, e.Value?.ToString(), false)" style="min-width:110px;font-weight:700" />
+                                            }
+                                            else
+                                            {
+                                                <strong>@ln.UnitPrice.ToString("N0") ₫</strong>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -1397,12 +1484,15 @@
                         <div style="margin-top:1rem;border-top:1px solid #e2e8f0;padding-top:0.85rem">
                             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.6rem">
                                 <h3 style="font-size:0.95rem;margin:0">Chi tiết mặt hàng, Đơn giá bán &amp; Kích hoạt IMEI</h3>
-                                <div style="display:flex;align-items:center;gap:0.75rem;background:#eff6ff;padding:0.45rem 0.85rem;border-radius:8px;border:1px solid #bfdbfe">
+                                <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;background:#eff6ff;padding:0.45rem 0.85rem;border-radius:8px;border:1px solid #bfdbfe">
                                     <label style="margin:0;display:flex;align-items:center;gap:0.4rem;font-weight:600;color:#1e3a8a">
-                                        <span>📅 Ngày kích hoạt IMEI *:</span>
-                                        <input type="date" @bind="activationDateInput" disabled="@(SelectedOrder.Status == "CANCELLED")" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
+                                        <span>📅 Ngày kích hoạt *:</span>
+                                        <input type="date" @bind="activationDateInput" @bind:after="OnActivationDateInputChanged" disabled="@(SelectedOrder.Status == "CANCELLED")" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff" />
                                     </label>
-                                    <span class="chip blue-chip">Hết hạn dự kiến: @activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy")</span>
+                                    <label style="margin:0;display:flex;align-items:center;gap:0.4rem;font-weight:600;color:#15803d">
+                                        <span>⏳ Ngày hết hạn *:</span>
+                                        <input type="date" @bind="completedOrderExpiresInput" disabled="@(SelectedOrder.Status == "CANCELLED")" style="width:auto;padding:0.25rem 0.5rem;height:auto;background:#fff;border-color:#15803d;font-weight:700" />
+                                    </label>
                                 </div>
                             </div>
 
@@ -1531,6 +1621,27 @@
                         <button type="button" class="btn secondary" data-confirm="edit" data-confirm-title="Xác nhận Lưu IMEI &amp; thông tin phụ" data-confirm-msg="@($"Lưu danh sách Số IMEI và biển số cho đơn {SelectedOrder.Code}?")" @onclick="Report">2. Lưu Số IMEI &amp; Biển số</button>
                         <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Hoàn thành đơn hàng" data-confirm-msg="@($"Hoàn thành đơn hàng {SelectedOrder.Code} ({(noDeductStock ? "Không trừ kho - Hãng" : "Trừ tồn kho & ghi nhận công nợ")})?")" @onclick="Complete">3. Hoàn thành đơn @(noDeductStock ? "(Không trừ kho)" : "(Trừ tồn kho)")</button>
                         <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="@(isMainDev ? "Xác nhận Hủy & Xóa cứng đơn hàng" : "Xác nhận Hủy đơn hàng")" data-confirm-msg="@(isMainDev ? $"Xóa cứng đơn hàng {SelectedOrder.Code}?" : $"Hủy đơn hàng {SelectedOrder.Code}?")" @onclick="Cancel">@(isMainDev ? "🗑 Hủy & Xóa cứng" : "Hủy đơn")</button>
+                    }
+                    else if(SelectedOrder.OrderKind == "RENEWAL")
+                    {
+                        @if((!SelectedOrder.IsAccountingLocked || isMainDev) && SelectedOrder.Status != "CANCELLED")
+                        {
+                            <button type="button" class="btn" data-confirm="edit" data-confirm-title="Xác nhận Lưu cập nhật Đơn gia hạn &amp; Ngày hết hạn" data-confirm-msg="@($"Lưu cập nhật Thời gian gia hạn (Ngày hết hạn), thông tin xe và đơn giá cho Đơn gia hạn {SelectedOrder.Code}, đồng bộ sang Thiết bị & Kế toán và ghi Log hệ thống?")" @onclick="SaveRenewalOrderChanges">
+                                💾 Lưu cập nhật Đơn gia hạn &amp; Ngày hết hạn
+                            </button>
+                        }
+                        @if(isMainDev)
+                        {
+                            <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Hủy &amp; Xóa cứng Đơn gia hạn" data-confirm-msg="@($"Xóa cứng Đơn gia hạn {SelectedOrder.Code} và khôi phục mốc hạn cũ cho thiết bị?")" @onclick="Cancel">
+                                🗑 Hủy &amp; Xóa cứng Đơn GH
+                            </button>
+                        }
+                        else if(canSoftDeleteOrder && !SelectedOrder.IsAccountingLocked)
+                        {
+                            <button type="button" class="btn secondary" style="color:#dc2626;border-color:#fecaca" data-confirm="delete" data-confirm-title="Xác nhận Xóa mềm Đơn gia hạn" data-confirm-msg="@($"Xóa mềm Đơn gia hạn {SelectedOrder.Code}, khôi phục hạn cũ của xe và hủy chứng từ kế toán liên quan?")" @onclick="() => QuickSoftDeleteOrder(SelectedOrder.Id)">
+                                🗑 Xóa mềm Đơn gia hạn
+                            </button>
+                        }
                     }
                     else if(SelectedOrder.IsImmutable)
                     {
@@ -1693,7 +1804,10 @@
     private string installer = "", source = "INTERNAL", message = "";
     private string editContactName = "", editCustomerPhone = "", editInstallAt = "", editAddress = "", editNotes = "", editSaleSource = "";
     private DateTime activationDateInput = DateTime.Today;
+    private DateTime completedOrderExpiresInput = DateTime.Today.AddYears(1);
     private readonly Dictionary<long, long> linePriceInputs = [];
+    private readonly Dictionary<long, DateTime> renewalLinePrevDates = [];
+    private readonly Dictionary<long, DateTime> renewalLineNewDates = [];
 
     private bool EffectiveCreateNoInstallFee => createOrderKind == "COMMERCIAL" || createNoInstallFee;
     private CustomerVm? SelectedCustomer => customers.FirstOrDefault(x => x.Id == customer);
@@ -2489,14 +2603,30 @@
                 activationDateInput = actDt.Date;
             else
                 activationDateInput = DateTime.Today;
+
+            var matchedDevExp = o.Lines
+                .Select(ln => allDevices.FirstOrDefault(d => (ln.ActivationId is > 0 && d.ActivationId == ln.ActivationId.Value) || (!string.IsNullOrWhiteSpace(ln.Imei) && string.Equals(d.Imei, ln.Imei, StringComparison.OrdinalIgnoreCase))))
+                .FirstOrDefault(d => d is not null && DateTime.TryParse(d.ExpiresAt, out _));
+            if (matchedDevExp is not null && DateTime.TryParse(matchedDevExp.ExpiresAt, out var devExpDt))
+                completedOrderExpiresInput = devExpDt.Date;
+            else
+                completedOrderExpiresInput = activationDateInput.AddMonths((int)editDurationMonths);
+
             SyncSelectedOrderLines();
         }
+    }
+
+    private void OnActivationDateInputChanged()
+    {
+        completedOrderExpiresInput = activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12));
     }
 
     private void SyncSelectedOrderLines()
     {
         lineReports.Clear();
         linePriceInputs.Clear();
+        renewalLinePrevDates.Clear();
+        renewalLineNewDates.Clear();
         var o = SelectedOrder;
         if (o is null) return;
         foreach (var ln in o.Lines)
@@ -2504,6 +2634,49 @@
             var defaultVin = !string.IsNullOrWhiteSpace(ln.VinNo) ? ln.VinNo : o.ContactName;
             lineReports[ln.Id] = new LineReportInput { Imei = ln.Imei ?? "", PlateNo = ln.PlateNo ?? "", VinNo = defaultVin ?? "" };
             linePriceInputs[ln.Id] = ln.UnitPrice;
+            if (DateTime.TryParse(ln.PrevExpiry, out var pDt))
+                renewalLinePrevDates[ln.Id] = pDt.Date;
+            if (DateTime.TryParse(ln.NewExpiry, out var nDt))
+                renewalLineNewDates[ln.Id] = nDt.Date;
+        }
+    }
+
+    private DateTime GetOrInitRenewalLinePrevDate(V7OrderLine ln)
+    {
+        if (renewalLinePrevDates.TryGetValue(ln.Id, out var dt)) return dt;
+        var parsed = DateTime.TryParse(ln.PrevExpiry, out var p) ? p.Date : activationDateInput;
+        renewalLinePrevDates[ln.Id] = parsed;
+        return parsed;
+    }
+
+    private DateTime GetOrInitRenewalLineNewDate(V7OrderLine ln)
+    {
+        if (renewalLineNewDates.TryGetValue(ln.Id, out var dt)) return dt;
+        var parsed = DateTime.TryParse(ln.NewExpiry, out var n) ? n.Date : GetOrInitRenewalLinePrevDate(ln).AddMonths(12);
+        renewalLineNewDates[ln.Id] = parsed;
+        return parsed;
+    }
+
+    private void SetRenewalLinePrevDate(long lineId, string? rawVal)
+    {
+        if (DateTime.TryParse(rawVal, out var dt))
+            renewalLinePrevDates[lineId] = dt.Date;
+    }
+
+    private void SetRenewalLineNewDate(long lineId, string? rawVal)
+    {
+        if (DateTime.TryParse(rawVal, out var dt))
+            renewalLineNewDates[lineId] = dt.Date;
+    }
+
+    private void BatchExtendRenewalOrderLines(int months)
+    {
+        if (SelectedOrder is null) return;
+        foreach (var ln in SelectedOrder.Lines)
+        {
+            var basePrev = GetOrInitRenewalLinePrevDate(ln);
+            var effBase = basePrev > activationDateInput ? basePrev : activationDateInput;
+            renewalLineNewDates[ln.Id] = effBase.AddMonths(months);
         }
     }
 
@@ -2784,6 +2957,31 @@
         return $"Đã cập nhật đơn hoàn thành {o.Code} (Tổng tiền: {newTotal:N0} ₫) và đồng bộ Hóa đơn công nợ, Hoa hồng & Thiết bị!";
     });
 
+    private Task SaveRenewalOrderChanges() => Act(actor =>
+    {
+        if (selected <= 0) throw new InvalidOperationException("Vui lòng chọn Đơn gia hạn.");
+        var o = SelectedOrder ?? throw new InvalidOperationException("Không tìm thấy Đơn gia hạn.");
+        var updates = o.Lines.Select(ln =>
+        {
+            var rep = GetOrCreateLineReport(ln);
+            var prevStr = GetOrInitRenewalLinePrevDate(ln).ToString("yyyy-MM-dd");
+            var newStr = GetOrInitRenewalLineNewDate(ln).ToString("yyyy-MM-dd");
+            var price = GetLinePriceInput(ln);
+            return new V7RenewalOrderLineUpdate(ln.Id, prevStr, newStr, price, rep.PlateNo, rep.VinNo);
+        }).ToList();
+
+        var resMsg = Orders.UpdateRenewalOrder(
+            actor,
+            selected,
+            activationDateInput.ToString("yyyy-MM-dd"),
+            editSellerId > 0 ? editSellerId : null,
+            editSaleSource,
+            editNotes,
+            updates);
+        showOrderModal = false;
+        return resMsg;
+    });
+
     private Task SaveCompletedOrderImeis() => Act(actor =>
     {
         if (selected <= 0) throw new InvalidOperationException("Vui lòng chọn đơn hàng.");
@@ -2792,12 +2990,13 @@
         if (payload.All(x => string.IsNullOrWhiteSpace(x.Imei)))
             throw new InvalidOperationException("Vui lòng nhập ít nhất 1 mã IMEI để lưu và kích hoạt.");
         var actDateStr = activationDateInput.ToString("yyyy-MM-dd");
-        var newlyActivated = Orders.SupplementCompletedOrderImeis(actor, selected, payload, actDateStr);
+        var customExpIso = completedOrderExpiresInput.ToString("yyyy-MM-dd");
+        var newlyActivated = Orders.SupplementCompletedOrderImeis(actor, selected, payload, actDateStr, customExpIso);
         showOrderModal = false;
-        var expDateStr = activationDateInput.AddMonths((int)(editDurationMonths > 0 ? editDurationMonths : 12)).ToString("dd/MM/yyyy");
+        var expDateStr = completedOrderExpiresInput.ToString("dd/MM/yyyy");
         return newlyActivated > 0
-            ? $"Đã bổ sung & kích hoạt {newlyActivated} IMEI cho đơn {o.Code} (Hết hạn: {expDateStr}, không trừ tồn kho lần 2)."
-            : $"Đã cập nhật thông tin IMEI / Biển số / Ngày kích hoạt cho đơn {o.Code}.";
+            ? $"Đã bổ sung & kích hoạt {newlyActivated} IMEI cho đơn {o.Code} (Hết hạn: {expDateStr}, không trừ tồn kho lần 2) — Đã lưu Log."
+            : $"Đã cập nhật thông tin IMEI / Biển số / Ngày hết hạn ({expDateStr}) cho đơn {o.Code} — Đã lưu Log.";
     });
 
     private Task Complete() => Act(actor =>

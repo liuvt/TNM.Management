@@ -21,6 +21,7 @@ public record V7RenewalLineDraft(
 
 public record V7OrderLineReport(long LineId, string Imei, string PlateNo = "", string VinNo = "");
 public record V7OrderLineEdit(long LineId, long? UnitPriceOverride = null, string Imei = "", string PlateNo = "", string VinNo = "");
+public record V7RenewalOrderLineUpdate(long LineId, string PrevExpiry, string NewExpiry, long UnitPriceVnd, string PlateNo = "", string VinNo = "");
 public record V7OrderLine(
     long Id,
     long OrderId,
@@ -1511,6 +1512,286 @@ public sealed class V7Orders(IWebHostEnvironment env)
         return res;
     }
 
+    /// <summary>
+    /// Cho phép nhân viên (CSKH, Kế toán, Quản lý, Sale, Kho, Kỹ thuật, Admin, Owner) cập nhật lại Thời gian gia hạn (Mốc hạn mới / Ngày hết hạn),
+    /// Ngày gia hạn, Đơn giá gia hạn, Biển số, Chủ xe / Số khung, NV bán hàng và Ghi chú trên Đơn gia hạn (GH7-...) chưa chốt sổ Kế toán.
+    /// Đồng bộ tự động sang renewals, activations (expires_at) & chứng từ RENEWAL bên Kế toán, kèm ghi Log chi tiết Trước -> Sau.
+    /// </summary>
+    public string UpdateRenewalOrder(
+        long actor,
+        long id,
+        string? renewedDate,
+        long? sellerRecordId,
+        string? saleSource,
+        string? notes,
+        IReadOnlyList<V7RenewalOrderLineUpdate> lineUpdates)
+    {
+        if (lineUpdates is null || lineUpdates.Count == 0)
+            throw new InvalidOperationException("Không có dòng thiết bị nào để cập nhật trên Đơn gia hạn.");
+
+        string[] formats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
+
+        using var syncScope = AuditRuntime.AllowCompletedOrderSync();
+        var summaryMsg = Tx(actor, c =>
+        {
+            Role(c, actor, "SELLER", "CSKH", "MANAGER", "ADMIN", "ACCOUNTANT", "WAREHOUSE", "TECH");
+            var isMain = IsMainDeveloper(c, actor);
+
+            using var oq = Cmd(c, @"SELECT code, COALESCE(order_kind,'INSTALL'), status, customer_id,
+                    COALESCE(activated_at,''), COALESCE(sale_source,''), COALESCE(notes,''), COALESCE(unit_price_vnd,0)
+                FROM v7_orders WHERE id=$id AND deleted_at IS NULL", ("$id", id));
+            using var or = oq.ExecuteReader();
+            if (!or.Read())
+                throw new InvalidOperationException("Không tìm thấy Đơn gia hạn hoặc đơn đã bị xóa.");
+            var ordCode = or.GetString(0);
+            var ordKind = or.GetString(1);
+            var ordStatus = or.GetString(2);
+            var custId = or.GetInt64(3);
+            var oldRenAt = or.GetString(4);
+            var oldSaleSource = or.GetString(5);
+            var oldNotes = or.GetString(6);
+            var oldTotalPrice = or.GetInt64(7);
+            or.Close();
+
+            if (!string.Equals(ordKind, "RENEWAL", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Thao tác này chỉ áp dụng cho Đơn gia hạn (GH7-...).");
+            if (ordStatus == "CANCELLED")
+                throw new InvalidOperationException("Đơn gia hạn đã hủy, không thể cập nhật.");
+
+            var lockedCount = Scalar(c, @"SELECT
+                (SELECT COUNT(*) FROM invoices WHERE v7_order_id=$o AND deleted_at IS NULL AND COALESCE(is_locked,0)=1)
+              + (SELECT COUNT(*) FROM renewals WHERE v7_order_id=$o AND deleted_at IS NULL AND COALESCE(is_locked,0)=1)",
+                ("$o", id));
+            if (!isMain && lockedCount > 0)
+                throw new InvalidOperationException($"Đơn gia hạn {ordCode} đã được Kế toán chốt số / khóa sổ, không thể chỉnh sửa.");
+
+            var renDt = VnDateTimeHelper.TodayVn;
+            var rawRen = !string.IsNullOrWhiteSpace(renewedDate) ? renewedDate.Trim() : oldRenAt.Trim();
+            if (!string.IsNullOrWhiteSpace(rawRen) && DateTime.TryParseExact(rawRen, formats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var pRen))
+                renDt = pRen.Date;
+            var renStr = renDt.ToString("yyyy-MM-dd");
+
+            var (resolvedSellerId, resolvedSellerLabel) = ResolveOrderSeller(c, custId, actor, sellerRecordId, saleSource);
+            var cleanNotes = (notes ?? "").Trim();
+            var updateMap = lineUpdates.GroupBy(x => x.LineId).ToDictionary(g => g.Key, g => g.Last());
+
+            using var lq = Cmd(c, @"SELECT l.id, l.product_id, COALESCE(l.imei,''), COALESCE(l.plate_no,''), COALESCE(l.vin_no,''),
+                    COALESCE(l.prev_expiry,''), COALESCE(l.new_expiry,''), l.unit_price_vnd,
+                    COALESCE(l.activation_id,0), COALESCE(l.renewal_id,0),
+                    COALESCE(NULLIF(a.device_type_label,''), p.name, p.sku)
+                FROM v7_order_lines l
+                JOIN products p ON p.id=l.product_id
+                LEFT JOIN activations a ON a.id=l.activation_id
+                WHERE l.order_id=$o AND l.deleted_at IS NULL
+                ORDER BY l.id ASC", ("$o", id));
+            var dbLines = new List<(long LineId, long ProdId, string Imei, string OldPlate, string OldVin, string OldPrevExp, string OldNewExp, long OldPrice, long ActId, long RenId, string DevLabel)>();
+            using (var lr = lq.ExecuteReader())
+            {
+                while (lr.Read())
+                {
+                    dbLines.Add((lr.GetInt64(0), lr.GetInt64(1), lr.GetString(2), lr.GetString(3), lr.GetString(4),
+                                 lr.GetString(5), lr.GetString(6), lr.GetInt64(7), lr.GetInt64(8), lr.GetInt64(9), lr.GetString(10)));
+                }
+            }
+
+            var actorLabel = actor > 0
+                ? Str(c, "SELECT CASE WHEN COALESCE(TRIM(display_name),'')<>'' THEN TRIM(display_name) || ' (' || username || ')' ELSE username END FROM app_users WHERE id=$u", ("$u", actor))
+                : "Hệ thống";
+            if (string.IsNullOrWhiteSpace(actorLabel)) actorLabel = $"User#{actor}";
+
+            long newTotalPrice = 0;
+            var allPlates = new List<string>();
+            var allVins = new List<string>();
+            var lineDiffLogs = new List<string>();
+            var updatedInvoiceRows = new List<(long ProdId, string DevLabel, string Imei, string Plate, string PrevExp, string NextExp, int Months, long UnitPrice, long RenId)>();
+            int firstLineMonths = 12;
+
+            for (int idx = 0; idx < dbLines.Count; idx++)
+            {
+                var ln = dbLines[idx];
+                updateMap.TryGetValue(ln.LineId, out var upd);
+
+                var prevExpRaw = !string.IsNullOrWhiteSpace(upd?.PrevExpiry) ? upd.PrevExpiry.Trim() : ln.OldPrevExp.Trim();
+                var newExpRaw = !string.IsNullOrWhiteSpace(upd?.NewExpiry) ? upd.NewExpiry.Trim() : ln.OldNewExp.Trim();
+
+                if (!DateTime.TryParseExact(prevExpRaw, formats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var prevDt))
+                    prevDt = renDt;
+                if (!DateTime.TryParseExact(newExpRaw, formats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var newDt))
+                    throw new InvalidOperationException($"Mốc hạn mới (Ngày hết hạn) của xe {(string.IsNullOrWhiteSpace(ln.OldPlate) ? ln.Imei : ln.OldPlate)} không hợp lệ.");
+
+                var prevStr = prevDt.ToString("yyyy-MM-dd");
+                var newStr = newDt.ToString("yyyy-MM-dd");
+                var unitPrice = upd is not null ? Math.Max(0, upd.UnitPriceVnd) : ln.OldPrice;
+                var effPlate = upd?.PlateNo is not null ? upd.PlateNo.Trim() : ln.OldPlate;
+                var effVin = upd?.VinNo is not null ? upd.VinNo.Trim() : ln.OldVin;
+                var calcMonths = Math.Max(1, (int)Math.Round((newDt - prevDt).TotalDays / 30.4375));
+                if (idx == 0) firstLineMonths = calcMonths;
+
+                Run(c, @"UPDATE v7_order_lines
+                    SET prev_expiry=$prev, new_expiry=$next, unit_price_vnd=$price, plate_no=$plate, vin_no=$vin
+                    WHERE id=$lid",
+                    ("$prev", prevStr), ("$next", newStr), ("$price", unitPrice), ("$plate", effPlate), ("$vin", effVin), ("$lid", ln.LineId));
+
+                long resolvedRenId = ln.RenId;
+                if (resolvedRenId <= 0 && ln.ActId > 0)
+                {
+                    resolvedRenId = Scalar(c, "SELECT COALESCE((SELECT id FROM renewals WHERE v7_order_id=$o AND activation_id=$a AND deleted_at IS NULL ORDER BY id DESC LIMIT 1), 0)",
+                        ("$o", id), ("$a", ln.ActId));
+                }
+
+                if (resolvedRenId > 0)
+                {
+                    Run(c, @"UPDATE renewals
+                        SET renewed_at=$renAt, previous_expiry=$prev, new_expiry=$next, duration_months=$dur,
+                            amount_vnd=$amt, seller_id=COALESCE($seller, seller_id),
+                            seller_name=CASE WHEN $sellerName<>'' THEN $sellerName ELSE seller_name END
+                        WHERE id=$rid AND deleted_at IS NULL",
+                        ("$renAt", renStr), ("$prev", prevStr), ("$next", newStr), ("$dur", calcMonths),
+                        ("$amt", unitPrice), ("$seller", resolvedSellerId), ("$sellerName", resolvedSellerLabel), ("$rid", resolvedRenId));
+                }
+
+                if (ln.ActId > 0)
+                {
+                    var latestExp = Str(c, @"SELECT COALESCE((SELECT new_expiry FROM renewals
+                        WHERE activation_id=$a AND deleted_at IS NULL
+                        ORDER BY renewed_at DESC, id DESC LIMIT 1), '')", ("$a", ln.ActId));
+                    var latestRenAt = Str(c, @"SELECT COALESCE((SELECT MAX(renewed_at) FROM renewals
+                        WHERE activation_id=$a AND deleted_at IS NULL), '')", ("$a", ln.ActId));
+                    var targetActExp = !string.IsNullOrWhiteSpace(latestExp) ? latestExp : newStr;
+                    var targetActRenAt = !string.IsNullOrWhiteSpace(latestRenAt) ? latestRenAt : renStr;
+
+                    Run(c, @"UPDATE activations
+                        SET expires_at=$exp,
+                            last_renewed_at=$lat,
+                            plate_no=$plate,
+                            vin_no=CASE WHEN $vin<>'' THEN $vin ELSE vin_no END,
+                            seller_id=COALESCE($seller, seller_id),
+                            updated_at=datetime('now'),
+                            updated_by=$actor
+                        WHERE id=$aid AND deleted_at IS NULL",
+                        ("$exp", targetActExp), ("$lat", targetActRenAt), ("$plate", effPlate), ("$vin", effVin),
+                        ("$seller", resolvedSellerId), ("$actor", actor > 0 ? actor : null), ("$aid", ln.ActId));
+                }
+
+                var itemDiffs = new List<string>();
+                if (!string.Equals(ln.OldNewExp, newStr, StringComparison.OrdinalIgnoreCase))
+                    itemDiffs.Add($"Ngày hết hạn: {ln.OldNewExp} → {newStr}");
+                if (!string.Equals(ln.OldPrevExp, prevStr, StringComparison.OrdinalIgnoreCase))
+                    itemDiffs.Add($"Hạn cũ: {ln.OldPrevExp} → {prevStr}");
+                if (ln.OldPrice != unitPrice)
+                    itemDiffs.Add($"Giá GH: {ln.OldPrice:N0} ₫ → {unitPrice:N0} ₫");
+                if (!string.Equals(ln.OldPlate, effPlate, StringComparison.Ordinal))
+                    itemDiffs.Add($"Biển số: {(string.IsNullOrWhiteSpace(ln.OldPlate) ? "—" : ln.OldPlate)} → {(string.IsNullOrWhiteSpace(effPlate) ? "—" : effPlate)}");
+                if (!string.Equals(ln.OldVin, effVin, StringComparison.Ordinal))
+                    itemDiffs.Add($"Chủ xe/SK: {(string.IsNullOrWhiteSpace(ln.OldVin) ? "—" : ln.OldVin)} → {(string.IsNullOrWhiteSpace(effVin) ? "—" : effVin)}");
+
+                if (itemDiffs.Count > 0)
+                {
+                    var vehTag = $"{ln.Imei}{(string.IsNullOrWhiteSpace(effPlate) ? "" : $" ({effPlate})")}";
+                    var perVehLog = $"[{vehTag}: {string.Join(", ", itemDiffs)}]";
+                    lineDiffLogs.Add(perVehLog);
+
+                    if (!isMain && ln.ActId > 0)
+                    {
+                        Run(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,'UPDATE_RENEWAL_ORDER','ACTIVATION',$aid,$d)",
+                            ("$actor", actor > 0 ? actor : null), ("$aid", ln.ActId),
+                            ("$d", $"[{actorLabel}] Cập nhật từ Đơn gia hạn {ordCode} · IMEI {vehTag}: {string.Join(" · ", itemDiffs)}"));
+                    }
+                }
+
+                newTotalPrice += unitPrice;
+                if (!string.IsNullOrWhiteSpace(effPlate)) allPlates.Add(effPlate);
+                if (!string.IsNullOrWhiteSpace(effVin)) allVins.Add(effVin);
+                updatedInvoiceRows.Add((ln.ProdId, ln.DevLabel, ln.Imei, effPlate, prevStr, newStr, calcMonths, unitPrice, resolvedRenId));
+            }
+
+            Run(c, @"UPDATE v7_orders
+                SET unit_price_vnd=$tot,
+                    duration_months=$dur,
+                    activated_at=$renAt,
+                    seller_record_id=COALESCE($seller, seller_record_id),
+                    sale_source=CASE WHEN $src<>'' THEN $src ELSE sale_source END,
+                    plate_no=$plates,
+                    vin_no=$vins,
+                    notes=$notes
+                WHERE id=$id",
+                ("$tot", newTotalPrice),
+                ("$dur", firstLineMonths),
+                ("$renAt", renStr),
+                ("$seller", resolvedSellerId),
+                ("$src", resolvedSellerLabel),
+                ("$plates", string.Join(", ", allPlates.Distinct())),
+                ("$vins", string.Join(", ", allVins.Distinct())),
+                ("$notes", cleanNotes),
+                ("$id", id));
+
+            // Đồng bộ Hóa đơn công nợ RENEWAL chưa chốt số bên Kế toán (/finance)
+            var renInvId = Scalar(c, "SELECT COALESCE((SELECT id FROM invoices WHERE v7_order_id=$o AND invoice_type='RENEWAL' AND deleted_at IS NULL AND status<>'VOID' ORDER BY id DESC LIMIT 1), 0)", ("$o", id));
+            if (renInvId > 0)
+            {
+                var sellerSeg = !string.IsNullOrWhiteSpace(resolvedSellerLabel) ? $" · NV bán hàng: {resolvedSellerLabel}" : "";
+                var summaryNote = updatedInvoiceRows.Count == 1
+                    ? $"Đơn gia hạn {ordCode} ({updatedInvoiceRows[0].Months} tháng) · Thiết bị: {updatedInvoiceRows[0].DevLabel} (IMEI: {updatedInvoiceRows[0].Imei}{(string.IsNullOrWhiteSpace(updatedInvoiceRows[0].Plate) ? "" : $" · Biển số: {updatedInvoiceRows[0].Plate}")} · Hạn: {updatedInvoiceRows[0].PrevExp} → {updatedInvoiceRows[0].NextExp}){sellerSeg}"
+                    : $"Đơn gia hạn {ordCode} ({updatedInvoiceRows.Count} thiết bị){sellerSeg}{(string.IsNullOrWhiteSpace(cleanNotes) ? "" : $" · {cleanNotes}")}";
+
+                var nowIso = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                Run(c, "UPDATE invoice_lines SET deleted_at=$now, deleted_by=$actor WHERE invoice_id=$i AND deleted_at IS NULL",
+                    ("$now", nowIso), ("$actor", isMain ? null : (actor > 0 ? actor : null)), ("$i", renInvId));
+                foreach (var rRow in updatedInvoiceRows)
+                {
+                    var lineDesc = $"Gia hạn ({rRow.Months}T: {rRow.PrevExp} → {rRow.NextExp}) · {rRow.DevLabel} · IMEI: {rRow.Imei}{(string.IsNullOrWhiteSpace(rRow.Plate) ? "" : $" · BS: {rRow.Plate}")}";
+                    Run(c, "INSERT INTO invoice_lines(invoice_id,description,product_id,quantity,unit_price_vnd) VALUES($i,$d,$p,1,$u)",
+                        ("$i", renInvId), ("$d", lineDesc), ("$p", rRow.ProdId), ("$u", rRow.UnitPrice));
+                }
+
+                // Nếu hóa đơn thu tiền mặt 1 lần lúc tạo đơn (1 phân bổ thanh toán duy nhất) thì cập nhật đồng bộ phiếu thu
+                var allocCount = Scalar(c, "SELECT COUNT(*) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", renInvId));
+                var isCodOrder = Scalar(c, "SELECT COALESCE(collect_on_delivery,0) FROM v7_orders WHERE id=$o", ("$o", id)) == 1;
+                if (isCodOrder && allocCount == 1 && newTotalPrice > 0)
+                {
+                    var onlyPayId = Scalar(c, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL LIMIT 1", ("$i", renInvId));
+                    Run(c, "UPDATE payment_allocations SET allocated_vnd=$amt WHERE invoice_id=$i AND deleted_at IS NULL", ("$amt", newTotalPrice), ("$i", renInvId));
+                    if (onlyPayId > 0)
+                        Run(c, "UPDATE payments SET amount_vnd=$amt WHERE id=$p AND deleted_at IS NULL", ("$amt", newTotalPrice), ("$p", onlyPayId));
+                }
+
+                var paid = Scalar(c, "SELECT COALESCE(SUM(allocated_vnd),0) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", renInvId));
+                var offset = Scalar(c, "SELECT COALESCE(offset_vnd,0) FROM invoices WHERE id=$i", ("$i", renInvId));
+                var settled = paid + offset;
+                var nextInvSt = newTotalPrice <= 0 ? "PAID" : (settled <= 0 ? "OPEN" : (settled >= newTotalPrice ? "PAID" : "PARTIAL"));
+                Run(c, "UPDATE invoices SET amount_vnd=$amt, status=$st, due_at=date($renAt,'+30 days'), notes=$notes WHERE id=$i",
+                    ("$amt", newTotalPrice), ("$st", nextInvSt), ("$renAt", renStr), ("$notes", summaryNote), ("$i", renInvId));
+            }
+
+            SyncOpenSellerCommissions(c);
+            Event(c, id, actor, "UPDATED_RENEWAL_ORDER");
+
+            var headerDiffs = new List<string>();
+            if (!string.Equals(oldRenAt, renStr, StringComparison.OrdinalIgnoreCase))
+                headerDiffs.Add($"Ngày GH: {(string.IsNullOrWhiteSpace(oldRenAt) ? "—" : oldRenAt)} → {renStr}");
+            if (oldTotalPrice != newTotalPrice)
+                headerDiffs.Add($"Tổng tiền: {oldTotalPrice:N0} ₫ → {newTotalPrice:N0} ₫");
+            if (!string.IsNullOrWhiteSpace(resolvedSellerLabel) && !string.Equals(oldSaleSource, resolvedSellerLabel, StringComparison.Ordinal))
+                headerDiffs.Add($"NV bán hàng: {(string.IsNullOrWhiteSpace(oldSaleSource) ? "—" : oldSaleSource)} → {resolvedSellerLabel}");
+            if (!string.Equals(oldNotes, cleanNotes, StringComparison.Ordinal))
+                headerDiffs.Add($"Ghi chú: {(string.IsNullOrWhiteSpace(oldNotes) ? "—" : oldNotes)} → {(string.IsNullOrWhiteSpace(cleanNotes) ? "—" : cleanNotes)}");
+            headerDiffs.AddRange(lineDiffLogs);
+
+            var diffText = headerDiffs.Count > 0 ? string.Join(" · ", headerDiffs) : "Xác nhận lưu giữ nguyên thông tin Đơn gia hạn";
+            if (!isMain)
+            {
+                Run(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,'UPDATE_RENEWAL_ORDER','V7_ORDER',$id,$d)",
+                    ("$actor", actor > 0 ? actor : null), ("$id", id),
+                    ("$d", $"[{actorLabel}] Cập nhật Đơn gia hạn {ordCode}: {diffText}"));
+            }
+
+            return $"Đã cập nhật Đơn gia hạn {ordCode} ({diffText}), đồng bộ Ngày hết hạn sang Thiết bị & Hóa đơn Kế toán và ghi Log hệ thống!";
+        });
+
+        DemoDb.NotifyDevicesChanged();
+        return summaryMsg;
+    }
+
     private static string Status(SqliteConnection c, long id)
     {
         using var q = Cmd(c, "SELECT status FROM v7_orders WHERE id=$id AND deleted_at IS NULL", ("$id", id));
@@ -2157,18 +2438,18 @@ public sealed class V7Orders(IWebHostEnvironment env)
         DemoDb.NotifyDevicesChanged();
     }
 
-    public int SupplementCompletedOrderImeis(long actor, long id, IReadOnlyList<V7OrderLineReport> reports, string? activatedDate = null)
+    public int SupplementCompletedOrderImeis(long actor, long id, IReadOnlyList<V7OrderLineReport> reports, string? activatedDate = null, string? customExpiresDate = null)
     {
         var newlyActivated = Tx(actor, c => {
             Role(c, actor, "ADMIN", "MANAGER", "CSKH", "TECH", "INSTALLER", "WAREHOUSE", "ACCOUNTANT");
             if (Status(c, id) != "COMPLETED")
                 throw new InvalidOperationException("Chức năng bổ sung IMEI sau chỉ áp dụng cho đơn hàng đã hoàn thành.");
 
-            using var q = Cmd(c, @"SELECT customer_id, COALESCE(warehouse_id, 0), source, COALESCE(duration_months, 12), COALESCE(deduct_stock, 1), COALESCE(activated_at, '')
+            using var q = Cmd(c, @"SELECT customer_id, COALESCE(warehouse_id, 0), source, COALESCE(duration_months, 12), COALESCE(deduct_stock, 1), COALESCE(activated_at, ''), COALESCE(code, '')
                 FROM v7_orders WHERE id=$id", ("$id", id));
             long customer, warehouse, durationMonths;
             bool deductStock;
-            string source, existingActivatedAt;
+            string source, existingActivatedAt, orderCode;
             using (var r = q.ExecuteReader())
             {
                 if (!r.Read()) throw new InvalidOperationException("Không thấy đơn.");
@@ -2178,20 +2459,24 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 durationMonths = r.GetInt64(3) > 0 ? r.GetInt64(3) : 12;
                 deductStock = r.GetInt64(4) == 1 && source != "PARTNER" ? true : (r.GetInt64(4) == 1);
                 existingActivatedAt = r.GetString(5);
+                orderCode = r.GetString(6);
             }
 
+            string[] actFormats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "yyyy-MM-dd HH:mm:ss", "dd/MM/yyyy HH:mm:ss"];
             DateTime actDate = DateTime.Today;
             var rawAct = !string.IsNullOrWhiteSpace(activatedDate) ? activatedDate.Trim() : existingActivatedAt.Trim();
             if (!string.IsNullOrWhiteSpace(rawAct))
             {
-                string[] actFormats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "yyyy-MM-dd HH:mm:ss", "dd/MM/yyyy HH:mm:ss"];
                 if (DateTime.TryParseExact(rawAct, actFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedAct))
                     actDate = parsedAct.Date;
                 else if (DateTime.TryParse(rawAct, System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), System.Globalization.DateTimeStyles.None, out var parsedVi))
                     actDate = parsedVi.Date;
             }
             var actDateStr = actDate.ToString("yyyy-MM-dd");
-            var expDateStr = actDate.AddMonths((int)durationMonths).ToString("yyyy-MM-dd");
+            DateTime? explicitExpDate = null;
+            if (!string.IsNullOrWhiteSpace(customExpiresDate) && DateTime.TryParseExact(customExpiresDate.Trim(), actFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var pCustomExp))
+                explicitExpDate = pCustomExp.Date;
+            var expDateStr = (explicitExpDate ?? actDate.AddMonths((int)durationMonths)).ToString("yyyy-MM-dd");
 
             using var lq = Cmd(c, @"SELECT l.id, l.product_id, p.name, p.is_serialized, COALESCE(l.imei,''), COALESCE(l.plate_no,''), COALESCE(l.vin_no,''), COALESCE(l.stock_unit_id, 0)
                 FROM v7_order_lines l JOIN products p ON p.id=l.product_id
@@ -2242,7 +2527,13 @@ public sealed class V7Orders(IWebHostEnvironment env)
 
                 if (existingActId > 0 && stockUnitId > 0)
                 {
-                    // Đã từng kích hoạt, cập nhật lại biển số / thông tin phụ / ngày kích hoạt hoặc sửa mã IMEI
+                    // Đã từng kích hoạt, cập nhật lại biển số / thông tin phụ / ngày kích hoạt / ngày hết hạn hoặc sửa mã IMEI
+                    var oldActExp = Str(c, "SELECT COALESCE(expires_at,'') FROM activations WHERE id=$aid", ("$aid", existingActId));
+                    var oldActRenCnt = Scalar(c, "SELECT COALESCE(renewal_count,0) FROM activations WHERE id=$aid", ("$aid", existingActId));
+                    var nextActExp = explicitExpDate.HasValue
+                        ? expDateStr
+                        : (oldActRenCnt > 0 && !string.IsNullOrWhiteSpace(oldActExp) ? oldActExp : expDateStr);
+
                     if (!string.Equals(cleanImei, ln.OldImei, StringComparison.OrdinalIgnoreCase))
                     {
                         if (Scalar(c, "SELECT COUNT(*) FROM stock_units WHERE imei=$imei AND id<>$sid AND deleted_at IS NULL", ("$imei", cleanImei), ("$sid", stockUnitId)) > 0)
@@ -2252,8 +2543,16 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     }
                     Run(c, "UPDATE v7_order_lines SET imei=$imei, plate_no=$plate, vin_no=$vin, stock_unit_id=$sid WHERE id=$lid",
                         ("$imei", cleanImei), ("$plate", cleanPlate), ("$vin", cleanVin), ("$sid", stockUnitId), ("$lid", ln.LineId));
-                    Run(c, "UPDATE activations SET plate_no=$plate, vin_no=$vin, activated_at=$act, expires_at=$exp WHERE id=$aid",
-                        ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", expDateStr), ("$aid", existingActId));
+                    Run(c, "UPDATE activations SET plate_no=$plate, vin_no=$vin, activated_at=$act, expires_at=$exp, updated_at=datetime('now'), updated_by=$actor WHERE id=$aid",
+                        ("$plate", cleanPlate), ("$vin", cleanVin), ("$act", actDateStr), ("$exp", nextActExp), ("$actor", actor > 0 ? actor : null), ("$aid", existingActId));
+
+                    if (!IsMainDeveloper(c, actor) && (!string.Equals(oldActExp, nextActExp, StringComparison.OrdinalIgnoreCase) || !string.Equals(ln.OldPlate, cleanPlate, StringComparison.Ordinal) || !string.Equals(ln.OldImei, cleanImei, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var actorLbl = Str(c, "SELECT CASE WHEN COALESCE(TRIM(display_name),'')<>'' THEN TRIM(display_name) || ' (' || username || ')' ELSE username END FROM app_users WHERE id=$u", ("$u", actor));
+                        Run(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,'UPDATE_ACTIVATION','ACTIVATION',$aid,$d)",
+                            ("$actor", actor > 0 ? actor : null), ("$aid", existingActId),
+                            ("$d", $"[{actorLbl}] Cập nhật từ Đơn {orderCode} · IMEI {cleanImei} ({cleanPlate}): Kích hoạt {actDateStr} · Ngày hết hạn {(string.IsNullOrWhiteSpace(oldActExp) ? "—" : oldActExp)} → {nextActExp}"));
+                    }
                 }
                 else
                 {
@@ -2348,6 +2647,13 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 ("$act", actDateStr),
                 ("$id", id));
             Event(c, id, actor, "SUPPLEMENTED_IMEI");
+            if (!IsMainDeveloper(c, actor))
+            {
+                var actorLbl = Str(c, "SELECT CASE WHEN COALESCE(TRIM(display_name),'')<>'' THEN TRIM(display_name) || ' (' || username || ')' ELSE username END FROM app_users WHERE id=$u", ("$u", actor));
+                Run(c, "INSERT INTO audit_logs(actor_user_id,action,entity,entity_id,details) VALUES($actor,'UPDATE_COMPLETED_ORDER_IMEI','V7_ORDER',$id,$d)",
+                    ("$actor", actor > 0 ? actor : null), ("$id", id),
+                    ("$d", $"[{actorLbl}] Cập nhật IMEI / Biển số / Thời hạn đơn {orderCode}: Kích hoạt {actDateStr} → Hết hạn {expDateStr} · IMEI: {(allImeis.Count > 0 ? string.Join(", ", allImeis) : "CHỜ-NHẬP-IMEI")}"));
+            }
             return activatedCount;
         });
         DemoDb.NotifyDevicesChanged();

@@ -858,6 +858,45 @@ public static class FlowTester
                     Assert(evtCnt >= 1, "Bảng activity_events chưa lưu vết JSON UPDATE khi nhân viên cập nhật thiết bị.");
                 }
 
+                // F8. Nhân viên (staffUserId) lập Đơn gia hạn GH7 rồi cập nhật lại Thời gian gia hạn (Ngày hết hạn) & thông tin trực tiếp trên Đơn GH7 + Lịch sử gia hạn, đồng bộ Thiết bị & Kế toán + ghi Log đầy đủ
+                var staffGhRes = v7Orders.CreateRenewalOrder(
+                    staffUserId,
+                    null,
+                    [new V7RenewalLineDraft(staffTargetDev.ActivationId, CustomPriceVnd: 740_000, CustomNewExpiry: "2028-06-15", NewPlateNo: "51H-888.92")],
+                    durationMonths: 12,
+                    sourceType: "TNM",
+                    paymentMethod: "DEBT",
+                    sellerRecordId: createdSeller.Id,
+                    notes: "Đơn GH nhân viên tạo");
+                var staffGhOrder = v7Orders.List().First(o => o.Id == staffGhRes.OrderId);
+                Assert(staffGhOrder.Lines.Count == 1 && staffGhOrder.Lines[0].NewExpiry == "2028-06-15", "Đơn gia hạn GH7 vừa tạo phải có hạn 2028-06-15.");
+
+                var updatedGhMsg = v7Orders.UpdateRenewalOrder(
+                    staffUserId,
+                    staffGhOrder.Id,
+                    staffGhOrder.ActivatedAt,
+                    createdSeller.Id,
+                    createdSeller.Name,
+                    "Nhân viên chỉnh lại hạn GH7",
+                    [new V7RenewalOrderLineUpdate(staffGhOrder.Lines[0].Id, staffGhOrder.Lines[0].PrevExpiry, "2028-09-30", 780_000, "51H-888.99", "Chủ xe GH Mới")]);
+                Assert(updatedGhMsg.Contains("2028-06-15 → 2028-09-30"), $"Thông báo cập nhật Đơn GH7 chưa chuẩn: {updatedGhMsg}");
+
+                var devAfterGhEdit = db.Devices().First(d => d.ActivationId == staffTargetDev.ActivationId);
+                var staffGhInvAfterEdit = db.Invoices().First(i => i.RefCode == staffGhOrder.Code && i.Type == "RENEWAL");
+                Assert(devAfterGhEdit.ExpiresAt == "2028-09-30" && devAfterGhEdit.Plate == "51H-888.99" && staffGhInvAfterEdit.Total == 780_000,
+                    $"Cập nhật Đơn GH7 phải đồng bộ sang Thiết bị ({devAfterGhEdit.ExpiresAt}, {devAfterGhEdit.Plate}) & Hóa đơn KT ({staffGhInvAfterEdit.Total}).");
+
+                var devLogs = db.DeviceAuditLogs(staffTargetDev.ActivationId);
+                Assert(devLogs.Any(l => l.Action == "UPDATE_RENEWAL_ORDER" && l.Details.Contains("2028-06-15 → 2028-09-30") && l.Details.Contains("nv_kho_test")),
+                    "DeviceAuditLogs phải hiển thị đầy đủ lịch sử nhân viên cập nhật Ngày hết hạn từ Đơn gia hạn GH7.");
+
+                var targetRenRow = db.Renewals().First(r => r.OrderCode == staffGhRes.OrderCode);
+                db.UpdateRenewal(targetRenRow.Id, createdSeller.Id, createdSeller.Name, "TNM", targetRenRow.StartDate, targetRenRow.PreviousExpiry, "2028-12-31", 790_000, "DEBT", staffUserId);
+                Assert(db.Devices().First(d => d.ActivationId == staffTargetDev.ActivationId).ExpiresAt == "2028-12-31",
+                    "Nhân viên sửa hạn trực tiếp trên đợt gia hạn (UpdateRenewal) phải đồng bộ sang Ngày hết hạn thiết bị.");
+                Assert(db.DeviceAuditLogs(staffTargetDev.ActivationId).Any(l => l.Action == "UPDATE_RENEWAL" && l.Details.Contains("2028-09-30 → 2028-12-31") && l.Details.Contains("nv_kho_test")),
+                    "UpdateRenewal phải ghi Log Trước → Sau kèm tên nhân viên vào DeviceAuditLogs.");
+
                 db.ActorId = 0;
                 var (finPur, finSale, finRen, finSrv) = db.ReconcileAccountingData();
                 Assert(finPur == 0 && finSale == 0 && finRen == 0 && finSrv == 0,
