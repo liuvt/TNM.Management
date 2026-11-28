@@ -1226,6 +1226,17 @@
                                 </div>
                             </div>
                             <div class="form-grid">
+                                @if(canTransferOnRenew || isMainDev)
+                                {
+                                    <label>Đại lý / HTX / Khách lẻ (Đổi đơn vị &amp; Tự tính lại giá GH) *
+                                        <select @bind="editCustomerId" @bind:after="OnEditRenewalOrderCustomerChanged" style="@(editCustomerId > 0 && editCustomerId != SelectedOrder.CustomerId ? "border-color:#0284c7;font-weight:700;background:#f0f9ff" : "")">
+                                            @foreach(var cu in customers)
+                                            {
+                                                <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName @(string.IsNullOrWhiteSpace(cu.Group) || cu.Group == "-" ? "" : $"[{cu.Group}]")</option>
+                                            }
+                                        </select>
+                                    </label>
+                                }
                                 <label>Ngày thực hiện gia hạn *
                                     <input type="date" @bind="activationDateInput" />
                                 </label>
@@ -2672,11 +2683,36 @@
     private void BatchExtendRenewalOrderLines(int months)
     {
         if (SelectedOrder is null) return;
+        var effCustId = editCustomerId > 0 ? editCustomerId : SelectedOrder.CustomerId;
         foreach (var ln in SelectedOrder.Lines)
         {
             var basePrev = GetOrInitRenewalLinePrevDate(ln);
             var effBase = basePrev > activationDateInput ? basePrev : activationDateInput;
-            renewalLineNewDates[ln.Id] = effBase.AddMonths(months);
+            var nextTarget = effBase.AddMonths(months);
+            renewalLineNewDates[ln.Id] = nextTarget;
+            if (effCustId > 0)
+            {
+                linePriceInputs[ln.Id] = Db.PreviewRenewalPriceForDuration(effCustId, ln.ProductId, months, effBase, nextTarget);
+            }
+        }
+    }
+
+    private void OnEditRenewalOrderCustomerChanged()
+    {
+        if (SelectedOrder is null) return;
+        var c = customers.FirstOrDefault(x => x.Id == editCustomerId);
+        if (c is not null)
+        {
+            editSellerId = c.SellerId ?? 0;
+            var sl = c.SellerId is > 0 ? sellerChoices.FirstOrDefault(s => s.Id == c.SellerId.Value) : null;
+            editSaleSource = sl?.Name ?? "";
+            foreach (var ln in SelectedOrder.Lines)
+            {
+                var prevDt = GetOrInitRenewalLinePrevDate(ln);
+                var newDt = GetOrInitRenewalLineNewDate(ln);
+                var approxM = Math.Max(1, (int)Math.Round((newDt - prevDt).TotalDays / 30.4375));
+                linePriceInputs[ln.Id] = Db.PreviewRenewalPriceForDuration(c.Id, ln.ProductId, approxM, prevDt, newDt);
+            }
         }
     }
 
@@ -2977,7 +3013,8 @@
             editSellerId > 0 ? editSellerId : null,
             editSaleSource,
             editNotes,
-            updates);
+            updates,
+            editCustomerId > 0 ? editCustomerId : null);
         showOrderModal = false;
         return resMsg;
     });

@@ -1270,7 +1270,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     OR LOWER(u.username)='vanlt_it'
                     OR EXISTS (
                         SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
-                        WHERE ur.user_id=u.id AND UPPER(r.code) IN ('OWNER','ADMIN','ACCOUNTANT')
+                        WHERE ur.user_id=u.id AND ur.deleted_at IS NULL
+                          AND UPPER(r.code) IN ('OWNER','ADMIN','MANAGER','ACCOUNTANT','CSKH','SELLER')
                     )
                 )", ("$u", actor)) > 0;
 
@@ -1524,7 +1525,8 @@ public sealed class V7Orders(IWebHostEnvironment env)
         long? sellerRecordId,
         string? saleSource,
         string? notes,
-        IReadOnlyList<V7RenewalOrderLineUpdate> lineUpdates)
+        IReadOnlyList<V7RenewalOrderLineUpdate> lineUpdates,
+        long? targetCustomerId = null)
     {
         if (lineUpdates is null || lineUpdates.Count == 0)
             throw new InvalidOperationException("Không có dòng thiết bị nào để cập nhật trên Đơn gia hạn.");
@@ -1537,20 +1539,24 @@ public sealed class V7Orders(IWebHostEnvironment env)
             Role(c, actor, "SELLER", "CSKH", "MANAGER", "ADMIN", "ACCOUNTANT", "WAREHOUSE", "TECH");
             var isMain = IsMainDeveloper(c, actor);
 
-            using var oq = Cmd(c, @"SELECT code, COALESCE(order_kind,'INSTALL'), status, customer_id,
-                    COALESCE(activated_at,''), COALESCE(sale_source,''), COALESCE(notes,''), COALESCE(unit_price_vnd,0)
-                FROM v7_orders WHERE id=$id AND deleted_at IS NULL", ("$id", id));
+            using var oq = Cmd(c, @"SELECT o.code, COALESCE(o.order_kind,'INSTALL'), o.status, o.customer_id,
+                    COALESCE(o.activated_at,''), COALESCE(o.sale_source,''), COALESCE(o.notes,''), COALESCE(o.unit_price_vnd,0),
+                    COALESCE(cu.name,'')
+                FROM v7_orders o
+                LEFT JOIN customers cu ON cu.id=o.customer_id
+                WHERE o.id=$id AND o.deleted_at IS NULL", ("$id", id));
             using var or = oq.ExecuteReader();
             if (!or.Read())
                 throw new InvalidOperationException("Không tìm thấy Đơn gia hạn hoặc đơn đã bị xóa.");
             var ordCode = or.GetString(0);
             var ordKind = or.GetString(1);
             var ordStatus = or.GetString(2);
-            var custId = or.GetInt64(3);
+            var oldCustId = or.GetInt64(3);
             var oldRenAt = or.GetString(4);
             var oldSaleSource = or.GetString(5);
             var oldNotes = or.GetString(6);
             var oldTotalPrice = or.GetInt64(7);
+            var oldCustName = or.GetString(8);
             or.Close();
 
             if (!string.Equals(ordKind, "RENEWAL", StringComparison.OrdinalIgnoreCase))
@@ -1565,13 +1571,36 @@ public sealed class V7Orders(IWebHostEnvironment env)
             if (!isMain && lockedCount > 0)
                 throw new InvalidOperationException($"Đơn gia hạn {ordCode} đã được Kế toán chốt số / khóa sổ, không thể chỉnh sửa.");
 
+            var effCustId = targetCustomerId is > 0 ? targetCustomerId.Value : oldCustId;
+            var isChangingCust = effCustId != oldCustId;
+            var effCustName = oldCustName;
+            if (isChangingCust)
+            {
+                bool canTransfer = Scalar(c, @"SELECT COUNT(*) FROM app_users u
+                    WHERE u.id=$u AND u.is_active=1 AND (
+                        u.is_owner=1
+                        OR LOWER(u.username)='vanlt_it'
+                        OR EXISTS (
+                            SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+                            WHERE ur.user_id=u.id AND ur.deleted_at IS NULL
+                              AND UPPER(r.code) IN ('OWNER','ADMIN','MANAGER','ACCOUNTANT','CSKH','SELLER')
+                        )
+                    )", ("$u", actor)) > 0;
+                if (!canTransfer)
+                    throw new UnauthorizedAccessException("Tài khoản không có quyền chuyển đổi Đại lý / HTX / Khách lẻ trên Đơn gia hạn.");
+
+                effCustName = Str(c, "SELECT COALESCE(name,'') FROM customers WHERE id=$id AND deleted_at IS NULL", ("$id", effCustId));
+                if (string.IsNullOrWhiteSpace(effCustName))
+                    throw new InvalidOperationException("Không tìm thấy Đại lý / HTX / Khách lẻ mới đã chọn.");
+            }
+
             var renDt = VnDateTimeHelper.TodayVn;
             var rawRen = !string.IsNullOrWhiteSpace(renewedDate) ? renewedDate.Trim() : oldRenAt.Trim();
             if (!string.IsNullOrWhiteSpace(rawRen) && DateTime.TryParseExact(rawRen, formats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var pRen))
                 renDt = pRen.Date;
             var renStr = renDt.ToString("yyyy-MM-dd");
 
-            var (resolvedSellerId, resolvedSellerLabel) = ResolveOrderSeller(c, custId, actor, sellerRecordId, saleSource);
+            var (resolvedSellerId, resolvedSellerLabel) = ResolveOrderSeller(c, effCustId, actor, sellerRecordId, isChangingCust && sellerRecordId is null or <= 0 ? null : saleSource);
             var cleanNotes = (notes ?? "").Trim();
             var updateMap = lineUpdates.GroupBy(x => x.LineId).ToDictionary(g => g.Key, g => g.Last());
 
@@ -1642,11 +1671,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 if (resolvedRenId > 0)
                 {
                     Run(c, @"UPDATE renewals
-                        SET renewed_at=$renAt, previous_expiry=$prev, new_expiry=$next, duration_months=$dur,
+                        SET customer_id=$cust, renewed_at=$renAt, previous_expiry=$prev, new_expiry=$next, duration_months=$dur,
                             amount_vnd=$amt, seller_id=COALESCE($seller, seller_id),
                             seller_name=CASE WHEN $sellerName<>'' THEN $sellerName ELSE seller_name END
                         WHERE id=$rid AND deleted_at IS NULL",
-                        ("$renAt", renStr), ("$prev", prevStr), ("$next", newStr), ("$dur", calcMonths),
+                        ("$cust", effCustId), ("$renAt", renStr), ("$prev", prevStr), ("$next", newStr), ("$dur", calcMonths),
                         ("$amt", unitPrice), ("$seller", resolvedSellerId), ("$sellerName", resolvedSellerLabel), ("$rid", resolvedRenId));
                 }
 
@@ -1661,19 +1690,30 @@ public sealed class V7Orders(IWebHostEnvironment env)
                     var targetActRenAt = !string.IsNullOrWhiteSpace(latestRenAt) ? latestRenAt : renStr;
 
                     Run(c, @"UPDATE activations
-                        SET expires_at=$exp,
+                        SET customer_id=CASE WHEN $chg=1 THEN $cust ELSE customer_id END,
+                            agency_name=CASE WHEN $chg=1 THEN $agency ELSE agency_name END,
+                            expires_at=$exp,
                             last_renewed_at=$lat,
                             plate_no=$plate,
                             vin_no=CASE WHEN $vin<>'' THEN $vin ELSE vin_no END,
-                            seller_id=COALESCE($seller, seller_id),
+                            seller_id=CASE WHEN $chg=1 THEN $seller ELSE COALESCE($seller, seller_id) END,
                             updated_at=datetime('now'),
                             updated_by=$actor
                         WHERE id=$aid AND deleted_at IS NULL",
+                        ("$chg", isChangingCust ? 1 : 0), ("$cust", effCustId), ("$agency", effCustName),
                         ("$exp", targetActExp), ("$lat", targetActRenAt), ("$plate", effPlate), ("$vin", effVin),
                         ("$seller", resolvedSellerId), ("$actor", actor > 0 ? actor : null), ("$aid", ln.ActId));
+
+                    if (isChangingCust)
+                    {
+                        Run(c, "UPDATE stock_units SET customer_id=$cust, updated_at=CURRENT_TIMESTAMP WHERE id=(SELECT stock_unit_id FROM activations WHERE id=$aid)",
+                            ("$cust", effCustId), ("$aid", ln.ActId));
+                    }
                 }
 
                 var itemDiffs = new List<string>();
+                if (isChangingCust)
+                    itemDiffs.Add($"ĐV/KH: [{oldCustName}] → [{effCustName}]");
                 if (!string.Equals(ln.OldNewExp, newStr, StringComparison.OrdinalIgnoreCase))
                     itemDiffs.Add($"Ngày hết hạn: {ln.OldNewExp} → {newStr}");
                 if (!string.Equals(ln.OldPrevExp, prevStr, StringComparison.OrdinalIgnoreCase))
@@ -1706,15 +1746,18 @@ public sealed class V7Orders(IWebHostEnvironment env)
             }
 
             Run(c, @"UPDATE v7_orders
-                SET unit_price_vnd=$tot,
+                SET customer_id=$cust,
+                    unit_price_vnd=$tot,
                     duration_months=$dur,
                     activated_at=$renAt,
-                    seller_record_id=COALESCE($seller, seller_record_id),
+                    seller_record_id=CASE WHEN $chg=1 THEN $seller ELSE COALESCE($seller, seller_record_id) END,
                     sale_source=CASE WHEN $src<>'' THEN $src ELSE sale_source END,
                     plate_no=$plates,
                     vin_no=$vins,
                     notes=$notes
                 WHERE id=$id",
+                ("$cust", effCustId),
+                ("$chg", isChangingCust ? 1 : 0),
                 ("$tot", newTotalPrice),
                 ("$dur", firstLineMonths),
                 ("$renAt", renStr),
@@ -1747,6 +1790,11 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 // Nếu hóa đơn thu tiền mặt 1 lần lúc tạo đơn (1 phân bổ thanh toán duy nhất) thì cập nhật đồng bộ phiếu thu
                 var allocCount = Scalar(c, "SELECT COUNT(*) FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL", ("$i", renInvId));
                 var isCodOrder = Scalar(c, "SELECT COALESCE(collect_on_delivery,0) FROM v7_orders WHERE id=$o", ("$o", id)) == 1;
+                if (isChangingCust && allocCount > 0)
+                {
+                    Run(c, "UPDATE payments SET customer_id=$cust, payee_name=$payee WHERE id IN (SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL) AND deleted_at IS NULL",
+                        ("$cust", effCustId), ("$payee", effCustName), ("$i", renInvId));
+                }
                 if (isCodOrder && allocCount == 1 && newTotalPrice > 0)
                 {
                     var onlyPayId = Scalar(c, "SELECT payment_id FROM payment_allocations WHERE invoice_id=$i AND deleted_at IS NULL LIMIT 1", ("$i", renInvId));
@@ -1759,14 +1807,16 @@ public sealed class V7Orders(IWebHostEnvironment env)
                 var offset = Scalar(c, "SELECT COALESCE(offset_vnd,0) FROM invoices WHERE id=$i", ("$i", renInvId));
                 var settled = paid + offset;
                 var nextInvSt = newTotalPrice <= 0 ? "PAID" : (settled <= 0 ? "OPEN" : (settled >= newTotalPrice ? "PAID" : "PARTIAL"));
-                Run(c, "UPDATE invoices SET amount_vnd=$amt, status=$st, due_at=date($renAt,'+30 days'), notes=$notes WHERE id=$i",
-                    ("$amt", newTotalPrice), ("$st", nextInvSt), ("$renAt", renStr), ("$notes", summaryNote), ("$i", renInvId));
+                Run(c, "UPDATE invoices SET customer_id=$cust, amount_vnd=$amt, status=$st, due_at=date($renAt,'+30 days'), notes=$notes WHERE id=$i",
+                    ("$cust", effCustId), ("$amt", newTotalPrice), ("$st", nextInvSt), ("$renAt", renStr), ("$notes", summaryNote), ("$i", renInvId));
             }
 
             SyncOpenSellerCommissions(c);
             Event(c, id, actor, "UPDATED_RENEWAL_ORDER");
 
             var headerDiffs = new List<string>();
+            if (isChangingCust)
+                headerDiffs.Add($"ĐV/KH: [{oldCustName}] → [{effCustName}]");
             if (!string.Equals(oldRenAt, renStr, StringComparison.OrdinalIgnoreCase))
                 headerDiffs.Add($"Ngày GH: {(string.IsNullOrWhiteSpace(oldRenAt) ? "—" : oldRenAt)} → {renStr}");
             if (oldTotalPrice != newTotalPrice)

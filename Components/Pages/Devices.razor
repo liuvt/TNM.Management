@@ -308,9 +308,9 @@
         <div class="so-modal-dialog" style="max-width:940px" @onclick:stopPropagation="true">
             <div class="so-modal-header">
                 <div>
-                    <div class="eyebrow">CẬP NHẬT THỜI GIAN GIA HẠN (NGÀY HẾT HẠN) &amp; THÔNG TIN THIẾT BỊ</div>
+                    <div class="eyebrow">CẬP NHẬT ĐẠI LÝ / HTX / KHÁCH LẺ · THỜI GIAN GIA HẠN &amp; THÔNG TIN THIẾT BỊ</div>
                     <h2>@(selectedEditDevice is null ? "Sửa thông tin thiết bị" : $"{(string.IsNullOrWhiteSpace(selectedEditDevice.Plate) ? selectedEditDevice.DisplayImei : $"{selectedEditDevice.Plate} · {selectedEditDevice.DisplayImei}")} [{selectedEditDeviceName}]")</h2>
-                    <p>Cho phép nhân viên cập nhật lại <strong>Ngày hết hạn (Thời gian gia hạn)</strong>, Ngày kích hoạt, Biển số, Chủ xe, SĐT và Trạng thái thiết bị — mọi thay đổi đều được hệ thống tự động ghi Log chi tiết.@(canTransferMethod1 ? " Tài khoản Chủ sở hữu có thể đổi Đại lý / HTX quản lý và đồng bộ công nợ Kế toán." : "")</p>
+                    <p>Cho phép nhân viên (CSKH, Kế toán, Quản lý, Admin, Owner) chuyển đổi <strong>Đại lý / HTX / Khách lẻ</strong> (tự động áp ngay Bảng giá bán &amp; gia hạn của Nhóm KH mới), cập nhật <strong>Ngày hết hạn</strong> và thông tin xe — có ghi Log Trước → Sau.</p>
                 </div>
                 <button type="button" class="btn secondary btn-sm" data-confirm="none" @onclick="CloseEditDeviceModal">✕ Đóng</button>
             </div>
@@ -321,16 +321,16 @@
                     </label>
                     @if(canTransferMethod1)
                     {
-                    <label>Đại lý / HTX / Khách hàng quản lý (Đổi đơn vị &amp; Đồng bộ công nợ) *
-                        <select @bind="editCustomerId" @bind:after="OnEditCustomerChanged">
+                    <label>Đại lý / HTX / Khách lẻ quản lý (Cho phép đổi đơn vị &amp; Cập nhật lại giá) *
+                        <select @bind="editCustomerId" @bind:after="OnEditCustomerChanged" style="@(isChangingCustomerMethod1 ? "border-color:#0284c7;font-weight:700;background:#f0f9ff" : "")">
                             @foreach(var cu in customers)
                             {
                                 <option value="@cu.Id">@cu.Code — @cu.B2BDisplayName @(string.IsNullOrWhiteSpace(cu.Group) || cu.Group == "-" ? "" : $"[{cu.Group}]")</option>
                             }
                         </select>
                     </label>
-                    <label>Giá gia hạn theo Nhóm KH đã chọn (12 tháng)
-                        <input readonly value="@($"{editPreviewRenewalVnd:N0} ₫")" style="background:#f1f5f9;font-weight:700;color:#15803d" />
+                    <label>Bảng giá chuẩn theo Nhóm KH đã chọn (Lắp đặt · Thương mại · Gia hạn 12T)
+                        <input readonly value="@($"Lắp: {editPreviewInstalledVnd:N0} ₫ · TM: {editPreviewStandardVnd:N0} ₫ · GH: {editPreviewRenewalVnd:N0} ₫")" style="background:#f0fdf4;font-weight:700;color:#15803d" />
                     </label>
                     }
                     else
@@ -365,7 +365,7 @@
                     }
                     <label>Nhân viên bán hàng phụ trách
                         <select @bind="editDeviceSellerId">
-                            <option value="0">— Giữ nguyên nhân viên bán hàng hiện tại —</option>
+                            <option value="0">@(isChangingCustomerMethod1 ? "— Theo mặc định Đại lý mới / Chưa gán —" : "— Giữ nguyên nhân viên bán hàng hiện tại —")</option>
                             @foreach(var sl in sellerChoices)
                             {
                                 <option value="@sl.Id">@sl.Code — @sl.Name</option>
@@ -388,8 +388,13 @@
                 </div>
                 @if(isChangingCustomerMethod1 && selectedEditDevice is not null)
                 {
-                    <div class="panel-note" style="margin-top:12px;padding:10px 14px;border-radius:8px;background:#fefce8;border:1px solid #fde047;color:#854d0e;font-weight:600">
-                        🔄 Điều chỉnh Đơn vị &amp; Đồng bộ Công nợ Kế toán (/finance): Thiết bị <strong>@selectedEditDevice.Imei</strong> sẽ chuyển từ <strong>[@selectedEditDevice.Customer]</strong> sang <strong>[@(selectedEditTargetCust?.Name ?? "Đơn vị mới")]</strong>. Hệ thống tự động cập nhật lại tên đơn vị và tính lại giá trị Hóa đơn / Công nợ chưa khóa sổ bên Kế toán theo đúng biểu giá của Nhóm KH mới (Giá GH: <strong>@editPreviewRenewalVnd.ToString("N0") ₫</strong>).
+                    <div class="panel-note" style="margin-top:12px;padding:12px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#14532d;font-size:12.5px;line-height:1.55">
+                        <div><strong>🔄 Chuyển đổi Đại lý / HTX / Khách lẻ &amp; Áp ngay Bảng giá mới:</strong> Thiết bị <strong>@selectedEditDevice.DisplayImei</strong> @(string.IsNullOrWhiteSpace(selectedEditDevice.Plate) ? "" : $"({selectedEditDevice.Plate})") sẽ chuyển từ <strong>[@selectedEditDevice.Customer]</strong> sang <strong>[@(selectedEditTargetCust?.Name ?? "Đơn vị mới")]</strong>.</div>
+                        <div style="margin-top:4px">📊 <strong>Đối chiếu Bảng giá chuẩn Cũ → Mới:</strong> Giá có lắp: <strong>@editOldInstalledVnd.ToString("N0") ₫ → @editPreviewInstalledVnd.ToString("N0") ₫</strong> · Giá thương mại: <strong>@editOldStandardVnd.ToString("N0") ₫ → @editPreviewStandardVnd.ToString("N0") ₫</strong> · Giá gia hạn 12T: <strong>@editOldRenewalVnd.ToString("N0") ₫ → @editPreviewRenewalVnd.ToString("N0") ₫</strong>.</div>
+                        <label class="checkbox-row" style="margin-top:8px;padding:6px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer">
+                            <input type="checkbox" @bind="editSyncTransferOrders" />
+                            <span><strong>Đồng bộ &amp; tính lại toàn bộ giá trên Đơn hàng / Hóa đơn công nợ chưa thu (OPEN)</strong> của xe này sang Khách hàng mới (các chứng từ lịch sử đã thu tiền / đã chốt sổ tự động được giữ nguyên an toàn).</span>
+                        </label>
                     </div>
                 }
                 @if(!string.IsNullOrWhiteSpace(editMessage))
@@ -1233,7 +1238,8 @@
  private string createDeviceMode = "PRE_DECLARE", createDeviceTypeLabel = "XANHGPS", createImei = "", pickedStockImei = "", createPlate = "", createVin = "", pickedAgencyOwnerKey = "", createOwnerName = "", createOwnerPhone = "", createDeviceStatus = "ACTIVE", createMessage = "";
 
  private long editActivationId=1, editDeviceSellerId, currentActorId;
- private long editCustomerId, editPreviewRenewalVnd;
+ private long editCustomerId, editPreviewRenewalVnd, editPreviewInstalledVnd, editPreviewStandardVnd, editOldRenewalVnd, editOldInstalledVnd, editOldStandardVnd;
+ private bool editSyncTransferOrders = true;
  private int editDurationMonths=12;
  private DateTime editActivatedDate = DateTime.Today;
  private DateTime editExpiresDate = DateTime.Today.AddYears(1);
@@ -1567,7 +1573,11 @@
   if (d is not null)
   {
    editCustomerId = d.CustomerId;
-   editPreviewRenewalVnd = d.RenewalPriceVnd;
+   editSyncTransferOrders = true;
+   var oldPrices = Db.PreviewCustomerGroupPrices(d.CustomerId, d.ProductId);
+   editOldStandardVnd = editPreviewStandardVnd = oldPrices.StandardPriceVnd;
+   editOldInstalledVnd = editPreviewInstalledVnd = oldPrices.InstalledPriceVnd;
+   editOldRenewalVnd = editPreviewRenewalVnd = oldPrices.RenewalPriceVnd;
    if (DateTime.TryParse(d.ActivatedAt, out var dt)) editActivatedDate = dt.Date;
    if (DateTime.TryParse(d.ExpiresAt, out var expDt)) editExpiresDate = expDt.Date;
    else editExpiresDate = editActivatedDate.AddMonths(editDurationMonths);
@@ -1583,11 +1593,18 @@
   var d = devices.FirstOrDefault(x => x.ActivationId == editActivationId);
   if (d is null) return;
   var effCust = editCustomerId > 0 ? editCustomerId : d.CustomerId;
-  editPreviewRenewalVnd = Db.PreviewRenewalPrice(effCust, d.ProductId);
+  var nextPrices = Db.PreviewCustomerGroupPrices(effCust, d.ProductId);
+  editPreviewStandardVnd = nextPrices.StandardPriceVnd;
+  editPreviewInstalledVnd = nextPrices.InstalledPriceVnd;
+  editPreviewRenewalVnd = nextPrices.RenewalPriceVnd;
   if (effCust != d.CustomerId)
   {
    var targetCust = customers.FirstOrDefault(c => c.Id == effCust);
-   if (targetCust?.SellerId is > 0) editDeviceSellerId = targetCust.SellerId.Value;
+   editDeviceSellerId = targetCust?.SellerId ?? 0;
+  }
+  else
+  {
+   editDeviceSellerId = d.SellerId ?? 0;
   }
  }
  private void OnEditActivatedOrDurationChanged(){
@@ -1742,7 +1759,8 @@
     editOwnerName,
     editOwnerPhone,
     nextCust,
-    actor);
+    actor,
+    editSyncTransferOrders);
    Reload();
    showEditAct = false;
    editMessage = "";

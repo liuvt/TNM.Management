@@ -507,14 +507,14 @@ public static class FlowTester
                 var testAccId = allTestUsers.First(u => u.Username == "ke_toan_test").Id;
                 var testAdminId = allTestUsers.First(u => u.Username == "admin_test").Id;
 
-                Assert(db.CanTransferDeviceMethod1User(ownerId) && !db.CanTransferDeviceMethod1User(testAdminId) && !db.CanTransferDeviceMethod1User(testAccId) && !db.CanTransferDeviceMethod1User(testStaffId),
-                    "Cách 1 (Sửa thông tin + đồng bộ công nợ) chỉ cho phép Owner/Main, chặn Admin/Kế toán/Nhân viên.");
+                Assert(db.CanTransferDeviceMethod1User(ownerId) && db.CanTransferDeviceMethod1User(testAdminId) && db.CanTransferDeviceMethod1User(testAccId) && !db.CanTransferDeviceMethod1User(testStaffId),
+                    "Chuyển đơn vị (Cách 1) cho phép Owner/Admin/Quản lý/Kế toán/CSKH, chặn tài khoản chỉ có role Kho.");
                 Assert(db.CanTransferDeviceOnRenewUser(ownerId) && db.CanTransferDeviceOnRenewUser(testAdminId) && db.CanTransferDeviceOnRenewUser(testAccId) && !db.CanTransferDeviceOnRenewUser(testStaffId),
-                    "Cách 2 (Chuyển đơn vị khi Gia hạn) cho phép Owner/Main/Admin/Kế toán, chặn nhân viên thường.");
+                    "Chuyển đơn vị khi Gia hạn (Cách 2) cho phép Owner/Admin/Quản lý/Kế toán/CSKH, chặn tài khoản chỉ có role Kho.");
 
-                // Cách 2: Nhân viên thường bị chặn chuyển đơn vị khi gia hạn; Kế toán được phép chuyển dev1 từ HTX (500k) sang Khách lẻ (960k)
+                // Cách 2: Nhân viên chỉ có role Kho bị chặn chuyển đơn vị khi gia hạn; Kế toán được phép chuyển dev1 từ HTX (800k) sang Khách lẻ (960k)
                 AssertThrows(() => db.Renew(dev1.ActivationId, "B2C", "DEBT", createdSeller.Id, createdSeller.Name, targetCustomerId: retailCustId, actorId: testStaffId),
-                    "Chặn nhân viên thường chuyển HTX/Khách hàng khi bấm Gia hạn");
+                    "Chặn tài khoản chỉ có role Kho chuyển HTX/Khách hàng khi bấm Gia hạn");
                 db.Renew(dev1.ActivationId, "B2C", "DEBT", createdSeller.Id, createdSeller.Name, targetCustomerId: retailCustId, newPlateNo: "51H-999.88", actorId: testAccId);
 
                 var dev1Transferred = db.Devices().First(d => d.ActivationId == dev1.ActivationId);
@@ -524,11 +524,9 @@ public static class FlowTester
                 Assert(dev1Rens.Count == 2 && dev1Rens[0].CustomerName.Contains("Sài Gòn Xanh") && dev1Rens[0].Price == 800_000 && dev1Rens[1].CustomerName.Contains("Trần Văn B") && dev1Rens[1].Price == 960_000,
                     $"Cách 2: Lịch sử & công nợ gia hạn cũ phải giữ nguyên ở HTX cũ (800k), chỉ đợt gia hạn mới ghi cho Khách mới (960k): [{dev1Rens[0].CustomerName}:{dev1Rens[0].Price}] vs [{dev1Rens[1].CustomerName}:{dev1Rens[1].Price}]");
 
-                // Cách 1: Admin/Kế toán bị chặn chuyển đơn vị tại Sửa thông tin; Owner chuyển dev1 về lại HTX VIP -> cập nhật đồng bộ cả khâu sau về giá nhóm HTX (800k) & ghi log Owner
-                AssertThrows(() => db.UpdateDeviceActivation(dev1.ActivationId, dev1Transferred.ActivatedAt, 12, dev1Transferred.Plate, dev1Transferred.VinNo, dev1Transferred.ExpiresAt, createdSeller.Id, "ACTIVE", "Chủ xe HTX", "0909000111", customerId, testAdminId),
-                    "Chặn Admin thực hiện Cách 1 tại mục Sửa thông tin");
-                AssertThrows(() => db.UpdateDeviceActivation(dev1.ActivationId, dev1Transferred.ActivatedAt, 12, dev1Transferred.Plate, dev1Transferred.VinNo, dev1Transferred.ExpiresAt, createdSeller.Id, "ACTIVE", "Chủ xe HTX", "0909000111", customerId, testAccId),
-                    "Chặn Kế toán thực hiện Cách 1 tại mục Sửa thông tin");
+                // Cách 1: Tài khoản chỉ có role Kho bị chặn chuyển đơn vị; Kế toán/Admin/CSKH/Owner được phép chuyển dev1 về lại HTX VIP -> cập nhật đồng bộ cả khâu sau về giá nhóm HTX (800k) & ghi log
+                AssertThrows(() => db.UpdateDeviceActivation(dev1.ActivationId, dev1Transferred.ActivatedAt, 12, dev1Transferred.Plate, dev1Transferred.VinNo, dev1Transferred.ExpiresAt, createdSeller.Id, "ACTIVE", "Chủ xe HTX", "0909000111", customerId, testStaffId),
+                    "Chặn tài khoản chỉ có role Kho thực hiện Cách 1 tại mục Sửa thông tin");
 
                 var auditBeforeOwnerTransfer = db.Audits().Count(a => a.Action == "TRANSFER_DEVICE");
                 var syncMsg = db.UpdateDeviceActivation(dev1.ActivationId, dev1Transferred.ActivatedAt, 12, dev1Transferred.Plate, dev1Transferred.VinNo, dev1Transferred.ExpiresAt, createdSeller.Id, "ACTIVE", "Chủ xe HTX", "0909000111", customerId, ownerId);
@@ -896,6 +894,62 @@ public static class FlowTester
                     "Nhân viên sửa hạn trực tiếp trên đợt gia hạn (UpdateRenewal) phải đồng bộ sang Ngày hết hạn thiết bị.");
                 Assert(db.DeviceAuditLogs(staffTargetDev.ActivationId).Any(l => l.Action == "UPDATE_RENEWAL" && l.Details.Contains("2028-09-30 → 2028-12-31") && l.Details.Contains("nv_kho_test")),
                     "UpdateRenewal phải ghi Log Trước → Sau kèm tên nhân viên vào DeviceAuditLogs.");
+
+                // F9. Nhân viên CSKH / Kế toán / Quản lý / Admin / Owner được phép chuyển đổi Đại lý / HTX / Khách lẻ ngay lập tức -> Tự cập nhật customer_id, agency_name, stock_units.customer_id, seller_id & tính lại toàn bộ Giá bán / Giá gia hạn + ghi Log Trước -> Sau
+                var cskhRoleId = auth.AllRoles().First(r => r.Code == "CSKH").Id;
+                auth.CreateUser(ownerId, "cskh_nv_test", "Nhân viên CSKH Test", "CskhPass2026", [cskhRoleId], new Dictionary<string, string>());
+                var cskhUserId = auth.AllUsers().First(u => u.Username == "cskh_nv_test").Id;
+                var keToanUserId = auth.AllUsers().First(u => u.Username == "ke_toan_test").Id;
+                Assert(db.CanTransferDeviceMethod1User(cskhUserId) && db.CanTransferDeviceMethod1User(keToanUserId),
+                    "Nhân viên CSKH và Kế toán phải được cấp quyền chuyển đổi Đại lý / HTX / Khách lẻ.");
+
+                var seller2Id = catalog.SaveSeller(ownerId, null, "", "Trần Sale Mới", "0905556666", "Kinh doanh", 50_000, 30_000, "");
+                var custGroup3Id = catalog.SaveGroup(ownerId, "CUSTOMER", null, "KH_LE_VIP", "Nhóm Khách Lẻ / HTX Giá Mới");
+                catalog.SetCustomerGroupPrice(ownerId, custGroup3Id, imeiProdId, 1_700_000, 1_850_000, 720_000, DateTime.Today.AddDays(-10));
+                var cust3Id = catalog.SaveCustomer(ownerId, null, "", "Khách lẻ Nguyễn Văn Đổi Mới", custGroup3Id, "0903334444", "Cần Thơ", "Trần Sale Mới", sellerId: seller2Id);
+
+                var transferMsg = db.UpdateDeviceActivation(
+                    staffTargetDev.ActivationId,
+                    devAfterGhEdit.ActivatedAt,
+                    12,
+                    devAfterGhEdit.Plate,
+                    devAfterGhEdit.VinNo,
+                    "2028-12-31",
+                    null, // để tự động lấy seller2Id của Khách hàng mới
+                    "ACTIVE",
+                    "Nguyễn Văn Đổi Mới",
+                    "0903334444",
+                    cust3Id,
+                    cskhUserId,
+                    syncUnpaidOrdersAndInvoices: true);
+
+                var devAfterCskhTransfer = db.Devices().First(d => d.ActivationId == staffTargetDev.ActivationId);
+                Assert(devAfterCskhTransfer.CustomerId == cust3Id &&
+                       devAfterCskhTransfer.AgencyName == "Khách lẻ Nguyễn Văn Đổi Mới" &&
+                       devAfterCskhTransfer.SellerId == seller2Id &&
+                       devAfterCskhTransfer.RenewalPriceVnd == 720_000,
+                    $"Chuyển KH bởi CSKH chưa đồng bộ đủ trường: Cust={devAfterCskhTransfer.CustomerId}, Agency={devAfterCskhTransfer.AgencyName}, Seller={devAfterCskhTransfer.SellerId}, RenPrice={devAfterCskhTransfer.RenewalPriceVnd}");
+
+                using (var chkConn = new SqliteConnection($"Data Source={dbPath};Foreign Keys=True"))
+                {
+                    chkConn.Open();
+                    using var sc = chkConn.CreateCommand();
+                    sc.CommandText = "SELECT COALESCE(customer_id,0) FROM stock_units WHERE imei='860000000000092' AND deleted_at IS NULL";
+                    var unitCustId = Convert.ToInt64(sc.ExecuteScalar());
+                    Assert(unitCustId == cust3Id, $"stock_units.customer_id phải tự động cập nhật sang {cust3Id} (thực tế: {unitCustId}).");
+                }
+
+                var saleOrdAfterCskh = v7Orders.List().First(o => o.Id == reuseOrdId);
+                var saleInvAfterCskh = db.Invoices().First(i => i.RefCode == saleOrdAfterCskh.Code && i.Type == "SALE");
+                var ghInvAfterCskh = db.Invoices().First(i => i.RefCode == staffGhOrder.Code && i.Type == "RENEWAL");
+                Assert(saleOrdAfterCskh.CustomerId == cust3Id && saleOrdAfterCskh.Price == 1_850_000 && saleInvAfterCskh.Total == 1_850_000,
+                    $"Đơn lắp & HĐ SALE OPEN phải tự tính lại sang Giá có lắp 1.850.000 ₫ của Nhóm KH mới (Ord={saleOrdAfterCskh.Price}, Inv={saleInvAfterCskh.Total}).");
+                Assert(ghInvAfterCskh.Total > 0 && v7Orders.List().First(o => o.Id == staffGhOrder.Id).CustomerId == cust3Id,
+                    "Đơn gia hạn GH7 & HĐ RENEWAL OPEN phải tự chuyển sang Khách hàng mới và tính lại giá.");
+
+                var trLogs = db.DeviceAuditLogs(staffTargetDev.ActivationId);
+                Assert(trLogs.Any(l => l.Action == "TRANSFER_DEVICE" && l.Details.Contains("cskh_nv_test") && l.Details.Contains("HTX Đồng Bộ Mới") && l.Details.Contains("Khách lẻ Nguyễn Văn Đổi Mới") && l.Details.Contains($"{1_950_000:N0}") && l.Details.Contains($"{1_850_000:N0}")),
+                    $"TRANSFER_DEVICE log phải ghi rõ Trước → Sau tên nhân viên CSKH, KH cũ → mới và Giá cũ → mới (msg={transferMsg}).");
 
                 db.ActorId = 0;
                 var (finPur, finSale, finRen, finSrv) = db.ReconcileAccountingData();
